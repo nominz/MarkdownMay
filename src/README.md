@@ -1,6 +1,11 @@
-# src
+# 正式产品源码
 
-产品源代码目录。计划模块为 `app`、`ui`、`editor`、`document`、`markdown`、`fileio`、`export`、`services`、`platform` 和 `diagnostics`。
+第四阶段开始，经过设计冻结和封闭测试的正式无界面代码进入本目录。第三阶段 `prototype/` 不作为产品实现继续扩写。
 
-需求冻结阶段不创建占位 `.cpp`，避免没有接口设计的临时代码进入主干。详细文件职责见技术方案第 5.2 节。
+- `core/`：公共错误类型与基础类型；
+- `fileio/`：编码、换行、路径、原子读写和图片存储；
+- `document/`：语义节点、索引、校验、事务与事件；
+- `markdown/`：MD4C 适配、解析、序列化和原文保留；
+- `services/`：设置、日志、恢复和最近文件。
 
+这些目标不得依赖 GUI、RichEdit 或 Scintilla。
