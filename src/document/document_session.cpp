@@ -1,5 +1,6 @@
 #include "markdownmay/document/document_session.hpp"
 
+#include "markdownmay/document/document_reconciler.hpp"
 #include "markdownmay/fileio/text_encoding.hpp"
 #include "markdownmay/markdown/markdown_parser.hpp"
 
@@ -39,6 +40,9 @@ ErrorCode DocumentSession::commit(const EditTransaction& transaction) {
     }
     const auto next_revision = source_revision_ + 1;
     auto parsed = markdown::ParseMarkdown(candidate, next_revision);
+    if (parsed && semantic_) {
+        parsed = ReconcileNodeIds(*semantic_, *parsed, next_revision);
+    }
     source_ = std::move(candidate);
     source_revision_ = next_revision;
     if (parsed) {
@@ -80,6 +84,10 @@ ErrorCode DocumentSession::accept_parse_result(
     if (!semantic || semantic->revision() != source_revision ||
         !semantic->validate(source_.size())) {
         return ErrorCode::document_invariant_failed;
+    }
+    if (semantic_) {
+        semantic = ReconcileNodeIds(*semantic_, *semantic, source_revision);
+        if (!semantic) return ErrorCode::document_invariant_failed;
     }
     semantic_ = std::move(semantic);
     parsed_revision_ = source_revision_;

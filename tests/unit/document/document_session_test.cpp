@@ -5,6 +5,18 @@
 #include <stdexcept>
 #include <vector>
 
+namespace {
+markdownmay::document::NodeId FirstParagraphId(
+    const std::shared_ptr<const markdownmay::document::Node>& node) {
+    if (node->kind == markdownmay::document::NodeKind::paragraph) return node->id;
+    for (const auto& child : node->children) {
+        const auto found = FirstParagraphId(child);
+        if (found != 0) return found;
+    }
+    return 0;
+}
+}  // namespace
+
 int RunDocumentSessionTests() {
     using namespace markdownmay;
     using namespace markdownmay::document;
@@ -14,6 +26,11 @@ int RunDocumentSessionTests() {
     if (initial.source_revision != 1 || initial.parsed_revision != 1 ||
         initial.saved_revision != 1 || session.is_dirty() ||
         !session.can_export()) return 20;
+    const auto unchanged_paragraph_id = FirstParagraphId(initial.semantic->root());
+    if (unchanged_paragraph_id == 0) return 30;
+    auto background_parse = markdownmay::markdown::ParseMarkdown(initial.source, 1);
+    if (session.accept_parse_result(1, background_parse) != ErrorCode::ok ||
+        FirstParagraphId(session.snapshot().semantic->root()) != unchanged_paragraph_id) return 32;
 
     std::vector<DocumentEvent> events;
     session.subscribe([](const DocumentEvent&) { throw std::runtime_error("observer"); });
@@ -30,6 +47,8 @@ int RunDocumentSessionTests() {
         changed.saved_revision != 1 || !session.is_dirty() ||
         !session.can_export() || events.size() != 1 ||
         events[0].transaction != 42 || events[0].source_revision != 2) return 22;
+    if (FirstParagraphId(changed.semantic->root()) != unchanged_paragraph_id ||
+        changed.semantic->find(unchanged_paragraph_id) == nullptr) return 31;
 
     EditTransaction stale{43, 1, EditOrigin::undo, {{{0, 0}, "错误"}}};
     const auto before_stale = session.snapshot().source;
