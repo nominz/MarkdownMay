@@ -8,6 +8,11 @@ namespace markdownmay {
 
 enum class ErrorCode : std::uint32_t {
     ok = 0,
+    editor_render_projection_failed = 2001,
+    editor_selection_mapping_failed = 2006,
+    editor_transaction_conflict = 2007,
+    editor_undo_failed = 2009,
+    editor_unmapped_rich_edit_change = 2011,
     file_not_found = 4001,
     file_too_large = 4003,
     file_read_failed = 4004,
