@@ -5,6 +5,8 @@ add_library(
     fileio/line_endings.cpp
     fileio/path_utils.cpp
     fileio/text_encoding.cpp
+    document/document.cpp
+    markdown/markdown_parser.cpp
 )
 
 target_include_directories(
@@ -12,7 +14,4 @@ target_include_directories(
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(
-    markdownmay_core
-    PRIVATE markdownmay_compiler_options
-)
+target_link_libraries(markdownmay_core PRIVATE markdownmay_compiler_options md4c_vendor)

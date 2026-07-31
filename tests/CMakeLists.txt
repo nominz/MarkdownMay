@@ -61,3 +61,4 @@ target_link_libraries(
 add_test(NAME image_probe_smoke COMMAND MarkdownMayImageProbeSmoke)
 
 add_subdirectory(unit/fileio)
+add_subdirectory(unit/document)

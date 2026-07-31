@@ -18,6 +18,18 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(CompilerOptions)
 
+add_library(
+    md4c_vendor
+    STATIC
+    "${PROJECT_SOURCE_DIR}/third_party/md4c/src/md4c.c"
+    "${PROJECT_SOURCE_DIR}/third_party/md4c/src/entity.c"
+)
+target_include_directories(md4c_vendor PUBLIC "${PROJECT_SOURCE_DIR}/third_party/md4c/src")
+if(MSVC)
+    target_compile_options(md4c_vendor PRIVATE /W3)
+    target_compile_definitions(md4c_vendor PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
 option(MARKDOWNMAY_BUILD_PROTOTYPE "Build the stage-3 risk prototype" ON)
 option(MARKDOWNMAY_BUILD_TESTS "Build design contract smoke tests" ON)
 
