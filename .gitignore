@@ -1,0 +1,46 @@
+# Build outputs
+/build/
+/out/
+/dist/
+/cmake-build-*/
+
+# Visual Studio
+/.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.user
+*.suo
+
+# Compilers and debuggers
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.lib
+*.dll
+*.exe
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+
+# Editors and operating system
+/.vscode/
+/.idea/
+*.swp
+*.tmp
+*.bak
+Thumbs.db
+Desktop.ini
+
+# Local runtime data
+/*.log
+/recovery/
+
