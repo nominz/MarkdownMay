@@ -2,6 +2,7 @@ add_library(
     markdownmay_core
     STATIC
     fileio/file_service.cpp
+    fileio/image_store.cpp
     fileio/line_endings.cpp
     fileio/path_utils.cpp
     fileio/text_encoding.cpp

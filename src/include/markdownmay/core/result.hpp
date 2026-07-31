@@ -24,6 +24,11 @@ enum class ErrorCode : std::uint32_t {
     recovery_read_failed = 8102,
     recovery_discard_failed = 8103,
     log_write_failed = 8201,
+    image_remote_blocked = 5005,
+    image_import_failed = 5006,
+    image_assets_path_unsafe = 5007,
+    image_mark_deleted_failed = 5008,
+    image_restore_name_conflict = 5009,
 };
 
 template <typename T>
