@@ -1,0 +1,59 @@
+#include "markdownmay/document/document_session.hpp"
+
+#include "markdownmay/markdown/markdown_parser.hpp"
+
+#include <stdexcept>
+#include <vector>
+
+int RunDocumentSessionTests() {
+    using namespace markdownmay;
+    using namespace markdownmay::document;
+
+    DocumentSession session("# 标题\n\n正文\n");
+    auto initial = session.snapshot();
+    if (initial.source_revision != 1 || initial.parsed_revision != 1 ||
+        initial.saved_revision != 1 || session.is_dirty() ||
+        !session.can_export()) return 20;
+
+    std::vector<DocumentEvent> events;
+    session.subscribe([](const DocumentEvent&) { throw std::runtime_error("observer"); });
+    session.subscribe([&](const DocumentEvent& event) { events.push_back(event); });
+
+    EditTransaction edit{42, 1, EditOrigin::source_view,
+        {{{0, 8}, "## 新标题"},
+         {{static_cast<std::uint64_t>(std::string("## 新标题\n\n正文\n").size()),
+           static_cast<std::uint64_t>(std::string("## 新标题\n\n正文\n").size())},
+          "\n追加\n"}}};
+    if (session.commit(edit) != ErrorCode::ok) return 21;
+    auto changed = session.snapshot();
+    if (changed.source_revision != 2 || changed.parsed_revision != 2 ||
+        changed.saved_revision != 1 || !session.is_dirty() ||
+        !session.can_export() || events.size() != 1 ||
+        events[0].transaction != 42 || events[0].source_revision != 2) return 22;
+
+    EditTransaction stale{43, 1, EditOrigin::undo, {{{0, 0}, "错误"}}};
+    const auto before_stale = session.snapshot().source;
+    if (session.commit(stale) != ErrorCode::document_revision_mismatch ||
+        session.snapshot().source != before_stale || events.size() != 1) return 23;
+
+    EditTransaction invalid{44, 2, EditOrigin::source_view,
+        {{{9999, 10000}, "越界"}}};
+    if (session.commit(invalid) != ErrorCode::document_invalid_state ||
+        session.snapshot().source_revision != 2) return 24;
+
+    auto stale_parse = markdownmay::markdown::ParseMarkdown("# 旧", 1);
+    if (session.accept_parse_result(1, stale_parse) !=
+        ErrorCode::document_revision_mismatch) return 25;
+
+    const std::string rendered_source = "# 渲染编辑\n\n内容\n";
+    auto rendered = markdownmay::markdown::ParseMarkdown(rendered_source, 3);
+    if (session.commit_semantic(2, rendered, rendered_source,
+                                EditOrigin::render_view) != ErrorCode::ok) return 26;
+    if (session.snapshot().source_revision != 3 ||
+        session.snapshot().parsed_revision != 3 || !session.can_export()) return 27;
+
+    if (session.mark_saved(4) != ErrorCode::document_revision_mismatch ||
+        !session.is_dirty()) return 28;
+    if (session.mark_saved(3) != ErrorCode::ok || session.is_dirty()) return 29;
+    return 0;
+}

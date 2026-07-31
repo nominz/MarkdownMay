@@ -6,6 +6,7 @@ add_library(
     fileio/path_utils.cpp
     fileio/text_encoding.cpp
     document/document.cpp
+    document/document_session.cpp
     markdown/markdown_parser.cpp
     markdown/markdown_writer.cpp
 )

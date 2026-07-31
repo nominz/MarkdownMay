@@ -3,6 +3,8 @@
 #include <functional>
 #include <string_view>
 
+int RunDocumentSessionTests();
+
 int main() {
     using namespace markdownmay::document;
     constexpr std::string_view source =
@@ -40,5 +42,5 @@ int main() {
     if (heading_id == 0 || document->find(heading_id) == nullptr) return 3;
     if (document->root()->source.begin != 0 ||
         document->root()->source.end != source.size()) return 4;
-    return 0;
+    return RunDocumentSessionTests();
 }
