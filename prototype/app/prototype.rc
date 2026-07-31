@@ -1,0 +1,37 @@
+#include "resource.h"
+#include <windows.h>
+
+#pragma code_page(65001)
+
+IDR_MAIN_MANIFEST RT_MANIFEST "../../resources/MarkdownMay.manifest"
+
+STRINGTABLE
+BEGIN
+    IDS_APP_TITLE "马冬梅（风险样机）"
+END
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "nominz\0"
+            VALUE "FileDescription", "马冬梅第三阶段风险样机\0"
+            VALUE "FileVersion", "0.1.0\0"
+            VALUE "InternalName", "MarkdownMayPrototype\0"
+            VALUE "OriginalFilename", "MarkdownMay-Prototype.exe\0"
+            VALUE "ProductName", "马冬梅（Markdown May）\0"
+            VALUE "ProductVersion", "0.1.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0804, 1200
+    END
+END

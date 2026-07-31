@@ -7,7 +7,25 @@ project(
     LANGUAGES C CXX
 )
 
-# Product targets are intentionally added after requirements and detailed
-# design have been approved. This root file exists now to reserve a stable
-# build entry point and prevent ad-hoc build scripts from appearing.
+if(MSVC)
+    set(
+        CMAKE_MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+endif()
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+include(CompilerOptions)
+
+option(MARKDOWNMAY_BUILD_PROTOTYPE "Build the stage-3 risk prototype" ON)
+option(MARKDOWNMAY_BUILD_TESTS "Build design contract smoke tests" ON)
+
+if(MARKDOWNMAY_BUILD_PROTOTYPE)
+    add_subdirectory(prototype)
+endif()
+
+if(MARKDOWNMAY_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
