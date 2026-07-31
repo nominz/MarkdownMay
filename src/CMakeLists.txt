@@ -9,6 +9,7 @@ add_library(
     document/document_session.cpp
     markdown/markdown_parser.cpp
     markdown/markdown_writer.cpp
+    services/local_services.cpp
 )
 
 target_include_directories(

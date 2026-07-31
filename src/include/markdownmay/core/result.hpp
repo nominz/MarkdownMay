@@ -17,6 +17,13 @@ enum class ErrorCode : std::uint32_t {
     document_invalid_state = 3001,
     document_revision_mismatch = 3002,
     document_invariant_failed = 3004,
+    settings_load_failed = 8001,
+    settings_save_failed = 8002,
+    settings_corrupt = 8003,
+    recovery_write_failed = 8101,
+    recovery_read_failed = 8102,
+    recovery_discard_failed = 8103,
+    log_write_failed = 8201,
 };
 
 template <typename T>
