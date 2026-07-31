@@ -108,6 +108,9 @@ int EnterBlock(MD_BLOCKTYPE type, void* detail, void* data) {
         const auto* value = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
         attributes = ListItemAttributes{value->is_task != 0,
             value->is_task != 0 && (value->task_mark == 'x' || value->task_mark == 'X')};
+    } else if (type == MD_BLOCK_CODE) {
+        const auto* value = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+        attributes = CodeAttributes{AttributeText(value->lang)};
     }
     builder.Push(BlockKind(type), std::move(attributes));
     return 0;
