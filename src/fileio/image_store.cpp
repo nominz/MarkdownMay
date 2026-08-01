@@ -142,4 +142,27 @@ ErrorCode UndoManagedImageDeleted(const ManagedImageRename& rename) {
         ? ErrorCode::ok : ErrorCode::image_restore_name_conflict;
 }
 
+Result<std::filesystem::path> RestoreManagedImageDeletedSafely(
+    const ManagedImageRename& rename) {
+    if (!rename.completed)
+        return Result<std::filesystem::path>::success(rename.original_path);
+    auto target = rename.original_path;
+    if (std::filesystem::exists(target)) {
+        const auto stem = target.stem().wstring();
+        const auto extension = target.extension().wstring();
+        for (std::uint32_t suffix = 2; std::filesystem::exists(target); ++suffix) {
+            target = rename.original_path.parent_path() /
+                (stem + L"_restored_" + std::to_wstring(suffix) + extension);
+        }
+    }
+    if (!MoveFileExW(rename.marked_path.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH))
+        return Result<std::filesystem::path>::failure(ErrorCode::image_restore_name_conflict);
+    return Result<std::filesystem::path>::success(std::move(target));
+}
+
+std::string ImageMarkdownTarget(const std::filesystem::path& document_path,
+                                const std::filesystem::path& image_path) {
+    return RelativeTarget(image_path, document_path);
+}
+
 }  // namespace markdownmay::fileio

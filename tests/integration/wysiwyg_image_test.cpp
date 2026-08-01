@@ -66,14 +66,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         (L"markdownmay-wysiwyg-image-" + std::to_wstring(GetCurrentProcessId()));
     std::filesystem::create_directories(directory);
     const auto document_path = directory / L"note.md";
-    const auto bitmap = directory / L"one.bmp";
+    const auto assets = directory / L"note.assets";
+    std::filesystem::create_directories(assets);
+    const auto bitmap = assets / L"one.bmp";
     { std::ofstream file(document_path); file << "note"; }
     WriteBmp(bitmap);
-    document::DocumentSession local_session("![本地](one.bmp)");
+    document::DocumentSession local_session("![本地](note.assets/one.bmp)");
     editor::RichEditHost local_host(local_session);
     local_host.set_document_path(document_path);
     if (local_host.create(parent, {0, 0, 600, 400}) != ErrorCode::ok) return 9;
     if (!FirstImage(*local_session.snapshot().semantic->root())) return 10;
+    auto* local_image = FirstImage(*local_session.snapshot().semantic->root());
+    if (!local_image || local_host.remove_image(local_image->id) != ErrorCode::ok ||
+        std::filesystem::exists(bitmap) ||
+        !std::filesystem::exists(assets / L"del_one.bmp")) return 11;
+    if (local_host.undo() != ErrorCode::ok || !std::filesystem::exists(bitmap) ||
+        !FirstImage(*local_session.snapshot().semantic->root())) return 12;
     std::filesystem::remove_all(directory);
     DestroyWindow(parent);
     OleUninitialize();

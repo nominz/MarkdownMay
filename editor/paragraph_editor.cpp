@@ -207,6 +207,8 @@ ErrorCode ParagraphEditor::redo() {
 
 bool ParagraphEditor::can_undo() const noexcept { return !undo_.empty(); }
 bool ParagraphEditor::can_redo() const noexcept { return !redo_.empty(); }
+std::size_t ParagraphEditor::undo_depth() const noexcept { return undo_.size(); }
+std::size_t ParagraphEditor::redo_depth() const noexcept { return redo_.size(); }
 
 bool ParagraphEditor::IsValidSelection(TextSelection value) const noexcept {
     const auto source = session_.snapshot().source;

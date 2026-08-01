@@ -461,17 +461,23 @@ ErrorCode RichEditHost::resize_image(document::NodeId image, std::uint16_t perce
 }
 
 ErrorCode RichEditHost::remove_image(document::NodeId image) {
-    const auto result = image_controller_.remove(image);
+    const auto result = document_path_.empty()
+        ? image_controller_.remove(image)
+        : image_controller_.remove_managed(document_path_, image);
     return result == ErrorCode::ok ? project() : result;
 }
 
 ErrorCode RichEditHost::undo() {
-    const auto result = editor_.undo();
-    return result == ErrorCode::ok ? project() : result;
+    const auto result = image_controller_.undo();
+    if (result == ErrorCode::ok || result == ErrorCode::image_restore_name_conflict) {
+        const auto projected = project();
+        return projected == ErrorCode::ok ? result : projected;
+    }
+    return result;
 }
 
 ErrorCode RichEditHost::redo() {
-    const auto result = editor_.redo();
+    const auto result = image_controller_.redo();
     return result == ErrorCode::ok ? project() : result;
 }
 

@@ -33,6 +33,8 @@ public:
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] bool can_undo() const noexcept;
     [[nodiscard]] bool can_redo() const noexcept;
+    [[nodiscard]] std::size_t undo_depth() const noexcept;
+    [[nodiscard]] std::size_t redo_depth() const noexcept;
 
 private:
     struct HistoryEntry final {

@@ -38,5 +38,10 @@ struct ManagedImageRename final {
     std::span<const ImageReference> remaining);
 [[nodiscard]] ErrorCode UndoManagedImageDeleted(
     const ManagedImageRename& rename);
+[[nodiscard]] Result<std::filesystem::path> RestoreManagedImageDeletedSafely(
+    const ManagedImageRename& rename);
+[[nodiscard]] std::string ImageMarkdownTarget(
+    const std::filesystem::path& document_path,
+    const std::filesystem::path& image_path);
 
 }  // namespace markdownmay::fileio

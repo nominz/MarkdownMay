@@ -16,6 +16,11 @@ const markdownmay::document::Node* FirstImage(const markdownmay::document::Node&
     }
     return nullptr;
 }
+void Images(const markdownmay::document::Node& node,
+            std::vector<const markdownmay::document::Node*>& output) {
+    if (node.kind == markdownmay::document::NodeKind::image) output.push_back(&node);
+    for (const auto& child : node.children) Images(*child, output);
+}
 
 void WriteBmp(const std::filesystem::path& path) {
     const unsigned char bytes[] = {
@@ -75,6 +80,41 @@ int main() {
     if (imported_editor.set_selection({1, 1}) != ErrorCode::ok ||
         imported_images.insert_file(document_path, bitmap, true, "粘贴图") != ErrorCode::ok ||
         imported.snapshot().source.find("note.assets/one.bmp") == std::string::npos) return 9;
+
+    const auto managed_path = directory / L"note.assets" / L"one.bmp";
+    document::DocumentSession managed(
+        "![第一](note.assets/one.bmp) ![第二](note.assets/one.bmp)");
+    editor::ParagraphEditor managed_editor(managed);
+    editor::ImageController managed_images(managed, managed_editor);
+    std::vector<const document::Node*> found;
+    Images(*managed.snapshot().semantic->root(), found);
+    if (found.size() != 2 ||
+        managed_images.remove_managed(document_path, found[0]->id) != ErrorCode::ok ||
+        !std::filesystem::exists(managed_path)) return 11;
+    found.clear(); Images(*managed.snapshot().semantic->root(), found);
+    if (found.size() != 1 ||
+        managed_images.remove_managed(document_path, found[0]->id) != ErrorCode::ok ||
+        std::filesystem::exists(managed_path) ||
+        !std::filesystem::exists(directory / L"note.assets" / L"del_one.bmp")) return 12;
+    if (managed_images.undo() != ErrorCode::ok || !std::filesystem::exists(managed_path) ||
+        !FirstImage(*managed.snapshot().semantic->root())) return 13;
+    if (managed_images.redo() != ErrorCode::ok || std::filesystem::exists(managed_path)) return 14;
+    if (managed_images.undo() != ErrorCode::ok || !std::filesystem::exists(managed_path)) return 15;
+    if (managed_images.undo() != ErrorCode::ok) return 18;
+    found.clear(); Images(*managed.snapshot().semantic->root(), found);
+    if (found.size() != 2 || managed_images.redo() != ErrorCode::ok) return 19;
+    found.clear(); Images(*managed.snapshot().semantic->root(), found);
+    if (found.size() != 1 || managed_images.redo() != ErrorCode::ok ||
+        std::filesystem::exists(managed_path)) return 20;
+    if (managed_images.undo() != ErrorCode::ok || !std::filesystem::exists(managed_path)) return 21;
+    found.clear(); Images(*managed.snapshot().semantic->root(), found);
+    if (found.size() != 1 ||
+        managed_images.remove_managed(document_path, found[0]->id) != ErrorCode::ok) return 16;
+    { std::ofstream occupied(managed_path); occupied << "new owner"; }
+    if (managed_images.undo() != ErrorCode::image_restore_name_conflict ||
+        managed.snapshot().source.find("one_restored_2.bmp") == std::string::npos ||
+        !std::filesystem::exists(directory / L"note.assets" / L"one_restored_2.bmp") ||
+        !std::filesystem::exists(managed_path)) return 17;
     std::filesystem::remove_all(directory);
     CoUninitialize();
     return 0;
