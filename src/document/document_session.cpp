@@ -94,6 +94,19 @@ ErrorCode DocumentSession::accept_parse_result(
     return ErrorCode::ok;
 }
 
+ErrorCode DocumentSession::reload(std::string source) {
+    if (!fileio::IsValidUtf8(source)) return ErrorCode::file_encoding_invalid;
+    const auto next_revision = source_revision_ + 1;
+    auto semantic = markdown::ParseMarkdown(source, next_revision);
+    source_ = std::move(source);
+    source_revision_ = next_revision;
+    semantic_ = std::move(semantic);
+    parsed_revision_ = semantic_ ? source_revision_ : 0;
+    saved_revision_ = source_revision_;
+    Notify({0, source_revision_, parsed_revision_, EditOrigin::file_reload});
+    return ErrorCode::ok;
+}
+
 ErrorCode DocumentSession::mark_saved(std::uint64_t revision) noexcept {
     if (revision > source_revision_) return ErrorCode::document_revision_mismatch;
     saved_revision_ = revision;

@@ -7,16 +7,21 @@
 namespace markdownmay::app {
 
 CommandDispatcher::CommandDispatcher(ui::DocumentWindow& document_window,
-                                     std::function<void()> request_exit)
-    : document_window_(document_window), request_exit_(std::move(request_exit)) {}
+                                     std::function<void()> request_exit,
+                                     FileCommands file_commands)
+    : document_window_(document_window), request_exit_(std::move(request_exit)),
+      file_commands_(std::move(file_commands)) {}
 
 CommandState CommandDispatcher::query(CommandId command) const noexcept {
     const auto& modes = document_window_.modes();
     switch (command) {
     case CommandId::file_new:
     case CommandId::file_open:
+        return {file_commands_.can_replace && file_commands_.can_replace(), false};
     case CommandId::file_save:
+        return {static_cast<bool>(file_commands_.save_document), false};
     case CommandId::file_save_as:
+        return {static_cast<bool>(file_commands_.save_document_as), false};
     case CommandId::edit_find:
     case CommandId::edit_replace:
         return {};
@@ -48,6 +53,18 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     if (!query(command).enabled) return ErrorCode::document_invalid_state;
     auto& modes = document_window_.modes();
     switch (command) {
+    case CommandId::file_new:
+        return file_commands_.new_document
+            ? file_commands_.new_document() : ErrorCode::document_invalid_state;
+    case CommandId::file_open:
+        return file_commands_.open_document
+            ? file_commands_.open_document() : ErrorCode::document_invalid_state;
+    case CommandId::file_save:
+        return file_commands_.save_document
+            ? file_commands_.save_document() : ErrorCode::document_invalid_state;
+    case CommandId::file_save_as:
+        return file_commands_.save_document_as
+            ? file_commands_.save_document_as() : ErrorCode::document_invalid_state;
     case CommandId::file_exit:
         if (request_exit_) request_exit_();
         return ErrorCode::ok;

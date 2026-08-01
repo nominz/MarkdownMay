@@ -34,6 +34,8 @@ public:
     [[nodiscard]] ErrorCode save(const std::filesystem::path& target,
         fileio::TextEncoding encoding, fileio::LineEnding line_ending,
         fileio::BeforeAtomicReplace before_replace = {});
+    [[nodiscard]] ErrorCode reload(std::string source);
+    void set_document_path(std::filesystem::path path);
     [[nodiscard]] bool can_undo() const noexcept;
     [[nodiscard]] bool can_redo() const noexcept;
     [[nodiscard]] ViewMode mode() const noexcept;
@@ -47,7 +49,7 @@ public:
 private:
     struct HistoryEntry final { std::string before; std::string after; };
     void Layout(int width, int height);
-    void ObserveChange();
+    void ObserveChange(const document::DocumentEvent& event);
     [[nodiscard]] TextSelection CaptureSelection();
     void RestoreSelection(TextSelection selection);
     [[nodiscard]] ErrorCode RefreshActive();

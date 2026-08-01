@@ -6,6 +6,8 @@
 
 #include <windows.h>
 
+#include <filesystem>
+
 namespace markdownmay::app {
 
 class Application final {
@@ -15,12 +17,19 @@ public:
     [[nodiscard]] ui::MainWindow& main_window() noexcept;
 
 private:
+    [[nodiscard]] bool CanReplaceDocument() const noexcept;
+    [[nodiscard]] ErrorCode NewDocument();
+    [[nodiscard]] ErrorCode OpenDocumentDialog();
+    [[nodiscard]] ErrorCode SaveDocument();
+    [[nodiscard]] ErrorCode SaveDocumentAs();
+    [[nodiscard]] ErrorCode OpenPath(const std::filesystem::path& path);
+    [[nodiscard]] bool PrepareLineEndingForSave();
+    void ShowFileError(ErrorCode error);
+
     HINSTANCE instance_{};
     document::DocumentSession session_{""};
     ui::MainWindow main_window_{session_};
-    CommandDispatcher dispatcher_{main_window_.document_window(), [this] {
-        if (main_window_.handle()) PostMessageW(main_window_.handle(), WM_CLOSE, 0, 0);
-    }};
+    CommandDispatcher dispatcher_;
 };
 
 }  // namespace markdownmay::app

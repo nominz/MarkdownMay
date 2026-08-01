@@ -74,5 +74,15 @@ int RunDocumentSessionTests() {
     if (session.mark_saved(4) != ErrorCode::document_revision_mismatch ||
         !session.is_dirty()) return 28;
     if (session.mark_saved(3) != ErrorCode::ok || session.is_dirty()) return 29;
+    const auto before_reload = session.snapshot();
+    if (session.reload("# 新文件\n") != ErrorCode::ok || session.is_dirty() ||
+        session.snapshot().source != "# 新文件\n" ||
+        session.snapshot().source_revision != before_reload.source_revision + 1 ||
+        events.back().origin != EditOrigin::file_reload) return 33;
+    const auto valid_reload = session.snapshot();
+    if (session.reload(std::string("bad\xff", 4)) !=
+            ErrorCode::file_encoding_invalid ||
+        session.snapshot().source != valid_reload.source ||
+        session.snapshot().source_revision != valid_reload.source_revision) return 34;
     return 0;
 }

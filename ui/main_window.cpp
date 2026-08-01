@@ -1,6 +1,7 @@
 #include "markdownmay/ui/main_window.hpp"
 
 #include <commctrl.h>
+#include <shellapi.h>
 
 #include <mutex>
 #include <algorithm>
@@ -32,10 +33,11 @@ bool RegisterMainWindowClass(HINSTANCE instance) {
 }  // namespace
 
 MainWindow::MainWindow(document::DocumentSession& session)
-    : document_window_(session), status_bar_(session, document_window_.modes()) {
+    : session_(session), document_window_(session),
+      status_bar_(session, document_window_.modes()) {
     const std::weak_ptr<int> lifetime(lifetime_);
     session.subscribe([this, lifetime](const document::DocumentEvent&) {
-        if (!lifetime.expired()) status_bar_.refresh();
+        if (!lifetime.expired()) refresh_document_chrome();
     });
 }
 
@@ -65,6 +67,22 @@ void MainWindow::set_command_callbacks(MenuController::Query query,
     menu_controller_ = std::make_unique<MenuController>(
         std::move(query), std::move(execute));
 }
+void MainWindow::set_drop_callback(
+    std::function<void(const std::filesystem::path&)> callback) {
+    drop_callback_ = std::move(callback);
+}
+void MainWindow::refresh_document_chrome() {
+    status_bar_.set_file_format(document_window_.encoding(),
+        document_window_.line_ending());
+    if (menu_controller_) menu_controller_->refresh();
+    if (toolbar_) toolbar_->refresh();
+    if (!handle_) return;
+    const auto name = document_window_.is_named()
+        ? document_window_.path().filename().wstring() : std::wstring(L"无标题");
+    const auto title = name + (session_.is_dirty() ? L" *" : L"") +
+        L" - 马冬梅";
+    SetWindowTextW(handle_, title.c_str());
+}
 HACCEL MainWindow::accelerator() const noexcept {
     return menu_controller_ ? menu_controller_->accelerator() : nullptr;
 }
@@ -87,7 +105,9 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                 !self->menu_controller_->create(window)) return -1;
             if (self->toolbar_ && !self->toolbar_->create(window)) return -1;
             if (!self->status_bar_.create(window)) return -1;
+            DragAcceptFiles(window, TRUE);
             self->Layout();
+            self->refresh_document_chrome();
             return 0;
         case WM_COMMAND:
             if (self->menu_controller_ &&
@@ -113,6 +133,17 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                 return 0;
             }
             break;
+        }
+        case WM_DROPFILES: {
+            const auto drop = reinterpret_cast<HDROP>(w_param);
+            const auto length = DragQueryFileW(drop, 0, nullptr, 0);
+            std::wstring path(static_cast<std::size_t>(length) + 1, L'\0');
+            if (length && DragQueryFileW(drop, 0, path.data(), length + 1)) {
+                path.resize(length);
+                if (self->drop_callback_) self->drop_callback_(path);
+            }
+            DragFinish(drop);
+            return 0;
         }
         case WM_SIZE:
             self->Layout();

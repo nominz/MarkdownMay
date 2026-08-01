@@ -33,8 +33,8 @@ ViewModeController::ViewModeController(document::DocumentSession& session)
     : session_(session), render_(session), split_(session),
       observed_source_(session.snapshot().source) {
     const std::weak_ptr<int> lifetime(lifetime_);
-    session_.subscribe([this, lifetime](const document::DocumentEvent&) {
-        if (!lifetime.expired()) ObserveChange();
+    session_.subscribe([this, lifetime](const document::DocumentEvent& event) {
+        if (!lifetime.expired()) ObserveChange(event);
     });
 }
 
@@ -176,6 +176,30 @@ ErrorCode ViewModeController::save(const std::filesystem::path& target,
     return session_.mark_saved(snapshot.source_revision);
 }
 
+ErrorCode ViewModeController::reload(std::string source) {
+    const auto result = session_.reload(std::move(source));
+    if (result != ErrorCode::ok) return result;
+    if (session_.can_export()) {
+        if (render_.project() != ErrorCode::ok) return ErrorCode::editor_render_projection_failed;
+        render_.set_read_only(false);
+        ShowWindow(split_.handle(), SW_HIDE);
+        ShowWindow(render_.handle(), SW_SHOW);
+        mode_ = ViewMode::render;
+        return ErrorCode::ok;
+    }
+    if (split_.project() != ErrorCode::ok) return ErrorCode::editor_split_control_failed;
+    split_.set_source_only(true);
+    ShowWindow(render_.handle(), SW_HIDE);
+    ShowWindow(split_.handle(), SW_SHOW);
+    mode_ = ViewMode::source;
+    return ErrorCode::ok;
+}
+
+void ViewModeController::set_document_path(std::filesystem::path path) {
+    render_.set_document_path(path);
+    split_.render_view().set_document_path(std::move(path));
+}
+
 bool ViewModeController::can_undo() const noexcept { return !undo_.empty(); }
 bool ViewModeController::can_redo() const noexcept { return !redo_.empty(); }
 ViewMode ViewModeController::mode() const noexcept { return mode_; }
@@ -210,8 +234,14 @@ void ViewModeController::Layout(int width, int height) {
     if (split_.handle()) MoveWindow(split_.handle(), 0, 0, width, height, TRUE);
 }
 
-void ViewModeController::ObserveChange() {
+void ViewModeController::ObserveChange(const document::DocumentEvent& event) {
     const auto current = session_.snapshot().source;
+    if (event.origin == document::EditOrigin::file_reload) {
+        undo_.clear();
+        redo_.clear();
+        observed_source_ = current;
+        return;
+    }
     if (current == observed_source_) return;
     if (!applying_history_) {
         undo_.push_back({observed_source_, current});
