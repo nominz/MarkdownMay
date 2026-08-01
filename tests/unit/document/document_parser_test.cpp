@@ -42,5 +42,8 @@ int main() {
     if (heading_id == 0 || document->find(heading_id) == nullptr) return 3;
     if (document->root()->source.begin != 0 ||
         document->root()->source.end != source.size()) return 4;
+    constexpr std::string_view soft_break = "> 第一行\n> 第二行\n";
+    const auto with_soft_break = markdownmay::markdown::ParseMarkdown(soft_break, 8);
+    if (!with_soft_break || !with_soft_break->validate(soft_break.size())) return 5;
     return RunDocumentSessionTests();
 }

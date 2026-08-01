@@ -27,7 +27,7 @@ void Inline(const document::Node& node, RichProjection& output) {
         node.kind == document::NodeKind::strike ||
         node.kind == document::NodeKind::inline_code ||
         node.kind == document::NodeKind::link) {
-        output.spans.push_back({node.kind, begin, end});
+        output.spans.push_back({node.kind, begin, end, 0});
     }
 }
 
@@ -40,6 +40,49 @@ void AppendNewlines(RichProjection& output, std::string_view source,
     }
 }
 
+void AppendSynthetic(RichProjection& output, std::string_view text,
+                     std::uint64_t source_begin, std::uint64_t source_end) {
+    if (output.source_offsets.empty()) output.source_offsets.push_back(source_begin);
+    for (const auto value : text) {
+        output.text.push_back(value);
+        output.source_offsets.push_back(source_begin);
+    }
+    output.source_offsets.back() = source_end;
+}
+
+void Block(const document::Node& node, RichProjection& output,
+           std::string_view source) {
+    const auto begin = static_cast<std::uint64_t>(output.text.size());
+    if (node.kind == document::NodeKind::paragraph ||
+        node.kind == document::NodeKind::heading) {
+        for (const auto& child : node.children) Inline(*child, output);
+    } else if (node.kind == document::NodeKind::quote) {
+        std::uint64_t cursor{};
+        bool first = true;
+        for (const auto& child : node.children) {
+            if (!first && child->source.begin > cursor)
+                AppendNewlines(output, source, cursor, child->source.begin);
+            Block(*child, output, source);
+            cursor = child->source.end;
+            first = false;
+        }
+    } else if (node.kind == document::NodeKind::code_block) {
+        AppendMapped(output, node.text, node.source.begin);
+    } else if (node.kind == document::NodeKind::thematic_break) {
+        AppendSynthetic(output, "────────", node.source.begin, node.source.end);
+    }
+    const auto end = static_cast<std::uint64_t>(output.text.size());
+    if (node.kind == document::NodeKind::heading ||
+        node.kind == document::NodeKind::quote ||
+        node.kind == document::NodeKind::code_block ||
+        node.kind == document::NodeKind::thematic_break) {
+        std::uint8_t level{};
+        if (const auto* heading = std::get_if<document::HeadingAttributes>(&node.attributes))
+            level = heading->level;
+        output.spans.push_back({node.kind, begin, end, level});
+    }
+}
+
 }  // namespace
 
 RichProjection BuildInlineProjection(
@@ -48,10 +91,9 @@ RichProjection BuildInlineProjection(
     RichProjection output;
     std::uint64_t source_cursor{};
     for (const auto& block : document.root()->children) {
-        if (block->kind != document::NodeKind::paragraph) continue;
         if (!output.text.empty() && block->source.begin > source_cursor)
             AppendNewlines(output, source, source_cursor, block->source.begin);
-        for (const auto& child : block->children) Inline(*child, output);
+        Block(*block, output, source);
         source_cursor = block->source.end;
     }
     if (source_cursor < source.size())

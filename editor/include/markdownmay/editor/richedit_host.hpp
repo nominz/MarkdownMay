@@ -2,6 +2,7 @@
 
 #include "markdownmay/editor/paragraph_editor.hpp"
 #include "markdownmay/editor/inline_formatter.hpp"
+#include "markdownmay/editor/block_formatter.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
 
 #include <windows.h>
@@ -20,6 +21,10 @@ public:
     [[nodiscard]] ErrorCode synchronize_change();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);
     [[nodiscard]] ErrorCode set_link(std::string_view target, std::string_view title = {});
+    [[nodiscard]] ErrorCode set_heading(std::uint8_t level);
+    [[nodiscard]] ErrorCode toggle_quote();
+    [[nodiscard]] ErrorCode toggle_code_block(std::string_view language = {});
+    [[nodiscard]] ErrorCode insert_thematic_break();
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
@@ -28,6 +33,7 @@ private:
     document::DocumentSession& session_;
     ParagraphEditor editor_;
     InlineFormatter formatter_;
+    BlockFormatter block_formatter_;
     HWND handle_{};
     HMODULE rich_edit_module_{};
     bool projecting_{};

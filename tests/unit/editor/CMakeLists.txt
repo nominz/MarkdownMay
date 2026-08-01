@@ -11,3 +11,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME inline_formatter_unit COMMAND MarkdownMayInlineFormatterUnit)
+
+add_executable(MarkdownMayBlockFormatterUnit block_formatter_test.cpp)
+target_link_libraries(
+    MarkdownMayBlockFormatterUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME block_formatter_unit COMMAND MarkdownMayBlockFormatterUnit)

@@ -3,6 +3,7 @@
 #include <md4c.h>
 
 #include <limits>
+#include <cstdint>
 #include <utility>
 
 namespace markdownmay::markdown {
@@ -76,9 +77,11 @@ struct Builder {
         return pointer;
     }
     void Touch(MutableNode& node, const char* text, std::size_t length) {
-        if (text < begin || text > begin + size || length > size ||
-            text + length > begin + size) return;
-        const auto offset = static_cast<std::uint64_t>(text - begin);
+        const auto source_address = reinterpret_cast<std::uintptr_t>(begin);
+        const auto text_address = reinterpret_cast<std::uintptr_t>(text);
+        if (text_address < source_address || text_address - source_address > size ||
+            length > size || text_address - source_address + length > size) return;
+        const auto offset = static_cast<std::uint64_t>(text_address - source_address);
         node.source.begin = (std::min)(node.source.begin, offset);
         node.source.end = (std::max)(node.source.end, offset + length);
     }
@@ -145,8 +148,15 @@ int Text(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* data) {
         auto child = std::make_unique<MutableNode>();
         child->id = builder.NewId(NodeKind::text); child->kind = NodeKind::text;
         child->text.assign(text, size);
-        child->source = {static_cast<std::uint64_t>(text - builder.begin),
-                         static_cast<std::uint64_t>(text - builder.begin + size)};
+        const auto source_address = reinterpret_cast<std::uintptr_t>(builder.begin);
+        const auto text_address = reinterpret_cast<std::uintptr_t>(text);
+        const bool belongs_to_source = text_address >= source_address &&
+            text_address - source_address <= builder.size &&
+            size <= builder.size && text_address - source_address + size <= builder.size;
+        const auto offset = belongs_to_source
+            ? static_cast<std::uint64_t>(text_address - source_address)
+            : parent->source.end;
+        child->source = {offset, belongs_to_source ? offset + size : offset};
         if (type == MD_TEXT_BR || type == MD_TEXT_SOFTBR) child->text = "\n";
         parent->children.push_back(std::move(child));
     }

@@ -12,6 +12,7 @@ struct ProjectionSpan final {
     document::NodeKind kind{};
     std::uint64_t begin{};
     std::uint64_t end{};
+    std::uint8_t heading_level{};
 };
 
 struct RichProjection final {

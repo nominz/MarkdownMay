@@ -26,7 +26,7 @@ int main() {
 
     const auto before_rejected = session.snapshot();
     if (editor.set_selection({0, 0}) != ErrorCode::ok ||
-        editor.insert_text("# ") != ErrorCode::editor_unmapped_rich_edit_change ||
+        editor.insert_text("- ") != ErrorCode::editor_unmapped_rich_edit_change ||
         session.snapshot().source != before_rejected.source ||
         session.snapshot().source_revision != before_rejected.source_revision) return 8;
     if (editor.set_selection({1, 1}) != ErrorCode::editor_selection_mapping_failed) return 9;

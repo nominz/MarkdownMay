@@ -51,8 +51,18 @@ std::wstring ReadWide(HWND handle) {
 LONG Utf16Length(std::string_view text, std::uint64_t utf8_end) {
     const auto bounded = (std::min)(utf8_end, static_cast<std::uint64_t>(text.size()));
     const auto prefix = fileio::NormalizeLineEndings(
-        text.substr(0, static_cast<std::size_t>(bounded)), fileio::LineEnding::crlf);
+        text.substr(0, static_cast<std::size_t>(bounded)), fileio::LineEnding::lf);
     return static_cast<LONG>(ToWide(prefix).size());
+}
+
+std::size_t PrefixUtf8Size(HWND handle, LONG position, fileio::LineEnding target) {
+    if (position <= 0) return 0;
+    std::wstring buffer(static_cast<std::size_t>(position) * 2U + 2U, L'\0');
+    TEXTRANGEW range{{0, position}, buffer.data()};
+    const auto copied = static_cast<LONG>(SendMessageW(
+        handle, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&range)));
+    buffer.resize(static_cast<std::size_t>((std::max)(copied, 0L)));
+    return fileio::NormalizeLineEndings(ToUtf8(buffer), target).size();
 }
 
 void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span) {
@@ -75,15 +85,41 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
         format.dwMask = CFM_UNDERLINE | CFM_COLOR;
         format.dwEffects = CFE_UNDERLINE;
         format.crTextColor = RGB(0, 102, 204);
+    } else if (span.kind == document::NodeKind::heading) {
+        format.dwMask = CFM_BOLD | CFM_SIZE;
+        format.dwEffects = CFE_BOLD;
+        format.yHeight = static_cast<LONG>((28 - (std::min)(span.heading_level, std::uint8_t{6}) * 2) * 20);
+    } else if (span.kind == document::NodeKind::code_block) {
+        format.dwMask = CFM_FACE | CFM_BACKCOLOR;
+        format.crBackColor = RGB(245, 245, 245);
+        wcscpy_s(format.szFaceName, L"Consolas");
+    } else if (span.kind == document::NodeKind::quote) {
+        format.dwMask = CFM_COLOR;
+        format.crTextColor = RGB(96, 96, 96);
+    } else if (span.kind == document::NodeKind::thematic_break) {
+        format.dwMask = CFM_COLOR;
+        format.crTextColor = RGB(150, 150, 150);
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
+    if (span.kind == document::NodeKind::quote ||
+        span.kind == document::NodeKind::thematic_break) {
+        PARAFORMAT2 paragraph{};
+        paragraph.cbSize = sizeof(paragraph);
+        paragraph.dwMask = span.kind == document::NodeKind::quote
+            ? PFM_STARTINDENT : PFM_ALIGNMENT;
+        if (span.kind == document::NodeKind::quote) paragraph.dxStartIndent = 360;
+        else paragraph.wAlignment = PFA_CENTER;
+        SendMessageW(handle, EM_SETPARAFORMAT, 0,
+                     reinterpret_cast<LPARAM>(&paragraph));
+    }
 }
 
 }  // namespace
 
 RichEditHost::RichEditHost(document::DocumentSession& session)
-    : session_(session), editor_(session), formatter_(session, editor_) {}
+    : session_(session), editor_(session), formatter_(session, editor_),
+      block_formatter_(session, editor_) {}
 
 RichEditHost::~RichEditHost() {
     if (handle_ && IsWindow(handle_)) DestroyWindow(handle_);
@@ -185,10 +221,8 @@ ErrorCode RichEditHost::toggle_inline(InlineFormat format) {
         static_cast<std::size_t>(selected.cpMax) > visible.size())
         return ErrorCode::editor_selection_mapping_failed;
     const auto target = fileio::DetectLineEnding(projection_.text);
-    const auto begin = fileio::NormalizeLineEndings(
-        ToUtf8(std::wstring_view(visible).substr(0, static_cast<std::size_t>(selected.cpMin))), target).size();
-    const auto end = fileio::NormalizeLineEndings(
-        ToUtf8(std::wstring_view(visible).substr(0, static_cast<std::size_t>(selected.cpMax))), target).size();
+    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, target);
+    const auto end = PrefixUtf8Size(handle_, selected.cpMax, target);
     if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
         return ErrorCode::editor_selection_mapping_failed;
     auto result = editor_.set_selection(
@@ -206,6 +240,63 @@ ErrorCode RichEditHost::set_link(std::string_view target, std::string_view title
         static_cast<std::size_t>(selected.cpMax) > visible.size())
         return ErrorCode::editor_selection_mapping_failed;
     const auto line_ending = fileio::DetectLineEnding(projection_.text);
+    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
+    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
+    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    auto result = editor_.set_selection(
+        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    if (result == ErrorCode::ok) result = formatter_.set_link(target, title);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::set_heading(std::uint8_t level) {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    CHARRANGE selected{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    const auto visible = ReadWide(handle_);
+    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
+        static_cast<std::size_t>(selected.cpMax) > visible.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto line_ending = fileio::DetectLineEnding(projection_.text);
+    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
+    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
+    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    auto result = editor_.set_selection(
+        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    if (result == ErrorCode::ok) result = block_formatter_.set_heading(level);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::toggle_quote() {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    CHARRANGE selected{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    const auto visible = ReadWide(handle_);
+    const auto line_ending = fileio::DetectLineEnding(projection_.text);
+    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
+        static_cast<std::size_t>(selected.cpMax) > visible.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
+    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
+    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    auto result = editor_.set_selection(
+        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    if (result == ErrorCode::ok) result = block_formatter_.toggle_quote();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    CHARRANGE selected{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    const auto visible = ReadWide(handle_);
+    const auto line_ending = fileio::DetectLineEnding(projection_.text);
+    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
+        static_cast<std::size_t>(selected.cpMax) > visible.size())
+        return ErrorCode::editor_selection_mapping_failed;
     const auto begin = fileio::NormalizeLineEndings(
         ToUtf8(std::wstring_view(visible).substr(0, static_cast<std::size_t>(selected.cpMin))), line_ending).size();
     const auto end = fileio::NormalizeLineEndings(
@@ -214,7 +305,23 @@ ErrorCode RichEditHost::set_link(std::string_view target, std::string_view title
         return ErrorCode::editor_selection_mapping_failed;
     auto result = editor_.set_selection(
         {projection_.source_offsets[begin], projection_.source_offsets[end]});
-    if (result == ErrorCode::ok) result = formatter_.set_link(target, title);
+    if (result == ErrorCode::ok) result = block_formatter_.toggle_code_block(language);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::insert_thematic_break() {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    CHARRANGE selected{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    const auto visible = ReadWide(handle_);
+    const auto line_ending = fileio::DetectLineEnding(projection_.text);
+    if (selected.cpMax < 0 || static_cast<std::size_t>(selected.cpMax) > visible.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto caret = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
+    if (caret >= projection_.source_offsets.size()) return ErrorCode::editor_selection_mapping_failed;
+    auto result = editor_.set_selection(
+        {projection_.source_offsets[caret], projection_.source_offsets[caret]});
+    if (result == ErrorCode::ok) result = block_formatter_.insert_thematic_break();
     return result == ErrorCode::ok ? project() : result;
 }
 

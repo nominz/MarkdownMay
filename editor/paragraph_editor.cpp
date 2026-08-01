@@ -26,13 +26,26 @@ bool IsSupportedInline(const document::Node& node) {
         [](const auto& child) { return IsSupportedInline(*child); });
 }
 
-bool IsSupportedParagraphDocument(const document::Document& document) {
+bool IsSupportedBlock(const document::Node& block) {
+    if (IsSupportedInline(block)) return true;
+    if (block.kind == document::NodeKind::thematic_break) return block.children.empty();
+    if (block.kind == document::NodeKind::code_block) return block.children.empty();
+    if (block.kind == document::NodeKind::quote) {
+        return std::all_of(block.children.begin(), block.children.end(),
+            [](const auto& child) { return IsSupportedBlock(*child); });
+    }
+    if (block.kind != document::NodeKind::paragraph &&
+        block.kind != document::NodeKind::heading) return false;
+    for (const auto& child : block.children) {
+        if (!IsSupportedInline(*child)) return false;
+    }
+    return true;
+}
+
+bool IsSupportedEditorDocument(const document::Document& document) {
     if (document.root()->kind != document::NodeKind::document) return false;
     for (const auto& block : document.root()->children) {
-        if (block->kind != document::NodeKind::paragraph) return false;
-        for (const auto& child : block->children) {
-            if (!IsSupportedInline(*child)) return false;
-        }
+        if (!IsSupportedBlock(*block)) return false;
     }
     return true;
 }
@@ -145,7 +158,8 @@ ErrorCode ParagraphEditor::Apply(
     auto candidate = snapshot.source;
     candidate.replace(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin), replacement);
     auto parsed = markdown::ParseMarkdown(candidate, snapshot.source_revision + 1);
-    if (!parsed || !IsSupportedParagraphDocument(*parsed)) return ErrorCode::editor_unmapped_rich_edit_change;
+    if (!parsed) return ErrorCode::document_invalid_state;
+    if (!IsSupportedEditorDocument(*parsed)) return ErrorCode::editor_unmapped_rich_edit_change;
     document::EditTransaction transaction{next_transaction_++, snapshot.source_revision, origin,
         {{{begin, end}, std::move(replacement)}}};
     const auto result = session_.commit(transaction);
