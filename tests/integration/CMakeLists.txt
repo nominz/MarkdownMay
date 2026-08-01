@@ -96,6 +96,6 @@ add_test(NAME save_reopen_integration COMMAND MarkdownMaySaveReopen)
 add_executable(MarkdownMayAppShell WIN32 app_shell_test.cpp)
 target_link_libraries(
     MarkdownMayAppShell
-    PRIVATE markdownmay_compiler_options markdownmay_app_shell user32 ole32
+    PRIVATE markdownmay_compiler_options markdownmay_app_shell comctl32 user32 ole32
 )
 add_test(NAME app_shell_integration COMMAND MarkdownMayAppShell)

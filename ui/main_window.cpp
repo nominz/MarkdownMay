@@ -1,6 +1,10 @@
 #include "markdownmay/ui/main_window.hpp"
 
+#include <commctrl.h>
+
 #include <mutex>
+#include <algorithm>
+#include <cwchar>
 #include <utility>
 
 namespace markdownmay::ui {
@@ -28,7 +32,14 @@ bool RegisterMainWindowClass(HINSTANCE instance) {
 }  // namespace
 
 MainWindow::MainWindow(document::DocumentSession& session)
-    : document_window_(session) {}
+    : document_window_(session), status_bar_(session, document_window_.modes()) {
+    const std::weak_ptr<int> lifetime(lifetime_);
+    session.subscribe([this, lifetime](const document::DocumentEvent&) {
+        if (!lifetime.expired()) status_bar_.refresh();
+    });
+}
+
+MainWindow::~MainWindow() { lifetime_.reset(); }
 
 ErrorCode MainWindow::create(HINSTANCE instance, int show_command) {
     if (handle_) return ErrorCode::ok;
@@ -46,8 +57,11 @@ ErrorCode MainWindow::create(HINSTANCE instance, int show_command) {
 
 HWND MainWindow::handle() const noexcept { return handle_; }
 DocumentWindow& MainWindow::document_window() noexcept { return document_window_; }
+Toolbar* MainWindow::toolbar() noexcept { return toolbar_.get(); }
+StatusBar& MainWindow::status_bar() noexcept { return status_bar_; }
 void MainWindow::set_command_callbacks(MenuController::Query query,
                                        MenuController::Execute execute) {
+    toolbar_ = std::make_unique<Toolbar>(query);
     menu_controller_ = std::make_unique<MenuController>(
         std::move(query), std::move(execute));
 }
@@ -71,14 +85,35 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
             if (self->CreateDocumentWindow() != ErrorCode::ok) return -1;
             if (self->menu_controller_ &&
                 !self->menu_controller_->create(window)) return -1;
+            if (self->toolbar_ && !self->toolbar_->create(window)) return -1;
+            if (!self->status_bar_.create(window)) return -1;
+            self->Layout();
             return 0;
         case WM_COMMAND:
             if (self->menu_controller_ &&
-                self->menu_controller_->dispatch(LOWORD(w_param))) return 0;
+                self->menu_controller_->dispatch(LOWORD(w_param))) {
+                if (self->toolbar_) self->toolbar_->refresh();
+                self->status_bar_.refresh();
+                return 0;
+            }
             break;
         case WM_INITMENU:
             if (self->menu_controller_) self->menu_controller_->refresh();
             return 0;
+        case WM_NOTIFY: {
+            const auto* header = reinterpret_cast<const NMHDR*>(l_param);
+            if (self->toolbar_ && header &&
+                header->hwndFrom == self->toolbar_->handle() &&
+                header->code == TBN_GETINFOTIPW) {
+                auto* information = reinterpret_cast<NMTBGETINFOTIPW*>(l_param);
+                wcsncpy_s(information->pszText,
+                    static_cast<std::size_t>(information->cchTextMax),
+                    Toolbar::tooltip(static_cast<std::uint16_t>(information->iItem)),
+                    _TRUNCATE);
+                return 0;
+            }
+            break;
+        }
         case WM_SIZE:
             self->Layout();
             return 0;
@@ -120,7 +155,18 @@ ErrorCode MainWindow::CreateDocumentWindow() {
 void MainWindow::Layout() {
     RECT client{};
     GetClientRect(handle_, &client);
-    document_window_.resize(client);
+    const auto width = client.right - client.left;
+    const auto height = client.bottom - client.top;
+    const auto toolbar_height = toolbar_ ? toolbar_->height() : 0;
+    const auto status_height = status_bar_.handle() ? status_bar_.height() : 0;
+    if (toolbar_) toolbar_->resize(width);
+    status_bar_.resize(width, height);
+    const auto document_bottom = (std::max)(
+        static_cast<LONG>(toolbar_height),
+        static_cast<LONG>(height - status_height));
+    RECT document{0, static_cast<LONG>(toolbar_height),
+        static_cast<LONG>(width), document_bottom};
+    document_window_.resize(document);
 }
 
 }  // namespace markdownmay::ui
