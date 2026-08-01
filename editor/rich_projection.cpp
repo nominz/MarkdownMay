@@ -27,7 +27,7 @@ void Inline(const document::Node& node, RichProjection& output) {
         node.kind == document::NodeKind::strike ||
         node.kind == document::NodeKind::inline_code ||
         node.kind == document::NodeKind::link) {
-        output.spans.push_back({node.kind, begin, end, 0});
+        output.spans.push_back({node.kind, begin, end, 0, 0, false, false});
     }
 }
 
@@ -51,9 +51,16 @@ void AppendSynthetic(RichProjection& output, std::string_view text,
 }
 
 void Block(const document::Node& node, RichProjection& output,
-           std::string_view source) {
+           std::string_view source, std::uint8_t depth = 0) {
     const auto begin = static_cast<std::uint64_t>(output.text.size());
-    if (node.kind == document::NodeKind::paragraph ||
+    if (node.kind == document::NodeKind::text ||
+        node.kind == document::NodeKind::emphasis ||
+        node.kind == document::NodeKind::strong ||
+        node.kind == document::NodeKind::strike ||
+        node.kind == document::NodeKind::inline_code ||
+        node.kind == document::NodeKind::link) {
+        Inline(node, output);
+    } else if (node.kind == document::NodeKind::paragraph ||
         node.kind == document::NodeKind::heading) {
         for (const auto& child : node.children) Inline(*child, output);
     } else if (node.kind == document::NodeKind::quote) {
@@ -62,7 +69,7 @@ void Block(const document::Node& node, RichProjection& output,
         for (const auto& child : node.children) {
             if (!first && child->source.begin > cursor)
                 AppendNewlines(output, source, cursor, child->source.begin);
-            Block(*child, output, source);
+            Block(*child, output, source, depth);
             cursor = child->source.end;
             first = false;
         }
@@ -70,6 +77,35 @@ void Block(const document::Node& node, RichProjection& output,
         AppendMapped(output, node.text, node.source.begin);
     } else if (node.kind == document::NodeKind::thematic_break) {
         AppendSynthetic(output, "────────", node.source.begin, node.source.end);
+    } else if (node.kind == document::NodeKind::list) {
+        const auto* list = std::get_if<document::ListAttributes>(&node.attributes);
+        std::uint32_t number = list ? list->start : 1;
+        bool first = true;
+        std::uint64_t cursor{};
+        for (const auto& item : node.children) {
+            if (!first) {
+                const auto newline_at = cursor < source.size() ? cursor : item->source.begin;
+                AppendSynthetic(output, "\n", newline_at, newline_at);
+            }
+            const auto item_begin = static_cast<std::uint64_t>(output.text.size());
+            const auto* detail = std::get_if<document::ListItemAttributes>(&item->attributes);
+            std::string marker;
+            if (detail && detail->task) marker = detail->checked ? "☑ " : "☐ ";
+            else if (list && list->ordered) marker = std::to_string(number++) + ". ";
+            else marker = "• ";
+            AppendSynthetic(output, marker, item->source.begin, item->source.begin);
+            for (const auto& child : item->children) {
+                if (child->kind == document::NodeKind::list &&
+                    !output.text.empty() && output.text.back() != '\n')
+                    AppendSynthetic(output, "\n", child->source.begin, child->source.begin);
+                Block(*child, output, source, static_cast<std::uint8_t>(depth + 1));
+            }
+            const auto item_end = static_cast<std::uint64_t>(output.text.size());
+            output.spans.push_back({document::NodeKind::list_item, item_begin, item_end,
+                0, depth, detail && detail->task, detail && detail->checked});
+            cursor = item->source.end;
+            first = false;
+        }
     }
     const auto end = static_cast<std::uint64_t>(output.text.size());
     if (node.kind == document::NodeKind::heading ||
@@ -79,7 +115,7 @@ void Block(const document::Node& node, RichProjection& output,
         std::uint8_t level{};
         if (const auto* heading = std::get_if<document::HeadingAttributes>(&node.attributes))
             level = heading->level;
-        output.spans.push_back({node.kind, begin, end, level});
+        output.spans.push_back({node.kind, begin, end, level, depth, false, false});
     }
 }
 

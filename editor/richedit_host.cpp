@@ -65,6 +65,22 @@ std::size_t PrefixUtf8Size(HWND handle, LONG position, fileio::LineEnding target
     return fileio::NormalizeLineEndings(ToUtf8(buffer), target).size();
 }
 
+ErrorCode MapControlSelection(HWND handle, const RichProjection& projection,
+                              ParagraphEditor& editor) {
+    CHARRANGE selected{};
+    SendMessageW(handle, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
+        selected.cpMax > GetWindowTextLengthW(handle))
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto line_ending = fileio::DetectLineEnding(projection.text);
+    const auto begin = PrefixUtf8Size(handle, selected.cpMin, line_ending);
+    const auto end = PrefixUtf8Size(handle, selected.cpMax, line_ending);
+    if (begin >= projection.source_offsets.size() || end >= projection.source_offsets.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    return editor.set_selection(
+        {projection.source_offsets[begin], projection.source_offsets[end]});
+}
+
 void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span) {
     const auto begin = Utf16Length(projection.text, span.begin);
     const auto end = Utf16Length(projection.text, span.end);
@@ -99,16 +115,22 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
     } else if (span.kind == document::NodeKind::thematic_break) {
         format.dwMask = CFM_COLOR;
         format.crTextColor = RGB(150, 150, 150);
+    } else if (span.kind == document::NodeKind::list_item && span.task) {
+        format.dwMask = CFM_COLOR;
+        format.crTextColor = span.checked ? RGB(90, 130, 90) : RGB(70, 70, 70);
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
     if (span.kind == document::NodeKind::quote ||
-        span.kind == document::NodeKind::thematic_break) {
+        span.kind == document::NodeKind::thematic_break ||
+        span.kind == document::NodeKind::list_item) {
         PARAFORMAT2 paragraph{};
         paragraph.cbSize = sizeof(paragraph);
-        paragraph.dwMask = span.kind == document::NodeKind::quote
-            ? PFM_STARTINDENT : PFM_ALIGNMENT;
+        paragraph.dwMask = span.kind == document::NodeKind::thematic_break
+            ? PFM_ALIGNMENT : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote) paragraph.dxStartIndent = 360;
+        else if (span.kind == document::NodeKind::list_item)
+            paragraph.dxStartIndent = 360 + static_cast<LONG>(span.list_depth) * 360;
         else paragraph.wAlignment = PFA_CENTER;
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));
@@ -119,7 +141,7 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
 
 RichEditHost::RichEditHost(document::DocumentSession& session)
     : session_(session), editor_(session), formatter_(session, editor_),
-      block_formatter_(session, editor_) {}
+      block_formatter_(session, editor_), list_editor_(session, editor_) {}
 
 RichEditHost::~RichEditHost() {
     if (handle_ && IsWindow(handle_)) DestroyWindow(handle_);
@@ -196,7 +218,16 @@ ErrorCode RichEditHost::synchronize_change() {
     auto result = editor_.set_selection(
         {projection_.source_offsets[prefix], projection_.source_offsets[old_suffix]});
     if (result == ErrorCode::ok) {
-        result = editor_.insert_text(after.substr(prefix, new_suffix - prefix));
+        const auto replacement = after.substr(prefix, new_suffix - prefix);
+        const auto expected_eol = line_ending == fileio::LineEnding::lf ? "\n" : "\r\n";
+        if (projection_.source_offsets[prefix] == projection_.source_offsets[old_suffix] &&
+            replacement == expected_eol) {
+            result = list_editor_.continue_item();
+            if (result == ErrorCode::editor_selection_mapping_failed)
+                result = editor_.insert_text(replacement);
+        } else {
+            result = editor_.insert_text(replacement);
+        }
     }
     if (result != ErrorCode::ok) {
         static_cast<void>(project());
@@ -322,6 +353,42 @@ ErrorCode RichEditHost::insert_thematic_break() {
     auto result = editor_.set_selection(
         {projection_.source_offsets[caret], projection_.source_offsets[caret]});
     if (result == ErrorCode::ok) result = block_formatter_.insert_thematic_break();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::toggle_unordered_list() {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = list_editor_.toggle_unordered();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::toggle_ordered_list(std::uint32_t start) {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = list_editor_.toggle_ordered(start);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::toggle_task_list() {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = list_editor_.toggle_task();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::toggle_task_checked() {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = list_editor_.toggle_checked();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::indent_list() {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = list_editor_.indent();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::outdent_list() {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = list_editor_.outdent();
     return result == ErrorCode::ok ? project() : result;
 }
 

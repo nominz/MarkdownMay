@@ -13,6 +13,9 @@ struct ProjectionSpan final {
     std::uint64_t begin{};
     std::uint64_t end{};
     std::uint8_t heading_level{};
+    std::uint8_t list_depth{};
+    bool task{};
+    bool checked{};
 };
 
 struct RichProjection final {

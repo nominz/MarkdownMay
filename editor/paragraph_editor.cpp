@@ -34,6 +34,11 @@ bool IsSupportedBlock(const document::Node& block) {
         return std::all_of(block.children.begin(), block.children.end(),
             [](const auto& child) { return IsSupportedBlock(*child); });
     }
+    if (block.kind == document::NodeKind::list ||
+        block.kind == document::NodeKind::list_item) {
+        return std::all_of(block.children.begin(), block.children.end(),
+            [](const auto& child) { return IsSupportedBlock(*child); });
+    }
     if (block.kind != document::NodeKind::paragraph &&
         block.kind != document::NodeKind::heading) return false;
     for (const auto& child : block.children) {

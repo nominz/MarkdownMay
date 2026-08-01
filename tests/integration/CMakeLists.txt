@@ -25,3 +25,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor user32
 )
 add_test(NAME wysiwyg_block_integration COMMAND MarkdownMayWysiwygBlock)
+
+add_executable(MarkdownMayWysiwygList WIN32 wysiwyg_list_test.cpp)
+target_link_libraries(
+    MarkdownMayWysiwygList
+    PRIVATE markdownmay_compiler_options markdownmay_editor user32
+)
+add_test(NAME wysiwyg_list_integration COMMAND MarkdownMayWysiwygList)

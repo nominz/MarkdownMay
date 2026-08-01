@@ -18,3 +18,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME block_formatter_unit COMMAND MarkdownMayBlockFormatterUnit)
+
+add_executable(MarkdownMayListEditorUnit list_editor_test.cpp)
+target_link_libraries(
+    MarkdownMayListEditorUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME list_editor_unit COMMAND MarkdownMayListEditorUnit)

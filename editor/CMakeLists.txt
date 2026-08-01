@@ -1,6 +1,7 @@
 add_library(markdownmay_editor STATIC
     block_formatter.cpp
     inline_formatter.cpp
+    list_editor.cpp
     paragraph_editor.cpp
     rich_projection.cpp
     richedit_host.cpp

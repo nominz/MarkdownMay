@@ -3,6 +3,7 @@
 #include "markdownmay/editor/paragraph_editor.hpp"
 #include "markdownmay/editor/inline_formatter.hpp"
 #include "markdownmay/editor/block_formatter.hpp"
+#include "markdownmay/editor/list_editor.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
 
 #include <windows.h>
@@ -25,6 +26,12 @@ public:
     [[nodiscard]] ErrorCode toggle_quote();
     [[nodiscard]] ErrorCode toggle_code_block(std::string_view language = {});
     [[nodiscard]] ErrorCode insert_thematic_break();
+    [[nodiscard]] ErrorCode toggle_unordered_list();
+    [[nodiscard]] ErrorCode toggle_ordered_list(std::uint32_t start = 1);
+    [[nodiscard]] ErrorCode toggle_task_list();
+    [[nodiscard]] ErrorCode toggle_task_checked();
+    [[nodiscard]] ErrorCode indent_list();
+    [[nodiscard]] ErrorCode outdent_list();
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
@@ -34,6 +41,7 @@ private:
     ParagraphEditor editor_;
     InlineFormatter formatter_;
     BlockFormatter block_formatter_;
+    ListEditor list_editor_;
     HWND handle_{};
     HMODULE rich_edit_module_{};
     bool projecting_{};

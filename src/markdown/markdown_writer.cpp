@@ -18,6 +18,17 @@ std::string EscapeText(std::string_view text) {
 
 std::string Inline(const Node& node);
 
+std::string IndentLines(std::string_view text, std::string_view indent) {
+    std::string output;
+    bool line_start = true;
+    for (const auto value : text) {
+        if (line_start) output += indent;
+        output.push_back(value);
+        line_start = value == '\n';
+    }
+    return output;
+}
+
 std::string ChildrenInline(const Node& node) {
     std::string output;
     for (const auto& child : node.children) output += Inline(*child);
@@ -106,7 +117,16 @@ void Block(const Node& node, std::string& output, const WriteOptions& options) {
                     ? std::to_string(number++) + ". " : "- ";
                 if (detail && detail->task) marker += detail->checked ? "[x] " : "[ ] ";
                 std::string content;
-                for (const auto& child : item->children) Block(*child, content, options);
+                for (const auto& child : item->children) {
+                    if (child->kind == NodeKind::list) {
+                        if (!content.empty() && content.back() != '\n') content.push_back('\n');
+                        std::string nested;
+                        Block(*child, nested, options);
+                        content += IndentLines(nested, "    ");
+                    } else {
+                        Block(*child, content, options);
+                    }
+                }
                 while (!content.empty() && content.back() == '\n') content.pop_back();
                 output += marker + content + "\n";
             }
