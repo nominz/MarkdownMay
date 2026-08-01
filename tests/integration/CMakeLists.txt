@@ -78,3 +78,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
 )
 add_test(NAME split_view_integration COMMAND MarkdownMaySplitView)
+
+add_executable(MarkdownMayViewModes WIN32 view_modes_test.cpp)
+target_link_libraries(
+    MarkdownMayViewModes
+    PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
+)
+add_test(NAME view_modes_integration COMMAND MarkdownMayViewModes)

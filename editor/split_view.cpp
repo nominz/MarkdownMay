@@ -74,6 +74,14 @@ ErrorCode SplitView::project() {
 HWND SplitView::handle() const noexcept { return host_; }
 SourceView& SplitView::source_view() noexcept { return source_; }
 RichEditHost& SplitView::render_view() noexcept { return render_; }
+void SplitView::set_source_only(bool source_only) {
+    source_only_ = source_only;
+    if (!host_) return;
+    ShowWindow(render_.handle(), source_only ? SW_HIDE : SW_SHOW);
+    RECT client{};
+    GetClientRect(host_, &client);
+    Layout(client.right, client.bottom);
+}
 
 LRESULT CALLBACK SplitView::HostProcedure(HWND window, UINT message,
                                            WPARAM w_param, LPARAM l_param) {
@@ -97,6 +105,10 @@ LRESULT CALLBACK SplitView::HostProcedure(HWND window, UINT message,
 
 void SplitView::Layout(int width, int height) {
     if (!source_.host_handle() || !render_.handle()) return;
+    if (source_only_) {
+        MoveWindow(source_.host_handle(), 0, 0, width, height, TRUE);
+        return;
+    }
     const auto left = (std::max)(1, (width - kDividerWidth) / 2);
     MoveWindow(source_.host_handle(), 0, 0, left, height, TRUE);
     MoveWindow(render_.handle(), left + kDividerWidth, 0,

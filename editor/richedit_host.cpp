@@ -270,6 +270,24 @@ void RichEditHost::scroll_to_fraction(std::uint64_t numerator, std::uint64_t den
     SendMessageW(handle_, EM_LINESCROLL, 0, target - current);
 }
 
+Result<TextSelection> RichEditHost::source_selection() {
+    if (!handle_) return Result<TextSelection>::failure(ErrorCode::editor_render_projection_failed);
+    const auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result != ErrorCode::ok) return Result<TextSelection>::failure(result);
+    return Result<TextSelection>::success(editor_.selection());
+}
+
+ErrorCode RichEditHost::select_source_range(TextSelection selection) {
+    if (!handle_ || selection.anchor > session_.snapshot().source.size() ||
+        selection.caret > session_.snapshot().source.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto result = editor_.set_selection(selection);
+    if (result != ErrorCode::ok) return result;
+    SelectSourceRange(handle_, projection_, selection);
+    SendMessageW(handle_, EM_SCROLLCARET, 0, 0);
+    return ErrorCode::ok;
+}
+
 ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};

@@ -19,6 +19,7 @@ public:
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;
+    void set_source_only(bool source_only);
     static LRESULT CALLBACK HostProcedure(HWND window, UINT message,
                                            WPARAM w_param, LPARAM l_param);
 
@@ -30,6 +31,7 @@ private:
     SourceView source_;
     RichEditHost render_;
     HWND host_{};
+    bool source_only_{};
 };
 
 }  // namespace markdownmay::editor

@@ -11,6 +11,7 @@ enum class ErrorCode : std::uint32_t {
     editor_render_projection_failed = 2001,
     editor_source_control_failed = 2002,
     editor_split_control_failed = 2003,
+    editor_cannot_enter_render_mode = 2004,
     editor_selection_mapping_failed = 2006,
     editor_transaction_conflict = 2007,
     editor_undo_failed = 2009,

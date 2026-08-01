@@ -13,6 +13,7 @@ add_library(markdownmay_editor STATIC
     source_view.cpp
     split_view.cpp
     table_editor.cpp
+    view_mode_controller.cpp
 )
 target_include_directories(markdownmay_editor PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(

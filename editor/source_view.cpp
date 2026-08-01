@@ -118,6 +118,21 @@ const std::vector<SourceDiagnostic>& SourceView::diagnostics() const noexcept {
 }
 HWND SourceView::handle() const noexcept { return editor_; }
 HWND SourceView::host_handle() const noexcept { return host_; }
+TextSelection SourceView::source_selection() const noexcept {
+    if (!editor_) return {};
+    return {static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETANCHOR)),
+            static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETCURRENTPOS))};
+}
+ErrorCode SourceView::select_source_range(TextSelection selection) {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    const auto length = static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETLENGTH));
+    if (selection.anchor > length || selection.caret > length)
+        return ErrorCode::editor_selection_mapping_failed;
+    SendEditor(editor_, SCI_SETSEL, static_cast<WPARAM>(selection.anchor),
+        static_cast<LPARAM>(selection.caret));
+    SendEditor(editor_, SCI_SCROLLCARET);
+    return ErrorCode::ok;
+}
 void SourceView::set_synchronized_callback(std::function<void(ErrorCode)> callback) {
     synchronized_callback_ = std::move(callback);
 }
