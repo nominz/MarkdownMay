@@ -1,8 +1,10 @@
 #pragma once
 
 #include "markdownmay/document/document.hpp"
+#include "markdownmay/editor/image_object.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -16,6 +18,11 @@ struct ProjectionSpan final {
     std::uint8_t list_depth{};
     bool task{};
     bool checked{};
+    ImageDisplayState image_state{ImageDisplayState::missing};
+    std::uint32_t image_width{};
+    std::uint32_t image_height{};
+    std::uint16_t image_display_percent{100};
+    std::filesystem::path image_path;
 };
 
 struct RichProjection final {
@@ -26,6 +33,7 @@ struct RichProjection final {
 
 [[nodiscard]] RichProjection BuildInlineProjection(
     const document::Document& document,
-    std::string_view source);
+    std::string_view source,
+    const std::filesystem::path& document_path = {});
 
 }  // namespace markdownmay::editor

@@ -4,6 +4,7 @@
 #include "markdownmay/editor/inline_formatter.hpp"
 #include "markdownmay/editor/block_formatter.hpp"
 #include "markdownmay/editor/list_editor.hpp"
+#include "markdownmay/editor/image_controller.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
 
 #include <windows.h>
@@ -32,6 +33,15 @@ public:
     [[nodiscard]] ErrorCode toggle_task_checked();
     [[nodiscard]] ErrorCode indent_list();
     [[nodiscard]] ErrorCode outdent_list();
+    void set_document_path(std::filesystem::path path);
+    [[nodiscard]] ErrorCode insert_image_reference(std::string_view target,
+        std::string_view alternative, std::string_view title = {});
+    [[nodiscard]] ErrorCode insert_image_file(const std::filesystem::path& image,
+        bool copy_to_assets, std::string_view alternative);
+    [[nodiscard]] ErrorCode replace_image(document::NodeId image, std::string_view target,
+        std::string_view alternative, std::string_view title = {});
+    [[nodiscard]] ErrorCode resize_image(document::NodeId image, std::uint16_t percent);
+    [[nodiscard]] ErrorCode remove_image(document::NodeId image);
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
@@ -42,6 +52,8 @@ private:
     InlineFormatter formatter_;
     BlockFormatter block_formatter_;
     ListEditor list_editor_;
+    ImageController image_controller_;
+    std::filesystem::path document_path_;
     HWND handle_{};
     HMODULE rich_edit_module_{};
     bool projecting_{};

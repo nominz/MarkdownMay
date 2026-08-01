@@ -25,3 +25,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME list_editor_unit COMMAND MarkdownMayListEditorUnit)
+
+add_executable(MarkdownMayImageEditorUnit image_controller_test.cpp)
+target_link_libraries(
+    MarkdownMayImageEditorUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME image_editor_unit COMMAND MarkdownMayImageEditorUnit)

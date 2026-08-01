@@ -21,7 +21,8 @@ bool IsSupportedInline(const document::Node& node) {
     if (node.kind != document::NodeKind::emphasis &&
         node.kind != document::NodeKind::strong &&
         node.kind != document::NodeKind::strike &&
-        node.kind != document::NodeKind::link) return false;
+        node.kind != document::NodeKind::link &&
+        node.kind != document::NodeKind::image) return false;
     return std::all_of(node.children.begin(), node.children.end(),
         [](const auto& child) { return IsSupportedInline(*child); });
 }

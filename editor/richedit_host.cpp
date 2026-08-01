@@ -3,6 +3,10 @@
 #include "markdownmay/fileio/line_endings.hpp"
 
 #include <richedit.h>
+#include <richole.h>
+#include <tom.h>
+#include <shlwapi.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <string>
@@ -118,9 +122,40 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
     } else if (span.kind == document::NodeKind::list_item && span.task) {
         format.dwMask = CFM_COLOR;
         format.crTextColor = span.checked ? RGB(90, 130, 90) : RGB(70, 70, 70);
+    } else if (span.kind == document::NodeKind::image) {
+        format.dwMask = CFM_BACKCOLOR | CFM_COLOR;
+        format.crBackColor = span.image_state == ImageDisplayState::ready
+            ? RGB(235, 245, 252) : RGB(250, 240, 230);
+        format.crTextColor = span.image_state == ImageDisplayState::ready
+            ? RGB(35, 90, 125) : RGB(145, 80, 45);
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
+    if (span.kind == document::NodeKind::image &&
+        span.image_state == ImageDisplayState::ready && !span.image_path.empty()) {
+        Microsoft::WRL::ComPtr<IStream> stream;
+        Microsoft::WRL::ComPtr<IRichEditOle> rich_ole;
+        Microsoft::WRL::ComPtr<ITextDocument2> text_document;
+        Microsoft::WRL::ComPtr<ITextRange2> range;
+        RECT client{};
+        GetClientRect(handle, &client);
+        auto width = MulDiv(static_cast<int>(span.image_width), 2540, 96) *
+            span.image_display_percent / 100L;
+        auto height = MulDiv(static_cast<int>(span.image_height), 2540, 96) *
+            span.image_display_percent / 100L;
+        const auto maximum = MulDiv((std::max)(1L, client.right - client.left - 24L), 2540, 96);
+        if (width > maximum) { height = height * maximum / width; width = maximum; }
+        if (SUCCEEDED(SHCreateStreamOnFileEx(span.image_path.c_str(), STGM_READ | STGM_SHARE_DENY_WRITE,
+                FILE_ATTRIBUTE_NORMAL, FALSE, nullptr, &stream)) &&
+            SendMessageW(handle, EM_GETOLEINTERFACE, 0, reinterpret_cast<LPARAM>(rich_ole.GetAddressOf())) &&
+            SUCCEEDED(rich_ole.As(&text_document)) &&
+            SUCCEEDED(text_document->Range2(begin, end, &range))) {
+            const auto alternative = span.image_path.filename().wstring();
+            const auto text = SysAllocString(alternative.c_str());
+            static_cast<void>(range->InsertImage(width, height, height, TA_BASELINE, text, stream.Get()));
+            SysFreeString(text);
+        }
+    }
     if (span.kind == document::NodeKind::quote ||
         span.kind == document::NodeKind::thematic_break ||
         span.kind == document::NodeKind::list_item) {
@@ -141,7 +176,8 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
 
 RichEditHost::RichEditHost(document::DocumentSession& session)
     : session_(session), editor_(session), formatter_(session, editor_),
-      block_formatter_(session, editor_), list_editor_(session, editor_) {}
+      block_formatter_(session, editor_), list_editor_(session, editor_),
+      image_controller_(session, editor_) {}
 
 RichEditHost::~RichEditHost() {
     if (handle_ && IsWindow(handle_)) DestroyWindow(handle_);
@@ -171,7 +207,7 @@ ErrorCode RichEditHost::project() {
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
     }
-    projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source);
+    projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source, document_path_);
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
     const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
@@ -389,6 +425,43 @@ ErrorCode RichEditHost::indent_list() {
 ErrorCode RichEditHost::outdent_list() {
     auto result = MapControlSelection(handle_, projection_, editor_);
     if (result == ErrorCode::ok) result = list_editor_.outdent();
+    return result == ErrorCode::ok ? project() : result;
+}
+
+void RichEditHost::set_document_path(std::filesystem::path path) {
+    document_path_ = std::move(path);
+    if (handle_) static_cast<void>(project());
+}
+
+ErrorCode RichEditHost::insert_image_reference(std::string_view target,
+    std::string_view alternative, std::string_view title) {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = image_controller_.insert_reference(target, alternative, title);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::insert_image_file(const std::filesystem::path& image,
+    bool copy_to_assets, std::string_view alternative) {
+    if (document_path_.empty()) return ErrorCode::image_import_failed;
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok)
+        result = image_controller_.insert_file(document_path_, image, copy_to_assets, alternative);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::replace_image(document::NodeId image, std::string_view target,
+    std::string_view alternative, std::string_view title) {
+    const auto result = image_controller_.replace(image, target, alternative, title);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::resize_image(document::NodeId image, std::uint16_t percent) {
+    const auto result = image_controller_.set_display_percent(image, percent);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::remove_image(document::NodeId image) {
+    const auto result = image_controller_.remove(image);
     return result == ErrorCode::ok ? project() : result;
 }
 
