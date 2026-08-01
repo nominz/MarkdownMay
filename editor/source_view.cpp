@@ -86,6 +86,7 @@ ErrorCode SourceView::synchronize_now() {
     last_error_ = sync_.synchronize(ReadSource());
     ApplyStyles();
     ApplyDiagnostics();
+    if (synchronized_callback_) synchronized_callback_(last_error_);
     return last_error_;
 }
 
@@ -117,6 +118,13 @@ const std::vector<SourceDiagnostic>& SourceView::diagnostics() const noexcept {
 }
 HWND SourceView::handle() const noexcept { return editor_; }
 HWND SourceView::host_handle() const noexcept { return host_; }
+void SourceView::set_synchronized_callback(std::function<void(ErrorCode)> callback) {
+    synchronized_callback_ = std::move(callback);
+}
+void SourceView::set_scroll_callback(
+    std::function<void(std::uint64_t, std::uint64_t)> callback) {
+    scroll_callback_ = std::move(callback);
+}
 
 LRESULT CALLBACK SourceView::HostProcedure(HWND window, UINT message,
                                             WPARAM w_param, LPARAM l_param) {
@@ -141,6 +149,12 @@ LRESULT CALLBACK SourceView::HostProcedure(HWND window, UINT message,
             notification->nmhdr.code == SCN_MODIFIED && !self->projecting_ &&
             (notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) != 0) {
             self->ScheduleSynchronize();
+        } else if (notification && notification->nmhdr.hwndFrom == self->editor_ &&
+            notification->nmhdr.code == SCN_UPDATEUI && self->scroll_callback_ &&
+            (notification->updated & SC_UPDATE_V_SCROLL) != 0) {
+            self->scroll_callback_(
+                static_cast<std::uint64_t>(SendEditor(self->editor_, SCI_GETFIRSTVISIBLELINE)),
+                static_cast<std::uint64_t>(SendEditor(self->editor_, SCI_GETLINECOUNT)));
         }
     } else if (message == WM_TIMER && w_param == kSynchronizeTimer) {
         static_cast<void>(self->synchronize_now());

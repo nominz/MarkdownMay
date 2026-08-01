@@ -246,6 +246,30 @@ ErrorCode RichEditHost::project() {
     return ErrorCode::ok;
 }
 
+ErrorCode RichEditHost::show_status_message(std::wstring_view message) {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    projecting_ = true;
+    const std::wstring value(message);
+    const auto success = SetWindowTextW(handle_, value.c_str()) != 0 || value.empty();
+    projection_ = {};
+    projecting_ = false;
+    return success ? ErrorCode::ok : ErrorCode::editor_render_projection_failed;
+}
+
+void RichEditHost::set_read_only(bool read_only) {
+    if (handle_) SendMessageW(handle_, EM_SETREADONLY, read_only ? TRUE : FALSE, 0);
+}
+
+void RichEditHost::scroll_to_fraction(std::uint64_t numerator, std::uint64_t denominator) {
+    if (!handle_ || denominator == 0) return;
+    const auto lines = static_cast<LONG>((std::max)(LRESULT{1},
+        SendMessageW(handle_, EM_GETLINECOUNT, 0, 0)));
+    const auto target = static_cast<LONG>((numerator * static_cast<std::uint64_t>(lines)) /
+                                          denominator);
+    const auto current = static_cast<LONG>(SendMessageW(handle_, EM_GETFIRSTVISIBLELINE, 0, 0));
+    SendMessageW(handle_, EM_LINESCROLL, 0, target - current);
+}
+
 ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};

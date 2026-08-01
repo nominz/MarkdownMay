@@ -11,6 +11,7 @@ add_library(markdownmay_editor STATIC
     richedit_host.cpp
     source_sync.cpp
     source_view.cpp
+    split_view.cpp
     table_editor.cpp
 )
 target_include_directories(markdownmay_editor PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")

@@ -71,3 +71,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
 )
 add_test(NAME source_view_integration COMMAND MarkdownMaySourceView)
+
+add_executable(MarkdownMaySplitView WIN32 split_view_test.cpp)
+target_link_libraries(
+    MarkdownMaySplitView
+    PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
+)
+add_test(NAME split_view_integration COMMAND MarkdownMaySplitView)
