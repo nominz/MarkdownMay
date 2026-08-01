@@ -22,6 +22,11 @@ public:
     [[nodiscard]] TextSelection selection() const noexcept;
     [[nodiscard]] ErrorCode set_selection(TextSelection selection) noexcept;
     [[nodiscard]] ErrorCode insert_text(std::string_view utf8_text);
+    [[nodiscard]] ErrorCode replace_source_range(
+        std::uint64_t begin,
+        std::uint64_t end,
+        std::string replacement,
+        TextSelection next_selection);
     [[nodiscard]] ErrorCode delete_backward();
     [[nodiscard]] ErrorCode delete_forward();
     [[nodiscard]] ErrorCode undo();

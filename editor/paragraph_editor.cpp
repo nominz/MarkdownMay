@@ -15,17 +15,23 @@ bool IsUtf8Boundary(std::string_view text, std::uint64_t offset) {
     return (static_cast<unsigned char>(text[static_cast<std::size_t>(offset)]) & 0xC0U) != 0x80U;
 }
 
-bool IsPureInline(const document::Node& node) {
-    if (node.kind != document::NodeKind::text) return false;
-    return node.children.empty();
+bool IsSupportedInline(const document::Node& node) {
+    if (node.kind == document::NodeKind::text) return node.children.empty();
+    if (node.kind == document::NodeKind::inline_code) return node.children.empty();
+    if (node.kind != document::NodeKind::emphasis &&
+        node.kind != document::NodeKind::strong &&
+        node.kind != document::NodeKind::strike &&
+        node.kind != document::NodeKind::link) return false;
+    return std::all_of(node.children.begin(), node.children.end(),
+        [](const auto& child) { return IsSupportedInline(*child); });
 }
 
-bool IsPureParagraphDocument(const document::Document& document) {
+bool IsSupportedParagraphDocument(const document::Document& document) {
     if (document.root()->kind != document::NodeKind::document) return false;
     for (const auto& block : document.root()->children) {
         if (block->kind != document::NodeKind::paragraph) return false;
         for (const auto& child : block->children) {
-            if (!IsPureInline(*child)) return false;
+            if (!IsSupportedInline(*child)) return false;
         }
     }
     return true;
@@ -63,6 +69,26 @@ ErrorCode ParagraphEditor::set_selection(TextSelection selection) noexcept {
 ErrorCode ParagraphEditor::insert_text(std::string_view utf8_text) {
     if (!fileio::IsValidUtf8(utf8_text)) return ErrorCode::document_invalid_state;
     return ReplaceSelection(std::string(utf8_text));
+}
+
+ErrorCode ParagraphEditor::replace_source_range(
+    std::uint64_t begin, std::uint64_t end, std::string replacement,
+    TextSelection next_selection) {
+    const auto original = selection_;
+    if (set_selection({begin, end}) != ErrorCode::ok) return ErrorCode::editor_selection_mapping_failed;
+    const auto source = session_.snapshot().source;
+    HistoryEntry history{begin,
+        source.substr(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin)),
+        replacement, original, next_selection};
+    const auto result = Apply(begin, end, std::move(replacement),
+                              document::EditOrigin::render_view, next_selection);
+    if (result != ErrorCode::ok) {
+        selection_ = original;
+        return result;
+    }
+    undo_.push_back(std::move(history));
+    redo_.clear();
+    return ErrorCode::ok;
 }
 
 ErrorCode ParagraphEditor::delete_backward() {
@@ -119,7 +145,7 @@ ErrorCode ParagraphEditor::Apply(
     auto candidate = snapshot.source;
     candidate.replace(static_cast<std::size_t>(begin), static_cast<std::size_t>(end - begin), replacement);
     auto parsed = markdown::ParseMarkdown(candidate, snapshot.source_revision + 1);
-    if (!parsed || !IsPureParagraphDocument(*parsed)) return ErrorCode::editor_unmapped_rich_edit_change;
+    if (!parsed || !IsSupportedParagraphDocument(*parsed)) return ErrorCode::editor_unmapped_rich_edit_change;
     document::EditTransaction transaction{next_transaction_++, snapshot.source_revision, origin,
         {{{begin, end}, std::move(replacement)}}};
     const auto result = session_.commit(transaction);

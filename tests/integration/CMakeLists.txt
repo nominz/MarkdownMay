@@ -11,3 +11,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor user32
 )
 add_test(NAME wysiwyg_paragraph_integration COMMAND MarkdownMayWysiwygParagraph)
+
+add_executable(MarkdownMayWysiwygInline WIN32 wysiwyg_inline_test.cpp)
+target_link_libraries(
+    MarkdownMayWysiwygInline
+    PRIVATE markdownmay_compiler_options markdownmay_editor user32
+)
+add_test(NAME wysiwyg_inline_integration COMMAND MarkdownMayWysiwygInline)
