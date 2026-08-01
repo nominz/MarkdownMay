@@ -9,6 +9,7 @@ namespace markdownmay {
 enum class ErrorCode : std::uint32_t {
     ok = 0,
     editor_render_projection_failed = 2001,
+    editor_source_control_failed = 2002,
     editor_selection_mapping_failed = 2006,
     editor_transaction_conflict = 2007,
     editor_undo_failed = 2009,
@@ -22,6 +23,7 @@ enum class ErrorCode : std::uint32_t {
     document_invalid_state = 3001,
     document_revision_mismatch = 3002,
     document_invariant_failed = 3004,
+    markdown_parse_failed = 3501,
     settings_load_failed = 8001,
     settings_save_failed = 8002,
     settings_corrupt = 8003,

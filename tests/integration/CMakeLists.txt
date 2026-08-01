@@ -64,3 +64,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor user32
 )
 add_test(NAME wysiwyg_complete_integration COMMAND MarkdownMayWysiwygComplete)
+
+add_executable(MarkdownMaySourceView WIN32 source_view_test.cpp)
+target_link_libraries(
+    MarkdownMaySourceView
+    PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
+)
+add_test(NAME source_view_integration COMMAND MarkdownMaySourceView)

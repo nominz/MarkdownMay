@@ -57,3 +57,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME full_projection_unit COMMAND MarkdownMayFullProjectionUnit)
+
+add_executable(MarkdownMaySourceSyncUnit source_sync_test.cpp)
+target_link_libraries(
+    MarkdownMaySourceSyncUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME source_sync_unit COMMAND MarkdownMaySourceSyncUnit)

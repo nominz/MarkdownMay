@@ -1,0 +1,232 @@
+#include "markdownmay/editor/source_view.hpp"
+
+#include <Scintilla.h>
+
+#include <algorithm>
+#include <mutex>
+#include <string_view>
+
+namespace markdownmay::editor {
+namespace {
+
+constexpr wchar_t kSourceHostClass[] = L"MarkdownMay.SourceView.Host";
+constexpr UINT_PTR kSynchronizeTimer = 1;
+constexpr UINT kDebounceMilliseconds = 150;
+constexpr UINT kMaximumLatencyMilliseconds = 500;
+constexpr int kErrorIndicator = 8;
+
+LRESULT SendEditor(HWND editor, unsigned int message,
+                   WPARAM w_param = 0, LPARAM l_param = 0) {
+    return SendMessageW(editor, message, w_param, l_param);
+}
+
+bool RegisterSourceClasses() {
+    static std::once_flag once;
+    static bool available{};
+    std::call_once(once, [] {
+        const auto instance = GetModuleHandleW(nullptr);
+        if (Scintilla_RegisterClasses(instance) == 0) return;
+        WNDCLASSEXW value{};
+        value.cbSize = sizeof(value);
+        value.lpfnWndProc = SourceView::HostProcedure;
+        value.hInstance = instance;
+        value.hCursor = LoadCursorW(nullptr, IDC_IBEAM);
+        value.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
+        value.lpszClassName = kSourceHostClass;
+        available = RegisterClassExW(&value) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    });
+    return available;
+}
+
+}  // namespace
+
+SourceView::SourceView(document::DocumentSession& session) : session_(session), sync_(session) {}
+
+SourceView::~SourceView() {
+    if (host_ && IsWindow(host_)) DestroyWindow(host_);
+}
+
+ErrorCode SourceView::create(HWND parent, const RECT& bounds) {
+    if (host_) return ErrorCode::ok;
+    if (!RegisterSourceClasses()) return ErrorCode::editor_source_control_failed;
+    host_ = CreateWindowExW(0, kSourceHostClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+        parent, nullptr, GetModuleHandleW(nullptr), this);
+    if (!host_) return ErrorCode::editor_source_control_failed;
+    editor_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"Scintilla", L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL,
+        0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top,
+        host_, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!editor_) {
+        DestroyWindow(host_);
+        host_ = nullptr;
+        return ErrorCode::editor_source_control_failed;
+    }
+    Configure();
+    return project();
+}
+
+ErrorCode SourceView::project() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    projecting_ = true;
+    const auto source = session_.snapshot().source;
+    SendEditor(editor_, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(source.c_str()));
+    SendEditor(editor_, SCI_EMPTYUNDOBUFFER);
+    SendEditor(editor_, SCI_SETSAVEPOINT);
+    projecting_ = false;
+    ApplyStyles();
+    ApplyDiagnostics();
+    return ErrorCode::ok;
+}
+
+ErrorCode SourceView::synchronize_now() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    KillTimer(host_, kSynchronizeTimer);
+    pending_since_ = 0;
+    last_error_ = sync_.synchronize(ReadSource());
+    ApplyStyles();
+    ApplyDiagnostics();
+    return last_error_;
+}
+
+ErrorCode SourceView::save(const std::filesystem::path& target,
+                           fileio::TextEncoding encoding,
+                           fileio::LineEnding line_ending) {
+    const auto synchronized = synchronize_now();
+    if (synchronized != ErrorCode::ok &&
+        synchronized != ErrorCode::markdown_parse_failed) return synchronized;
+    const auto result = sync_.save(target, encoding, line_ending);
+    if (result == ErrorCode::ok) SendEditor(editor_, SCI_SETSAVEPOINT);
+    last_error_ = result;
+    return result;
+}
+
+ErrorCode SourceView::go_to_first_error() {
+    if (sync_.diagnostics().empty()) return ErrorCode::ok;
+    const auto position = static_cast<WPARAM>(sync_.diagnostics().front().begin);
+    SendEditor(editor_, SCI_GOTOPOS, position);
+    SendEditor(editor_, SCI_SETSEL, position,
+        static_cast<LPARAM>(sync_.diagnostics().front().end));
+    SetFocus(editor_);
+    return ErrorCode::ok;
+}
+
+ErrorCode SourceView::last_error() const noexcept { return last_error_; }
+const std::vector<SourceDiagnostic>& SourceView::diagnostics() const noexcept {
+    return sync_.diagnostics();
+}
+HWND SourceView::handle() const noexcept { return editor_; }
+HWND SourceView::host_handle() const noexcept { return host_; }
+
+LRESULT CALLBACK SourceView::HostProcedure(HWND window, UINT message,
+                                            WPARAM w_param, LPARAM l_param) {
+    auto* self = reinterpret_cast<SourceView*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        const auto* create = reinterpret_cast<CREATESTRUCTW*>(l_param);
+        self = static_cast<SourceView*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    }
+    if (!self) return DefWindowProcW(window, message, w_param, l_param);
+    if (message == WM_SIZE && self->editor_) {
+        MoveWindow(self->editor_, 0, 0, LOWORD(l_param), HIWORD(l_param), TRUE);
+        return 0;
+    }
+    if (message == WM_SETFOCUS && self->editor_) {
+        SetFocus(self->editor_);
+        return 0;
+    }
+    if (message == WM_NOTIFY && self->editor_) {
+        const auto* notification = reinterpret_cast<SCNotification*>(l_param);
+        if (notification && notification->nmhdr.hwndFrom == self->editor_ &&
+            notification->nmhdr.code == SCN_MODIFIED && !self->projecting_ &&
+            (notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) != 0) {
+            self->ScheduleSynchronize();
+        }
+    } else if (message == WM_TIMER && w_param == kSynchronizeTimer) {
+        static_cast<void>(self->synchronize_now());
+        return 0;
+    } else if (message == WM_NCDESTROY) {
+        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+        self->host_ = nullptr;
+    }
+    return DefWindowProcW(window, message, w_param, l_param);
+}
+
+void SourceView::Configure() {
+    SendEditor(editor_, SCI_SETCODEPAGE, SC_CP_UTF8);
+    SendEditor(editor_, SCI_SETWRAPMODE, SC_WRAP_WORD);
+    SendEditor(editor_, SCI_SETMARGINWIDTHN, 0, 48);
+    SendEditor(editor_, SCI_STYLESETFONT, STYLE_DEFAULT,
+        reinterpret_cast<LPARAM>("Microsoft YaHei UI"));
+    SendEditor(editor_, SCI_STYLESETSIZE, STYLE_DEFAULT, 11);
+    SendEditor(editor_, SCI_STYLECLEARALL);
+    SendEditor(editor_, SCI_STYLESETFORE, 1, RGB(28, 80, 150));
+    SendEditor(editor_, SCI_STYLESETBOLD, 1, TRUE);
+    SendEditor(editor_, SCI_STYLESETFORE, 2, RGB(85, 70, 110));
+    SendEditor(editor_, SCI_STYLESETFONT, 2, reinterpret_cast<LPARAM>("Consolas"));
+    SendEditor(editor_, SCI_STYLESETBACK, 2, RGB(245, 245, 245));
+    SendEditor(editor_, SCI_STYLESETFORE, 3, RGB(100, 100, 100));
+    SendEditor(editor_, SCI_STYLESETITALIC, 3, TRUE);
+    SendEditor(editor_, SCI_STYLESETFORE, 4, RGB(155, 65, 65));
+    SendEditor(editor_, SCI_INDICSETSTYLE, kErrorIndicator, INDIC_SQUIGGLE);
+    SendEditor(editor_, SCI_INDICSETFORE, kErrorIndicator, RGB(210, 40, 40));
+}
+
+void SourceView::ApplyStyles() {
+    const auto source = ReadSource();
+    SendEditor(editor_, SCI_STARTSTYLING, 0);
+    SendEditor(editor_, SCI_SETSTYLING, source.size(), 0);
+    bool fenced{};
+    for (std::size_t begin = 0; begin < source.size();) {
+        auto end = source.find('\n', begin);
+        if (end == std::string::npos) end = source.size();
+        const auto line = std::string_view(source).substr(begin, end - begin);
+        int style{};
+        if (line.starts_with("```") || line.starts_with("~~~")) {
+            style = 2;
+            fenced = !fenced;
+        } else if (fenced) style = 2;
+        else if (!line.empty() && line.front() == '#') style = 1;
+        else if (!line.empty() && line.front() == '>') style = 3;
+        else if (line.starts_with("- ") || line.starts_with("* ") ||
+                 line.starts_with("+ ")) style = 4;
+        if (style != 0) {
+            SendEditor(editor_, SCI_STARTSTYLING, begin);
+            SendEditor(editor_, SCI_SETSTYLING, end - begin, style);
+        }
+        begin = end < source.size() ? end + 1 : source.size();
+    }
+}
+
+void SourceView::ApplyDiagnostics() {
+    const auto length = static_cast<WPARAM>(SendEditor(editor_, SCI_GETTEXTLENGTH));
+    SendEditor(editor_, SCI_SETINDICATORCURRENT, kErrorIndicator);
+    SendEditor(editor_, SCI_INDICATORCLEARRANGE, 0, length);
+    for (const auto& diagnostic : sync_.diagnostics()) {
+        const auto begin = (std::min)(diagnostic.begin, static_cast<std::uint64_t>(length));
+        const auto end = (std::min)((std::max)(diagnostic.end, begin + 1),
+                                    static_cast<std::uint64_t>(length));
+        if (end > begin) SendEditor(editor_, SCI_INDICATORFILLRANGE,
+            static_cast<WPARAM>(begin), static_cast<LPARAM>(end - begin));
+    }
+}
+
+void SourceView::ScheduleSynchronize() {
+    const auto now = GetTickCount64();
+    if (pending_since_ == 0) pending_since_ = now;
+    const auto elapsed = now - pending_since_;
+    const auto delay = elapsed >= kMaximumLatencyMilliseconds
+        ? 1U : (std::min)(kDebounceMilliseconds,
+              static_cast<UINT>(kMaximumLatencyMilliseconds - elapsed));
+    SetTimer(host_, kSynchronizeTimer, delay, nullptr);
+}
+
+std::string SourceView::ReadSource() const {
+    const auto length = static_cast<std::size_t>(SendEditor(editor_, SCI_GETTEXTLENGTH));
+    std::string source(length + 1, '\0');
+    SendEditor(editor_, SCI_GETTEXT, length + 1, reinterpret_cast<LPARAM>(source.data()));
+    source.resize(length);
+    return source;
+}
+
+}  // namespace markdownmay::editor

@@ -33,6 +33,7 @@ endif()
 option(MARKDOWNMAY_BUILD_PROTOTYPE "Build the stage-3 risk prototype" ON)
 option(MARKDOWNMAY_BUILD_TESTS "Build design contract smoke tests" ON)
 
+add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/scintilla-5.6.4" scintilla)
 add_subdirectory(src)
 add_subdirectory(editor)
 
