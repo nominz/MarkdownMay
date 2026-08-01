@@ -155,12 +155,38 @@ void Block(const document::Node& node, RichProjection& output,
             cursor = item->source.end;
             first = false;
         }
+    } else if (node.kind == document::NodeKind::table) {
+        std::uint32_t row_index{};
+        bool first_row = true;
+        for (const auto& section : node.children) {
+            for (const auto& row : section->children) {
+                if (row->kind != document::NodeKind::table_row) continue;
+                if (!first_row) AppendSynthetic(output, "\n", row->source.begin, row->source.begin);
+                std::uint32_t column_index{};
+                for (const auto& cell : row->children) {
+                    if (cell->kind != document::NodeKind::table_cell) continue;
+                    if (column_index > 0)
+                        AppendSynthetic(output, "\t", cell->source.begin, cell->source.begin);
+                    const auto cell_begin = static_cast<std::uint64_t>(output.text.size());
+                    for (const auto& child : cell->children)
+                        Inline(*child, output, source, document_path);
+                    const auto cell_end = static_cast<std::uint64_t>(output.text.size());
+                    output.spans.push_back({document::NodeKind::table_cell, cell_begin, cell_end,
+                        0, 0, false, false, ImageDisplayState::missing, 0, 0, 100, {},
+                        row_index, column_index});
+                    ++column_index;
+                }
+                ++row_index;
+                first_row = false;
+            }
+        }
     }
     const auto end = static_cast<std::uint64_t>(output.text.size());
     if (node.kind == document::NodeKind::heading ||
         node.kind == document::NodeKind::quote ||
         node.kind == document::NodeKind::code_block ||
-        node.kind == document::NodeKind::thematic_break) {
+        node.kind == document::NodeKind::thematic_break ||
+        node.kind == document::NodeKind::table) {
         std::uint8_t level{};
         if (const auto* heading = std::get_if<document::HeadingAttributes>(&node.attributes))
             level = heading->level;

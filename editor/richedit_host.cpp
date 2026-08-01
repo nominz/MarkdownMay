@@ -128,6 +128,9 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
             ? RGB(235, 245, 252) : RGB(250, 240, 230);
         format.crTextColor = span.image_state == ImageDisplayState::ready
             ? RGB(35, 90, 125) : RGB(145, 80, 45);
+    } else if (span.kind == document::NodeKind::table_cell) {
+        format.dwMask = CFM_BACKCOLOR;
+        format.crBackColor = span.table_row == 0 ? RGB(230, 236, 242) : RGB(248, 248, 248);
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
@@ -158,15 +161,21 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
     }
     if (span.kind == document::NodeKind::quote ||
         span.kind == document::NodeKind::thematic_break ||
-        span.kind == document::NodeKind::list_item) {
+        span.kind == document::NodeKind::list_item ||
+        span.kind == document::NodeKind::table) {
         PARAFORMAT2 paragraph{};
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
-            ? PFM_ALIGNMENT : PFM_STARTINDENT;
+            ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
+            ? PFM_TABSTOPS : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote) paragraph.dxStartIndent = 360;
         else if (span.kind == document::NodeKind::list_item)
             paragraph.dxStartIndent = 360 + static_cast<LONG>(span.list_depth) * 360;
-        else paragraph.wAlignment = PFA_CENTER;
+        else if (span.kind == document::NodeKind::table) {
+            paragraph.cTabCount = 8;
+            for (LONG index = 0; index < paragraph.cTabCount; ++index)
+                paragraph.rgxTabs[index] = (index + 1) * 1440;
+        } else paragraph.wAlignment = PFA_CENTER;
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));
     }
@@ -177,7 +186,7 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
 RichEditHost::RichEditHost(document::DocumentSession& session)
     : session_(session), editor_(session), formatter_(session, editor_),
       block_formatter_(session, editor_), list_editor_(session, editor_),
-      image_controller_(session, editor_) {}
+      image_controller_(session, editor_), table_editor_(session, editor_) {}
 
 RichEditHost::~RichEditHost() {
     if (handle_ && IsWindow(handle_)) DestroyWindow(handle_);
@@ -464,6 +473,51 @@ ErrorCode RichEditHost::remove_image(document::NodeId image) {
     const auto result = document_path_.empty()
         ? image_controller_.remove(image)
         : image_controller_.remove_managed(document_path_, image);
+    return result == ErrorCode::ok ? project() : result;
+}
+
+ErrorCode RichEditHost::insert_table(std::size_t rows, std::size_t columns) {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = table_editor_.insert(rows, columns);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::set_table_cell(document::NodeId table, TablePosition cell,
+                                       std::string_view text) {
+    const auto result = table_editor_.set_cell(table, cell, text);
+    return result == ErrorCode::ok ? project() : result;
+}
+Result<TablePosition> RichEditHost::navigate_table(document::NodeId table,
+    TablePosition cell, bool forward) {
+    auto result = table_editor_.navigate(table, cell, forward);
+    if (!result.is_ok()) return result;
+    const auto position = result.value();
+    const auto projected = project();
+    return projected == ErrorCode::ok ? Result<TablePosition>::success(position)
+                                      : Result<TablePosition>::failure(projected);
+}
+ErrorCode RichEditHost::insert_table_row(document::NodeId table, std::size_t before) {
+    const auto result = table_editor_.insert_row(table, before);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::delete_table_row(document::NodeId table, std::size_t row) {
+    const auto result = table_editor_.delete_row(table, row);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::insert_table_column(document::NodeId table, std::size_t before) {
+    const auto result = table_editor_.insert_column(table, before);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::delete_table_column(document::NodeId table, std::size_t column) {
+    const auto result = table_editor_.delete_column(table, column);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::paste_table(document::NodeId table, TablePosition start,
+                                    std::string_view tsv) {
+    const auto result = table_editor_.paste_tsv(table, start, tsv);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::remove_table(document::NodeId table) {
+    const auto result = table_editor_.remove(table);
     return result == ErrorCode::ok ? project() : result;
 }
 

@@ -7,6 +7,7 @@ add_library(markdownmay_editor STATIC
     paragraph_editor.cpp
     rich_projection.cpp
     richedit_host.cpp
+    table_editor.cpp
 )
 target_include_directories(markdownmay_editor PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(

@@ -5,6 +5,7 @@
 #include "markdownmay/editor/block_formatter.hpp"
 #include "markdownmay/editor/list_editor.hpp"
 #include "markdownmay/editor/image_controller.hpp"
+#include "markdownmay/editor/table_editor.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
 
 #include <windows.h>
@@ -42,6 +43,18 @@ public:
         std::string_view alternative, std::string_view title = {});
     [[nodiscard]] ErrorCode resize_image(document::NodeId image, std::uint16_t percent);
     [[nodiscard]] ErrorCode remove_image(document::NodeId image);
+    [[nodiscard]] ErrorCode insert_table(std::size_t rows, std::size_t columns);
+    [[nodiscard]] ErrorCode set_table_cell(document::NodeId table, TablePosition cell,
+                                           std::string_view text);
+    [[nodiscard]] Result<TablePosition> navigate_table(document::NodeId table,
+        TablePosition cell, bool forward);
+    [[nodiscard]] ErrorCode insert_table_row(document::NodeId table, std::size_t before);
+    [[nodiscard]] ErrorCode delete_table_row(document::NodeId table, std::size_t row);
+    [[nodiscard]] ErrorCode insert_table_column(document::NodeId table, std::size_t before);
+    [[nodiscard]] ErrorCode delete_table_column(document::NodeId table, std::size_t column);
+    [[nodiscard]] ErrorCode paste_table(document::NodeId table, TablePosition start,
+                                        std::string_view tsv);
+    [[nodiscard]] ErrorCode remove_table(document::NodeId table);
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
@@ -53,6 +66,7 @@ private:
     BlockFormatter block_formatter_;
     ListEditor list_editor_;
     ImageController image_controller_;
+    TableEditor table_editor_;
     std::filesystem::path document_path_;
     HWND handle_{};
     HMODULE rich_edit_module_{};

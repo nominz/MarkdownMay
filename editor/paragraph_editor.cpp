@@ -36,7 +36,12 @@ bool IsSupportedBlock(const document::Node& block) {
             [](const auto& child) { return IsSupportedBlock(*child); });
     }
     if (block.kind == document::NodeKind::list ||
-        block.kind == document::NodeKind::list_item) {
+        block.kind == document::NodeKind::list_item ||
+        block.kind == document::NodeKind::table ||
+        block.kind == document::NodeKind::table_head ||
+        block.kind == document::NodeKind::table_body ||
+        block.kind == document::NodeKind::table_row ||
+        block.kind == document::NodeKind::table_cell) {
         return std::all_of(block.children.begin(), block.children.end(),
             [](const auto& child) { return IsSupportedBlock(*child); });
     }

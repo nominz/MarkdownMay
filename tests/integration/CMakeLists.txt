@@ -39,3 +39,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor user32
 )
 add_test(NAME wysiwyg_image_integration COMMAND MarkdownMayWysiwygImage)
+
+add_executable(MarkdownMayWysiwygTable WIN32 wysiwyg_table_test.cpp)
+target_link_libraries(
+    MarkdownMayWysiwygTable
+    PRIVATE markdownmay_compiler_options markdownmay_editor user32
+)
+add_test(NAME wysiwyg_table_integration COMMAND MarkdownMayWysiwygTable)

@@ -23,6 +23,8 @@ struct ProjectionSpan final {
     std::uint32_t image_height{};
     std::uint16_t image_display_percent{100};
     std::filesystem::path image_path;
+    std::uint32_t table_row{};
+    std::uint32_t table_column{};
 };
 
 struct RichProjection final {
