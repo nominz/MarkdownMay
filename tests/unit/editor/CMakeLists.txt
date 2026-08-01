@@ -39,3 +39,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME table_editor_unit COMMAND MarkdownMayTableEditorUnit)
+
+add_executable(MarkdownMayInputControllerUnit input_controller_test.cpp)
+target_link_libraries(
+    MarkdownMayInputControllerUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME input_controller_unit COMMAND MarkdownMayInputControllerUnit)

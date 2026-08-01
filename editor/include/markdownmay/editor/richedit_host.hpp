@@ -6,11 +6,17 @@
 #include "markdownmay/editor/list_editor.hpp"
 #include "markdownmay/editor/image_controller.hpp"
 #include "markdownmay/editor/table_editor.hpp"
+#include "markdownmay/editor/clipboard_controller.hpp"
+#include "markdownmay/editor/find_replace_controller.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
 
 #include <windows.h>
 
 namespace markdownmay::editor {
+
+enum class EditorCommand : std::uint8_t {
+    bold, italic, strike, inline_code, quote, unordered_list, ordered_list, task_list
+};
 
 class RichEditHost final {
 public:
@@ -55,6 +61,21 @@ public:
     [[nodiscard]] ErrorCode paste_table(document::NodeId table, TablePosition start,
                                         std::string_view tsv);
     [[nodiscard]] ErrorCode remove_table(document::NodeId table);
+    [[nodiscard]] Result<TextSelection> find_text(std::string_view query, bool forward,
+        bool case_sensitive, bool wrap = true);
+    [[nodiscard]] ErrorCode replace_text(std::string_view query,
+        std::string_view replacement, bool case_sensitive);
+    [[nodiscard]] Result<std::size_t> replace_all_text(std::string_view query,
+        std::string_view replacement, bool case_sensitive);
+    [[nodiscard]] ErrorCode paste_plain(std::string_view text);
+    [[nodiscard]] ErrorCode paste_html(std::string_view html);
+    [[nodiscard]] Result<DropResult> drop_files(
+        std::span<const std::filesystem::path> files, bool copy_images_to_assets = true);
+    [[nodiscard]] ErrorCode paste_from_clipboard();
+    [[nodiscard]] ErrorCode copy();
+    [[nodiscard]] ErrorCode cut();
+    [[nodiscard]] ErrorCode select_all();
+    [[nodiscard]] ErrorCode execute(EditorCommand command);
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
@@ -67,6 +88,8 @@ private:
     ListEditor list_editor_;
     ImageController image_controller_;
     TableEditor table_editor_;
+    ClipboardController clipboard_controller_;
+    FindReplaceController find_replace_controller_;
     std::filesystem::path document_path_;
     HWND handle_{};
     HMODULE rich_edit_module_{};

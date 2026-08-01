@@ -85,6 +85,17 @@ ErrorCode MapControlSelection(HWND handle, const RichProjection& projection,
         {projection.source_offsets[begin], projection.source_offsets[end]});
 }
 
+void SelectSourceRange(HWND handle, const RichProjection& projection, TextSelection source) {
+    std::size_t begin{}, end{};
+    while (begin + 1 < projection.source_offsets.size() &&
+           projection.source_offsets[begin] < source.anchor) ++begin;
+    end = begin;
+    while (end + 1 < projection.source_offsets.size() &&
+           projection.source_offsets[end] < source.caret) ++end;
+    CHARRANGE selected{Utf16Length(projection.text, begin), Utf16Length(projection.text, end)};
+    SendMessageW(handle, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+}
+
 void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span) {
     const auto begin = Utf16Length(projection.text, span.begin);
     const auto end = Utf16Length(projection.text, span.end);
@@ -186,7 +197,9 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
 RichEditHost::RichEditHost(document::DocumentSession& session)
     : session_(session), editor_(session), formatter_(session, editor_),
       block_formatter_(session, editor_), list_editor_(session, editor_),
-      image_controller_(session, editor_), table_editor_(session, editor_) {}
+      image_controller_(session, editor_), table_editor_(session, editor_),
+      clipboard_controller_(session, editor_, image_controller_),
+      find_replace_controller_(session, editor_) {}
 
 RichEditHost::~RichEditHost() {
     if (handle_ && IsWindow(handle_)) DestroyWindow(handle_);
@@ -519,6 +532,106 @@ ErrorCode RichEditHost::paste_table(document::NodeId table, TablePosition start,
 ErrorCode RichEditHost::remove_table(document::NodeId table) {
     const auto result = table_editor_.remove(table);
     return result == ErrorCode::ok ? project() : result;
+}
+
+Result<TextSelection> RichEditHost::find_text(std::string_view query, bool forward,
+    bool case_sensitive, bool wrap) {
+    auto result = find_replace_controller_.find(query, forward, case_sensitive, wrap);
+    if (result.is_ok()) SelectSourceRange(handle_, projection_, result.value());
+    return result;
+}
+ErrorCode RichEditHost::replace_text(std::string_view query,
+    std::string_view replacement, bool case_sensitive) {
+    const auto result = find_replace_controller_.replace_current(query, replacement, case_sensitive);
+    return result == ErrorCode::ok ? project() : result;
+}
+Result<std::size_t> RichEditHost::replace_all_text(std::string_view query,
+    std::string_view replacement, bool case_sensitive) {
+    auto result = find_replace_controller_.replace_all(query, replacement, case_sensitive);
+    if (!result.is_ok()) return result;
+    const auto count = result.value();
+    const auto projected = project();
+    return projected == ErrorCode::ok ? Result<std::size_t>::success(count)
+                                      : Result<std::size_t>::failure(projected);
+}
+ErrorCode RichEditHost::paste_plain(std::string_view text) {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = clipboard_controller_.paste_plain(text);
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::paste_html(std::string_view html) {
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result == ErrorCode::ok) result = clipboard_controller_.paste_html(html);
+    return result == ErrorCode::ok ? project() : result;
+}
+Result<DropResult> RichEditHost::drop_files(
+    std::span<const std::filesystem::path> files, bool copy_images_to_assets) {
+    auto mapped = MapControlSelection(handle_, projection_, editor_);
+    if (mapped != ErrorCode::ok) return Result<DropResult>::failure(mapped);
+    auto result = clipboard_controller_.drop_files(document_path_, files, copy_images_to_assets);
+    if (!result.is_ok()) return result;
+    const auto value = result.value();
+    const auto projected = project();
+    return projected == ErrorCode::ok ? Result<DropResult>::success(value)
+                                      : Result<DropResult>::failure(projected);
+}
+ErrorCode RichEditHost::paste_from_clipboard() {
+    const auto mapped = MapControlSelection(handle_, projection_, editor_);
+    if (mapped != ErrorCode::ok) return mapped;
+    if (!OpenClipboard(handle_)) return ErrorCode::editor_unmapped_rich_edit_change;
+    ErrorCode result = ErrorCode::editor_unmapped_rich_edit_change;
+    if (const auto bitmap = static_cast<HBITMAP>(GetClipboardData(CF_BITMAP))) {
+        result = clipboard_controller_.paste_bitmap(document_path_, bitmap);
+    } else if (const auto html_format = RegisterClipboardFormatW(L"HTML Format");
+               html_format != 0 && IsClipboardFormatAvailable(html_format)) {
+        const auto data = GetClipboardData(html_format);
+        const auto* bytes = data ? static_cast<const char*>(GlobalLock(data)) : nullptr;
+        if (bytes) {
+            std::string html(bytes);
+            const auto begin = html.find("<!--StartFragment-->");
+            const auto end = html.find("<!--EndFragment-->");
+            if (begin != std::string::npos && end != std::string::npos && end >= begin + 20)
+                html = html.substr(begin + 20, end - begin - 20);
+            result = clipboard_controller_.paste_html(html);
+            GlobalUnlock(data);
+        }
+    } else if (const auto data = GetClipboardData(CF_UNICODETEXT)) {
+        const auto* text = static_cast<const wchar_t*>(GlobalLock(data));
+        if (text) { result = clipboard_controller_.paste_plain(ToUtf8(text)); GlobalUnlock(data); }
+    }
+    CloseClipboard();
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::copy() { SendMessageW(handle_, WM_COPY, 0, 0); return ErrorCode::ok; }
+ErrorCode RichEditHost::cut() {
+    static_cast<void>(copy());
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result != ErrorCode::ok) {
+        CHARRANGE selected{};
+        SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+        if (selected.cpMin == 0 && selected.cpMax >= GetWindowTextLengthW(handle_)) {
+            const auto size = session_.snapshot().source.size();
+            result = editor_.set_selection({0, size});
+        }
+    }
+    if (result == ErrorCode::ok) result = editor_.insert_text({});
+    return result == ErrorCode::ok ? project() : result;
+}
+ErrorCode RichEditHost::select_all() {
+    SendMessageW(handle_, EM_SETSEL, 0, -1); return ErrorCode::ok;
+}
+ErrorCode RichEditHost::execute(EditorCommand command) {
+    switch (command) {
+        case EditorCommand::bold: return toggle_inline(InlineFormat::bold);
+        case EditorCommand::italic: return toggle_inline(InlineFormat::italic);
+        case EditorCommand::strike: return toggle_inline(InlineFormat::strike);
+        case EditorCommand::inline_code: return toggle_inline(InlineFormat::code);
+        case EditorCommand::quote: return toggle_quote();
+        case EditorCommand::unordered_list: return toggle_unordered_list();
+        case EditorCommand::ordered_list: return toggle_ordered_list();
+        case EditorCommand::task_list: return toggle_task_list();
+    }
+    return ErrorCode::editor_unmapped_rich_edit_change;
 }
 
 ErrorCode RichEditHost::undo() {
