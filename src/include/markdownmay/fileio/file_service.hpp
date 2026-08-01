@@ -5,6 +5,7 @@
 #include "markdownmay/fileio/text_encoding.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace markdownmay::fileio {
@@ -23,9 +24,15 @@ struct SaveRequest final {
     LineEnding line_ending{LineEnding::crlf};
 };
 
+using BeforeAtomicReplace = std::function<ErrorCode(
+    const std::filesystem::path& temporary,
+    const std::filesystem::path& target)>;
+
 [[nodiscard]] Result<LoadedFile> LoadTextFile(
     const std::filesystem::path& path,
     std::uint64_t maximum_bytes = 100ULL * 1024ULL * 1024ULL);
 [[nodiscard]] ErrorCode SaveTextFileAtomic(const SaveRequest& request);
+[[nodiscard]] ErrorCode SaveTextFileAtomic(
+    const SaveRequest& request, BeforeAtomicReplace before_replace);
 
 }  // namespace markdownmay::fileio

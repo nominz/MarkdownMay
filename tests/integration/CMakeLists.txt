@@ -85,3 +85,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
 )
 add_test(NAME view_modes_integration COMMAND MarkdownMayViewModes)
+
+add_executable(MarkdownMaySaveReopen WIN32 save_reopen_test.cpp)
+target_link_libraries(
+    MarkdownMaySaveReopen
+    PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
+)
+add_test(NAME save_reopen_integration COMMAND MarkdownMaySaveReopen)

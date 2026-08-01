@@ -99,6 +99,11 @@ Result<LoadedFile> LoadTextFile(
 }
 
 ErrorCode SaveTextFileAtomic(const SaveRequest& request) {
+    return SaveTextFileAtomic(request, {});
+}
+
+ErrorCode SaveTextFileAtomic(const SaveRequest& request,
+                             BeforeAtomicReplace before_replace) {
     auto normalized = NormalizeAbsolutePath(request.target);
     if (!normalized.is_ok() || request.line_ending == LineEnding::mixed) {
         return ErrorCode::file_write_failed;
@@ -115,6 +120,26 @@ ErrorCode SaveTextFileAtomic(const SaveRequest& request) {
         std::error_code ignored;
         std::filesystem::remove(temporary, ignored);
         return write_result;
+    }
+    const auto verified = LoadTextFile(temporary);
+    if (!verified.is_ok() || verified.value().source != normalized_text ||
+        verified.value().encoding != request.encoding) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return ErrorCode::file_write_failed;
+    }
+    if (before_replace) {
+        ErrorCode checkpoint = ErrorCode::file_write_failed;
+        try {
+            checkpoint = before_replace(temporary, normalized.value());
+        } catch (...) {
+            checkpoint = ErrorCode::file_write_failed;
+        }
+        if (checkpoint != ErrorCode::ok) {
+            std::error_code ignored;
+            std::filesystem::remove(temporary, ignored);
+            return checkpoint;
+        }
     }
     const bool exists = std::filesystem::exists(normalized.value());
     const BOOL replaced = exists

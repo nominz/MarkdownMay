@@ -49,6 +49,35 @@ int RunFileServiceTests() {
     if (!loaded.is_ok() || loaded.value().source != before) {
         cleanup(); return 25;
     }
+
+    const auto injected = SaveTextFileAtomic(
+        {target, "# replacement\n", TextEncoding::utf8, LineEnding::lf},
+        [](const std::filesystem::path& temporary,
+           const std::filesystem::path& target_path) {
+            if (!std::filesystem::exists(temporary) ||
+                !std::filesystem::exists(target_path))
+                return ErrorCode::document_invalid_state;
+            return ErrorCode::file_write_failed;
+        });
+    if (injected != ErrorCode::file_write_failed) { cleanup(); return 26; }
+    loaded = LoadTextFile(target);
+    if (!loaded.is_ok() || loaded.value().source != before) {
+        cleanup(); return 27;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(root)) {
+        if (entry.path().filename().wstring().find(L".markdownmay.tmp-") !=
+            std::wstring::npos) { cleanup(); return 28; }
+    }
+    if (SaveTextFileAtomic(
+            {target, "throwing hook\n", TextEncoding::utf8, LineEnding::lf},
+            [](const std::filesystem::path&, const std::filesystem::path&)
+                -> ErrorCode { throw 1; }) != ErrorCode::file_write_failed) {
+        cleanup(); return 29;
+    }
+    loaded = LoadTextFile(target);
+    if (!loaded.is_ok() || loaded.value().source != before) {
+        cleanup(); return 30;
+    }
     cleanup();
     return 0;
 }

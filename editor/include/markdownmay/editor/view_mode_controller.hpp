@@ -2,9 +2,11 @@
 
 #include "markdownmay/editor/richedit_host.hpp"
 #include "markdownmay/editor/split_view.hpp"
+#include "markdownmay/fileio/file_service.hpp"
 
 #include <windows.h>
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,6 +26,9 @@ public:
     [[nodiscard]] ErrorCode switch_to(ViewMode target);
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
+    [[nodiscard]] ErrorCode save(const std::filesystem::path& target,
+        fileio::TextEncoding encoding, fileio::LineEnding line_ending,
+        fileio::BeforeAtomicReplace before_replace = {});
     [[nodiscard]] bool can_undo() const noexcept;
     [[nodiscard]] bool can_redo() const noexcept;
     [[nodiscard]] ViewMode mode() const noexcept;
@@ -43,6 +48,7 @@ private:
     [[nodiscard]] ErrorCode RefreshActive();
     [[nodiscard]] ErrorCode ApplyHistory(std::string source,
                                           document::EditOrigin origin);
+    [[nodiscard]] ErrorCode SynchronizeActive();
 
     document::DocumentSession& session_;
     RichEditHost render_;

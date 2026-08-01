@@ -1,7 +1,10 @@
 #include "markdownmay/editor/view_mode_controller.hpp"
 
+#include "markdownmay/fileio/line_endings.hpp"
+
 #include <algorithm>
 #include <mutex>
+#include <utility>
 
 namespace markdownmay::editor {
 namespace {
@@ -122,6 +125,34 @@ ErrorCode ViewModeController::redo() {
     return RefreshActive();
 }
 
+ErrorCode ViewModeController::save(const std::filesystem::path& target,
+                                   fileio::TextEncoding encoding,
+                                   fileio::LineEnding line_ending,
+                                   fileio::BeforeAtomicReplace before_replace) {
+    const auto synchronized = SynchronizeActive();
+    const bool source_mode = mode_ != ViewMode::render;
+    if (synchronized != ErrorCode::ok &&
+        !(source_mode && synchronized == ErrorCode::markdown_parse_failed)) {
+        return synchronized;
+    }
+    if (!source_mode && !session_.can_export())
+        return ErrorCode::document_invariant_failed;
+
+    const auto snapshot = session_.snapshot();
+    const auto written = fileio::SaveTextFileAtomic(
+        {target, snapshot.source, encoding, line_ending}, std::move(before_replace));
+    if (written != ErrorCode::ok) return written;
+
+    const auto reopened = fileio::LoadTextFile(target);
+    if (!reopened.is_ok() || reopened.value().encoding != encoding ||
+        reopened.value().line_ending != line_ending ||
+        reopened.value().source != fileio::NormalizeLineEndings(
+            snapshot.source, line_ending)) {
+        return ErrorCode::file_read_failed;
+    }
+    return session_.mark_saved(snapshot.source_revision);
+}
+
 bool ViewModeController::can_undo() const noexcept { return !undo_.empty(); }
 bool ViewModeController::can_redo() const noexcept { return !redo_.empty(); }
 ViewMode ViewModeController::mode() const noexcept { return mode_; }
@@ -208,6 +239,12 @@ ErrorCode ViewModeController::ApplyHistory(std::string source,
     applying_history_ = false;
     if (result == ErrorCode::ok) observed_source_ = session_.snapshot().source;
     return result;
+}
+
+ErrorCode ViewModeController::SynchronizeActive() {
+    return mode_ == ViewMode::render
+        ? render_.synchronize_change()
+        : split_.source_view().synchronize_now();
 }
 
 }  // namespace markdownmay::editor
