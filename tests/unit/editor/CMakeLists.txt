@@ -46,3 +46,14 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME input_controller_unit COMMAND MarkdownMayInputControllerUnit)
+
+add_executable(MarkdownMayFullProjectionUnit full_projection_test.cpp)
+target_compile_definitions(
+    MarkdownMayFullProjectionUnit
+    PRIVATE MARKDOWNMAY_COMPLETE_FIXTURE=L"${PROJECT_SOURCE_DIR}/tests/fixtures/complete_markdown.md"
+)
+target_link_libraries(
+    MarkdownMayFullProjectionUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME full_projection_unit COMMAND MarkdownMayFullProjectionUnit)

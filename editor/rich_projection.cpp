@@ -13,6 +13,20 @@ void AppendMapped(RichProjection& output, std::string_view text, std::uint64_t s
     }
 }
 
+void AppendMappedRange(RichProjection& output, std::string_view text,
+                       std::uint64_t source_begin, std::uint64_t source_end) {
+    if (source_end - source_begin == text.size()) {
+        AppendMapped(output, text, source_begin);
+        return;
+    }
+    if (output.source_offsets.empty()) output.source_offsets.push_back(source_begin);
+    for (const auto value : text) {
+        output.text.push_back(value);
+        output.source_offsets.push_back(source_begin);
+    }
+    output.source_offsets.back() = source_end;
+}
+
 void AppendSynthetic(RichProjection& output, std::string_view text,
                      std::uint64_t source_begin, std::uint64_t source_end);
 
@@ -30,7 +44,7 @@ void Inline(const document::Node& node, RichProjection& output,
     const auto begin = static_cast<std::uint64_t>(output.text.size());
     if (node.kind == document::NodeKind::text ||
         node.kind == document::NodeKind::inline_code) {
-        AppendMapped(output, node.text, node.source.begin);
+        AppendMappedRange(output, node.text, node.source.begin, node.source.end);
     } else if (node.kind == document::NodeKind::image) {
         const auto* attributes = std::get_if<document::LinkAttributes>(&node.attributes);
         const auto alternative = ChildrenText(node);
@@ -123,7 +137,9 @@ void Block(const document::Node& node, RichProjection& output,
             first = false;
         }
     } else if (node.kind == document::NodeKind::code_block) {
-        AppendMapped(output, node.text, node.source.begin);
+        AppendMappedRange(output, node.text, node.source.begin, node.source.end);
+    } else if (node.kind == document::NodeKind::unknown_block) {
+        AppendMappedRange(output, node.text, node.source.begin, node.source.end);
     } else if (node.kind == document::NodeKind::thematic_break) {
         AppendSynthetic(output, "────────", node.source.begin, node.source.end);
     } else if (node.kind == document::NodeKind::list) {
@@ -185,6 +201,7 @@ void Block(const document::Node& node, RichProjection& output,
     if (node.kind == document::NodeKind::heading ||
         node.kind == document::NodeKind::quote ||
         node.kind == document::NodeKind::code_block ||
+        node.kind == document::NodeKind::unknown_block ||
         node.kind == document::NodeKind::thematic_break ||
         node.kind == document::NodeKind::table) {
         std::uint8_t level{};

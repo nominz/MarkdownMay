@@ -53,3 +53,14 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor user32
 )
 add_test(NAME wysiwyg_input_integration COMMAND MarkdownMayWysiwygInput)
+
+add_executable(MarkdownMayWysiwygComplete WIN32 wysiwyg_complete_test.cpp)
+target_compile_definitions(
+    MarkdownMayWysiwygComplete
+    PRIVATE MARKDOWNMAY_COMPLETE_FIXTURE=L"${PROJECT_SOURCE_DIR}/tests/fixtures/complete_markdown.md"
+)
+target_link_libraries(
+    MarkdownMayWysiwygComplete
+    PRIVATE markdownmay_compiler_options markdownmay_editor user32
+)
+add_test(NAME wysiwyg_complete_integration COMMAND MarkdownMayWysiwygComplete)

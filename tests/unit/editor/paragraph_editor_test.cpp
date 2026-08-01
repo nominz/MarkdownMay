@@ -24,12 +24,14 @@ int main() {
     if (editor.undo() != ErrorCode::ok ||
         session.snapshot().source != "新好一段\n\nsecond") return 7;
 
-    const auto before_rejected = session.snapshot();
+    const auto before_raw = session.snapshot();
+    const std::string raw = "<div>x</div>\n\n";
     if (editor.set_selection({0, 0}) != ErrorCode::ok ||
-        editor.insert_text("<div>x</div>\n\n") != ErrorCode::editor_unmapped_rich_edit_change ||
-        session.snapshot().source != before_rejected.source ||
-        session.snapshot().source_revision != before_rejected.source_revision) return 8;
-    if (editor.set_selection({1, 1}) != ErrorCode::editor_selection_mapping_failed) return 9;
+        editor.insert_text(raw) != ErrorCode::ok ||
+        session.snapshot().source != raw + before_raw.source ||
+        session.snapshot().source.find(raw) != 0) return 8;
+    if (editor.set_selection({raw.size() + 1, raw.size() + 1}) !=
+        ErrorCode::editor_selection_mapping_failed) return 9;
 
     document::EditTransaction external{99, session.snapshot().source_revision,
         document::EditOrigin::source_view, {{{0, 0}, "外"}}};

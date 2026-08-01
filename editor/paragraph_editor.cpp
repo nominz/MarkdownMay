@@ -31,6 +31,7 @@ bool IsSupportedBlock(const document::Node& block) {
     if (IsSupportedInline(block)) return true;
     if (block.kind == document::NodeKind::thematic_break) return block.children.empty();
     if (block.kind == document::NodeKind::code_block) return block.children.empty();
+    if (block.kind == document::NodeKind::unknown_block) return block.children.empty();
     if (block.kind == document::NodeKind::quote) {
         return std::all_of(block.children.begin(), block.children.end(),
             [](const auto& child) { return IsSupportedBlock(*child); });

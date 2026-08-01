@@ -124,6 +124,11 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
         format.dwMask = CFM_FACE | CFM_BACKCOLOR;
         format.crBackColor = RGB(245, 245, 245);
         wcscpy_s(format.szFaceName, L"Consolas");
+    } else if (span.kind == document::NodeKind::unknown_block) {
+        format.dwMask = CFM_FACE | CFM_BACKCOLOR | CFM_COLOR;
+        format.crBackColor = RGB(250, 245, 235);
+        format.crTextColor = RGB(105, 80, 55);
+        wcscpy_s(format.szFaceName, L"Consolas");
     } else if (span.kind == document::NodeKind::quote) {
         format.dwMask = CFM_COLOR;
         format.crTextColor = RGB(96, 96, 96);
