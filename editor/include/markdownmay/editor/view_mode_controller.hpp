@@ -26,6 +26,11 @@ public:
     [[nodiscard]] ErrorCode switch_to(ViewMode target);
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
+    [[nodiscard]] ErrorCode cut();
+    [[nodiscard]] ErrorCode copy();
+    [[nodiscard]] ErrorCode paste();
+    [[nodiscard]] ErrorCode select_all();
+    [[nodiscard]] ErrorCode execute(EditorCommand command);
     [[nodiscard]] ErrorCode save(const std::filesystem::path& target,
         fileio::TextEncoding encoding, fileio::LineEnding line_ending,
         fileio::BeforeAtomicReplace before_replace = {});

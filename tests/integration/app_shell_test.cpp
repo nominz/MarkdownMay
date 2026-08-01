@@ -1,3 +1,4 @@
+#include "markdownmay/app/command_dispatcher.hpp"
 #include "markdownmay/ui/main_window.hpp"
 
 #include <objbase.h>
@@ -11,6 +12,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (FAILED(com)) return 1;
     document::DocumentSession session("");
     ui::MainWindow window(session);
+    bool exit_requested{};
+    app::CommandDispatcher dispatcher(window.document_window(),
+        [&exit_requested] { exit_requested = true; });
+    window.set_command_callbacks(
+        [&dispatcher](app::CommandId command) { return dispatcher.query(command); },
+        [&dispatcher](app::CommandId command) {
+            static_cast<void>(dispatcher.execute(command));
+        });
     if (window.create(instance, SW_HIDE) != ErrorCode::ok || !window.handle()) {
         CoUninitialize();
         return 2;
@@ -26,6 +35,36 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CoUninitialize();
         return 3;
     }
+    static_assert(static_cast<std::uint16_t>(app::CommandId::file_new) == 100);
+    static_assert(static_cast<std::uint16_t>(app::CommandId::edit_undo) == 200);
+    static_assert(static_cast<std::uint16_t>(app::CommandId::format_bold) == 300);
+    static_assert(static_cast<std::uint16_t>(app::CommandId::view_render) == 400);
+    if (!GetMenu(window.handle()) ||
+        dispatcher.query(app::CommandId::file_open).enabled ||
+        !dispatcher.query(app::CommandId::view_render).checked ||
+        (GetMenuState(GetMenu(window.handle()),
+             static_cast<UINT>(app::CommandId::file_open), MF_BYCOMMAND) &
+             (MF_DISABLED | MF_GRAYED)) == 0) {
+        DestroyWindow(window.handle());
+        CoUninitialize();
+        return 4;
+    }
+    if (dispatcher.execute(app::CommandId::view_source) != ErrorCode::ok ||
+        !dispatcher.query(app::CommandId::view_source).checked ||
+        dispatcher.query(app::CommandId::format_bold).enabled) {
+        DestroyWindow(window.handle());
+        CoUninitialize();
+        return 5;
+    }
+    SendMessageW(window.handle(), WM_COMMAND,
+        static_cast<WPARAM>(app::CommandId::view_split), 0);
+    if (!dispatcher.query(app::CommandId::view_split).checked ||
+        dispatcher.execute(app::CommandId::file_exit) != ErrorCode::ok ||
+        !exit_requested) {
+        DestroyWindow(window.handle());
+        CoUninitialize();
+        return 6;
+    }
     SetWindowPos(window.handle(), nullptr, 0, 0, 760, 520,
         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     RECT client{};
@@ -38,7 +77,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         corners[1].x != client.right || corners[1].y != client.bottom) {
         DestroyWindow(window.handle());
         CoUninitialize();
-        return 4;
+        return 7;
     }
     DestroyWindow(window.handle());
     CoUninitialize();

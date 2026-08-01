@@ -125,6 +125,29 @@ ErrorCode ViewModeController::redo() {
     return RefreshActive();
 }
 
+ErrorCode ViewModeController::cut() {
+    return mode_ == ViewMode::render ? render_.cut() : split_.source_view().cut();
+}
+
+ErrorCode ViewModeController::copy() {
+    return mode_ == ViewMode::render ? render_.copy() : split_.source_view().copy();
+}
+
+ErrorCode ViewModeController::paste() {
+    return mode_ == ViewMode::render
+        ? render_.paste_from_clipboard() : split_.source_view().paste();
+}
+
+ErrorCode ViewModeController::select_all() {
+    return mode_ == ViewMode::render
+        ? render_.select_all() : split_.source_view().select_all();
+}
+
+ErrorCode ViewModeController::execute(EditorCommand command) {
+    if (mode_ != ViewMode::render) return ErrorCode::document_invalid_state;
+    return render_.execute(command);
+}
+
 ErrorCode ViewModeController::save(const std::filesystem::path& target,
                                    fileio::TextEncoding encoding,
                                    fileio::LineEnding line_ending,

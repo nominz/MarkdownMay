@@ -1,6 +1,7 @@
 #include "markdownmay/ui/main_window.hpp"
 
 #include <mutex>
+#include <utility>
 
 namespace markdownmay::ui {
 namespace {
@@ -45,6 +46,14 @@ ErrorCode MainWindow::create(HINSTANCE instance, int show_command) {
 
 HWND MainWindow::handle() const noexcept { return handle_; }
 DocumentWindow& MainWindow::document_window() noexcept { return document_window_; }
+void MainWindow::set_command_callbacks(MenuController::Query query,
+                                       MenuController::Execute execute) {
+    menu_controller_ = std::make_unique<MenuController>(
+        std::move(query), std::move(execute));
+}
+HACCEL MainWindow::accelerator() const noexcept {
+    return menu_controller_ ? menu_controller_->accelerator() : nullptr;
+}
 
 LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                                               WPARAM w_param, LPARAM l_param) {
@@ -59,7 +68,17 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
     try {
         switch (message) {
         case WM_CREATE:
-            return self->CreateDocumentWindow() == ErrorCode::ok ? 0 : -1;
+            if (self->CreateDocumentWindow() != ErrorCode::ok) return -1;
+            if (self->menu_controller_ &&
+                !self->menu_controller_->create(window)) return -1;
+            return 0;
+        case WM_COMMAND:
+            if (self->menu_controller_ &&
+                self->menu_controller_->dispatch(LOWORD(w_param))) return 0;
+            break;
+        case WM_INITMENU:
+            if (self->menu_controller_) self->menu_controller_->refresh();
+            return 0;
         case WM_SIZE:
             self->Layout();
             return 0;

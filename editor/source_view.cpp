@@ -133,6 +133,30 @@ ErrorCode SourceView::select_source_range(TextSelection selection) {
     SendEditor(editor_, SCI_SCROLLCARET);
     return ErrorCode::ok;
 }
+
+ErrorCode SourceView::cut() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    SendEditor(editor_, SCI_CUT);
+    return ErrorCode::ok;
+}
+
+ErrorCode SourceView::copy() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    SendEditor(editor_, SCI_COPY);
+    return ErrorCode::ok;
+}
+
+ErrorCode SourceView::paste() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    SendEditor(editor_, SCI_PASTE);
+    return ErrorCode::ok;
+}
+
+ErrorCode SourceView::select_all() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    SendEditor(editor_, SCI_SELECTALL);
+    return ErrorCode::ok;
+}
 void SourceView::set_synchronized_callback(std::function<void(ErrorCode)> callback) {
     synchronized_callback_ = std::move(callback);
 }

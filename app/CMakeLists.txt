@@ -1,4 +1,4 @@
-add_library(markdownmay_app_shell STATIC application.cpp)
+add_library(markdownmay_app_shell STATIC application.cpp command_dispatcher.cpp)
 target_include_directories(markdownmay_app_shell PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(
     markdownmay_app_shell
