@@ -88,5 +88,9 @@ fileio::LineEnding DocumentWindow::line_ending() const noexcept { return line_en
 void DocumentWindow::set_line_ending(fileio::LineEnding line_ending) noexcept {
     line_ending_ = line_ending;
 }
+void DocumentWindow::apply_appearance(COLORREF text, COLORREF background,
+                                      COLORREF accent, UINT dpi) {
+    modes_.apply_appearance(text, background, accent, dpi);
+}
 
 }  // namespace markdownmay::ui

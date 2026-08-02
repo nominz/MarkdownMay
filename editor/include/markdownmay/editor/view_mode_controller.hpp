@@ -43,6 +43,8 @@ public:
     [[nodiscard]] RichEditHost& render_view() noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;
     [[nodiscard]] SplitView& split_view() noexcept;
+    void apply_appearance(COLORREF text, COLORREF background,
+                          COLORREF accent, UINT dpi);
     static LRESULT CALLBACK HostProcedure(HWND window, UINT message,
                                            WPARAM w_param, LPARAM l_param);
 

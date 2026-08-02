@@ -19,6 +19,7 @@ struct ButtonDefinition final {
 }
 
 Toolbar::Toolbar(Query query) : query_(std::move(query)) {}
+Toolbar::~Toolbar() { if (font_) DeleteObject(font_); }
 
 bool Toolbar::create(HWND parent) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
@@ -93,6 +94,19 @@ void Toolbar::refresh() {
 
 HWND Toolbar::handle() const noexcept { return handle_; }
 int Toolbar::height() const noexcept { return height_; }
+void Toolbar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
+    height_ = MulDiv(34, static_cast<int>(dpi), 96);
+    if (font_) DeleteObject(font_);
+    font_ = CreateFontW(-MulDiv(9, static_cast<int>(dpi), 72), 0, 0, 0,
+        FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    if (!handle_) return;
+    SendMessageW(handle_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+    static_cast<void>(text);
+    static_cast<void>(background);
+    SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
+    InvalidateRect(handle_, nullptr, TRUE);
+}
 
 const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {
     switch (static_cast<app::CommandId>(command)) {

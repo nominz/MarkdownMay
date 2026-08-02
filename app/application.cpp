@@ -49,6 +49,9 @@ Application::Application(HINSTANCE instance)
           [this] { return RegisterFileAssociations(); },
           [this] { return UnregisterFileAssociations(); },
           [this] { return OpenDefaultApps(); },
+      }, {
+          [this] { return main_window_.theme_preference(); },
+          [this](ui::ThemePreference value) { main_window_.set_theme_preference(value); },
       }),
       recent_files_(RecentFilePath(), 20),
       file_association_() {

@@ -241,9 +241,29 @@ ErrorCode RichEditHost::project() {
     projecting_ = false;
     if (!success) return ErrorCode::editor_render_projection_failed;
     for (const auto& span : projection_.spans) ApplySpan(handle_, projection_, span);
+    apply_appearance(text_color_, background_color_, dpi_);
     SendMessageW(handle_, EM_SETSEL, static_cast<WPARAM>(rich_text.size()),
                  static_cast<LPARAM>(rich_text.size()));
     return ErrorCode::ok;
+}
+
+void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
+    text_color_ = text; background_color_ = background; dpi_ = dpi ? dpi : 96;
+    if (!handle_) return;
+    const auto was_projecting = projecting_;
+    projecting_ = true;
+    SendMessageW(handle_, EM_SETBKGNDCOLOR, 0, background_color_);
+    CHARFORMAT2W format{};
+    format.cbSize = sizeof(format);
+    format.dwMask = CFM_COLOR | CFM_BACKCOLOR | CFM_FACE | CFM_SIZE;
+    format.crTextColor = text_color_;
+    format.crBackColor = background_color_;
+    format.yHeight = 220;
+    wcscpy_s(format.szFaceName, L"Microsoft YaHei UI");
+    SendMessageW(handle_, EM_SETCHARFORMAT, SCF_DEFAULT,
+        reinterpret_cast<LPARAM>(&format));
+    projecting_ = was_projecting;
+    InvalidateRect(handle_, nullptr, TRUE);
 }
 
 ErrorCode RichEditHost::show_status_message(std::wstring_view message) {

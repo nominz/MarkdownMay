@@ -4,6 +4,7 @@
 #include "markdownmay/ui/menu_controller.hpp"
 #include "markdownmay/ui/status_bar.hpp"
 #include "markdownmay/ui/toolbar.hpp"
+#include "markdownmay/ui/theme.hpp"
 
 #include <windows.h>
 
@@ -32,6 +33,10 @@ public:
     void refresh_document_chrome();
     void set_recent_files(std::vector<std::filesystem::path> files);
     void set_pending_open_count(std::size_t count);
+    void set_theme_preference(ThemePreference preference);
+    [[nodiscard]] ThemePreference theme_preference() const noexcept;
+    [[nodiscard]] ThemeKind theme_kind() const noexcept;
+    [[nodiscard]] UINT dpi() const noexcept;
     [[nodiscard]] HACCEL accelerator() const noexcept;
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message,
                                              WPARAM w_param, LPARAM l_param);
@@ -39,6 +44,7 @@ public:
 private:
     [[nodiscard]] ErrorCode CreateDocumentWindow();
     void Layout();
+    void ApplyAppearance();
 
     HINSTANCE instance_{};
     HWND handle_{};
@@ -53,6 +59,12 @@ private:
     std::function<void()> activate_callback_;
     std::function<void()> open_request_callback_;
     std::size_t pending_open_count_{};
+    ThemePreference theme_preference_{ThemePreference::follow_system};
+    ThemeKind theme_kind_{ThemeKind::light};
+    ThemePalette palette_{PaletteFor(ThemeKind::light)};
+    UINT dpi_{96};
+    HBRUSH background_brush_{};
+    bool applying_appearance_{};
 };
 
 }  // namespace markdownmay::ui

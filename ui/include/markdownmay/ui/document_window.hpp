@@ -28,6 +28,8 @@ public:
     [[nodiscard]] fileio::TextEncoding encoding() const noexcept;
     [[nodiscard]] fileio::LineEnding line_ending() const noexcept;
     void set_line_ending(fileio::LineEnding line_ending) noexcept;
+    void apply_appearance(COLORREF text, COLORREF background,
+                          COLORREF accent, UINT dpi);
 
 private:
     editor::ViewModeController modes_;

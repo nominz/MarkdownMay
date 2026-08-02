@@ -42,7 +42,10 @@ MainWindow::MainWindow(document::DocumentSession& session)
     });
 }
 
-MainWindow::~MainWindow() { lifetime_.reset(); }
+MainWindow::~MainWindow() {
+    lifetime_.reset();
+    if (background_brush_) DeleteObject(background_brush_);
+}
 
 ErrorCode MainWindow::create(HINSTANCE instance, int show_command) {
     if (handle_) return ErrorCode::ok;
@@ -53,6 +56,8 @@ ErrorCode MainWindow::create(HINSTANCE instance, int show_command) {
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1000, 720,
         nullptr, nullptr, instance_, this);
     if (!handle_) return ErrorCode::editor_render_projection_failed;
+    dpi_ = GetDpiForWindow(handle_);
+    ApplyAppearance();
     ShowWindow(handle_, show_command);
     UpdateWindow(handle_);
     return ErrorCode::ok;
@@ -109,6 +114,13 @@ void MainWindow::set_pending_open_count(std::size_t count) {
     pending_open_count_ = count;
     refresh_document_chrome();
 }
+void MainWindow::set_theme_preference(ThemePreference preference) {
+    theme_preference_ = preference;
+    ApplyAppearance();
+}
+ThemePreference MainWindow::theme_preference() const noexcept { return theme_preference_; }
+ThemeKind MainWindow::theme_kind() const noexcept { return theme_kind_; }
+UINT MainWindow::dpi() const noexcept { return dpi_; }
 
 LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                                               WPARAM w_param, LPARAM l_param) {
@@ -174,6 +186,18 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
         case WM_SIZE:
             self->Layout();
             return 0;
+        case WM_SETTINGCHANGE:
+        case WM_THEMECHANGED:
+            self->ApplyAppearance();
+            return 0;
+        case WM_ERASEBKGND: {
+            RECT client{};
+            GetClientRect(window, &client);
+            FillRect(reinterpret_cast<HDC>(w_param), &client,
+                self->background_brush_ ? self->background_brush_ :
+                reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            return 1;
+        }
         case WM_ACTIVATE:
             if (LOWORD(w_param) != WA_INACTIVE && self->activate_callback_)
                 self->activate_callback_();
@@ -187,11 +211,13 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                 SetFocus(self->document_window_.modes().render_view().handle());
             return 0;
         case WM_DPICHANGED: {
+            self->dpi_ = HIWORD(w_param);
             const auto* suggested = reinterpret_cast<const RECT*>(l_param);
             SetWindowPos(window, nullptr, suggested->left, suggested->top,
                 suggested->right - suggested->left,
                 suggested->bottom - suggested->top,
                 SWP_NOACTIVATE | SWP_NOZORDER);
+            self->ApplyAppearance();
             return 0;
         }
         case WM_DESTROY:
@@ -232,6 +258,26 @@ void MainWindow::Layout() {
     RECT document{0, static_cast<LONG>(toolbar_height),
         static_cast<LONG>(width), document_bottom};
     document_window_.resize(document);
+}
+
+void MainWindow::ApplyAppearance() {
+    if (applying_appearance_) return;
+    applying_appearance_ = true;
+    theme_kind_ = ResolveTheme(theme_preference_, ReadSystemTheme());
+    palette_ = PaletteFor(theme_kind_);
+    if (background_brush_) DeleteObject(background_brush_);
+    background_brush_ = CreateSolidBrush(palette_.window);
+    if (handle_) {
+        static_cast<void>(ApplyTitleBarTheme(handle_, theme_kind_));
+    }
+    if (toolbar_) toolbar_->apply_appearance(palette_.text, palette_.surface, dpi_);
+    status_bar_.apply_appearance(palette_.text, palette_.surface, dpi_);
+    document_window_.apply_appearance(palette_.text, palette_.window, palette_.accent, dpi_);
+    Layout();
+    if (handle_) {
+        InvalidateRect(handle_, nullptr, TRUE);
+    }
+    applying_appearance_ = false;
 }
 
 }  // namespace markdownmay::ui

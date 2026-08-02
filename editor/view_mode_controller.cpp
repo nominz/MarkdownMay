@@ -207,6 +207,12 @@ HWND ViewModeController::handle() const noexcept { return host_; }
 RichEditHost& ViewModeController::render_view() noexcept { return render_; }
 SourceView& ViewModeController::source_view() noexcept { return split_.source_view(); }
 SplitView& ViewModeController::split_view() noexcept { return split_; }
+void ViewModeController::apply_appearance(COLORREF text, COLORREF background,
+                                          COLORREF accent, UINT dpi) {
+    render_.apply_appearance(text, background, dpi);
+    split_.source_view().apply_appearance(text, background, accent, dpi);
+    split_.render_view().apply_appearance(text, background, dpi);
+}
 
 LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
                                                     WPARAM w_param, LPARAM l_param) {

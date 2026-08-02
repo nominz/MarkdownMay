@@ -28,6 +28,7 @@ public:
     [[nodiscard]] const std::vector<SourceDiagnostic>& diagnostics() const noexcept;
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] HWND host_handle() const noexcept;
+    void apply_appearance(COLORREF text, COLORREF background, COLORREF accent, UINT dpi);
     [[nodiscard]] TextSelection source_selection() const noexcept;
     [[nodiscard]] ErrorCode select_source_range(TextSelection selection);
     [[nodiscard]] ErrorCode cut();
@@ -55,6 +56,10 @@ private:
     ErrorCode last_error_{ErrorCode::ok};
     std::function<void(ErrorCode)> synchronized_callback_;
     std::function<void(std::uint64_t, std::uint64_t)> scroll_callback_;
+    COLORREF text_color_{RGB(32, 32, 32)};
+    COLORREF background_color_{RGB(255, 255, 255)};
+    COLORREF accent_color_{RGB(28, 80, 150)};
+    UINT dpi_{96};
 };
 
 }  // namespace markdownmay::editor

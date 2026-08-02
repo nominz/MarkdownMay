@@ -84,6 +84,7 @@ public:
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
+    void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
 
 private:
     document::DocumentSession& session_;
@@ -100,6 +101,9 @@ private:
     HMODULE rich_edit_module_{};
     bool projecting_{};
     RichProjection projection_;
+    COLORREF text_color_{RGB(32, 32, 32)};
+    COLORREF background_color_{RGB(255, 255, 255)};
+    UINT dpi_{96};
 };
 
 }  // namespace markdownmay::editor

@@ -17,7 +17,7 @@ bool IsKnown(std::uint16_t value) noexcept {
         (value >= Native(app::CommandId::format_bold) &&
             value <= Native(app::CommandId::format_task_list)) ||
         (value >= Native(app::CommandId::view_render) &&
-            value <= Native(app::CommandId::view_split)) ||
+            value <= Native(app::CommandId::view_theme_dark)) ||
         (value >= Native(app::CommandId::tools_register_association) &&
             value <= Native(app::CommandId::tools_default_apps)) ||
         value == Native(app::CommandId::help_about);
@@ -77,6 +77,10 @@ bool MenuController::create(HWND window) {
     AddCommand(view, app::CommandId::view_render, L"渲染模式(&R)\tCtrl+1");
     AddCommand(view, app::CommandId::view_source, L"源码模式(&S)\tCtrl+2");
     AddCommand(view, app::CommandId::view_split, L"对照模式(&P)\tCtrl+3");
+    AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
+    AddCommand(view, app::CommandId::view_theme_system, L"主题：跟随系统(&Y)");
+    AddCommand(view, app::CommandId::view_theme_light, L"主题：浅色(&L)");
+    AddCommand(view, app::CommandId::view_theme_dark, L"主题：深色(&D)");
     AddCommand(tools, app::CommandId::tools_register_association,
         L"注册为 Markdown 候选程序(&R)");
     AddCommand(tools, app::CommandId::tools_unregister_association,

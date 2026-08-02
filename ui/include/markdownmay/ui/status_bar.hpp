@@ -13,6 +13,7 @@ class StatusBar final {
 public:
     StatusBar(document::DocumentSession& session,
               editor::ViewModeController& modes);
+    ~StatusBar();
     [[nodiscard]] bool create(HWND parent);
     void resize(int width, int client_height);
     void refresh();
@@ -20,6 +21,7 @@ public:
                          fileio::LineEnding line_ending);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int height() const noexcept;
+    void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
 
 private:
     document::DocumentSession& session_;
@@ -28,6 +30,7 @@ private:
     int height_{24};
     fileio::TextEncoding encoding_{fileio::TextEncoding::utf8};
     fileio::LineEnding line_ending_{fileio::LineEnding::crlf};
+    HFONT font_{};
 };
 
 }  // namespace markdownmay::ui

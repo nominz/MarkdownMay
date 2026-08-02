@@ -48,6 +48,7 @@ const wchar_t* LineEndingName(fileio::LineEnding line_ending) noexcept {
 StatusBar::StatusBar(document::DocumentSession& session,
                      editor::ViewModeController& modes)
     : session_(session), modes_(modes) {}
+StatusBar::~StatusBar() { if (font_) DeleteObject(font_); }
 
 bool StatusBar::create(HWND parent) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
@@ -96,5 +97,17 @@ void StatusBar::set_file_format(fileio::TextEncoding encoding,
 
 HWND StatusBar::handle() const noexcept { return handle_; }
 int StatusBar::height() const noexcept { return height_; }
+void StatusBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
+    static_cast<void>(text);
+    height_ = MulDiv(24, static_cast<int>(dpi), 96);
+    if (font_) DeleteObject(font_);
+    font_ = CreateFontW(-MulDiv(9, static_cast<int>(dpi), 72), 0, 0, 0,
+        FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    if (!handle_) return;
+    SendMessageW(handle_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+    SendMessageW(handle_, SB_SETBKCOLOR, 0, background);
+    InvalidateRect(handle_, nullptr, TRUE);
+}
 
 }  // namespace markdownmay::ui

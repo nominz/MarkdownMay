@@ -9,10 +9,12 @@ namespace markdownmay::app {
 CommandDispatcher::CommandDispatcher(ui::DocumentWindow& document_window,
                                      std::function<void()> request_exit,
                                      FileCommands file_commands,
-                                     AssociationCommands association_commands)
+                                     AssociationCommands association_commands,
+                                     AppearanceCommands appearance_commands)
     : document_window_(document_window), request_exit_(std::move(request_exit)),
       file_commands_(std::move(file_commands)),
-      association_commands_(std::move(association_commands)) {}
+      association_commands_(std::move(association_commands)),
+      appearance_commands_(std::move(appearance_commands)) {}
 
 CommandState CommandDispatcher::query(CommandId command) const noexcept {
     const auto native = static_cast<std::uint16_t>(command);
@@ -29,6 +31,14 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
             association_commands_.can_unregister(), false};
     if (command == CommandId::tools_default_apps)
         return {static_cast<bool>(association_commands_.open_default_apps), false};
+    if (command >= CommandId::view_theme_system && command <= CommandId::view_theme_dark) {
+        const auto preference = appearance_commands_.preference
+            ? appearance_commands_.preference() : ui::ThemePreference::follow_system;
+        const auto expected = command == CommandId::view_theme_light
+            ? ui::ThemePreference::light : command == CommandId::view_theme_dark
+            ? ui::ThemePreference::dark : ui::ThemePreference::follow_system;
+        return {static_cast<bool>(appearance_commands_.set_preference), preference == expected};
+    }
     const auto& modes = document_window_.modes();
     switch (command) {
     case CommandId::file_new:
@@ -89,6 +99,13 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
         return association_commands_.open_default_apps
             ? association_commands_.open_default_apps()
             : ErrorCode::document_invalid_state;
+    if (command >= CommandId::view_theme_system && command <= CommandId::view_theme_dark) {
+        const auto preference = command == CommandId::view_theme_light
+            ? ui::ThemePreference::light : command == CommandId::view_theme_dark
+            ? ui::ThemePreference::dark : ui::ThemePreference::follow_system;
+        if (appearance_commands_.set_preference) appearance_commands_.set_preference(preference);
+        return appearance_commands_.set_preference ? ErrorCode::ok : ErrorCode::document_invalid_state;
+    }
     switch (command) {
     case CommandId::file_new:
         return file_commands_.new_document

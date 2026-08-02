@@ -213,7 +213,10 @@ void SourceView::Configure() {
         reinterpret_cast<LPARAM>("Microsoft YaHei UI"));
     SendEditor(editor_, SCI_STYLESETSIZE, STYLE_DEFAULT, 11);
     SendEditor(editor_, SCI_STYLECLEARALL);
-    SendEditor(editor_, SCI_STYLESETFORE, 1, RGB(28, 80, 150));
+    SendEditor(editor_, SCI_STYLESETFORE, STYLE_DEFAULT, text_color_);
+    SendEditor(editor_, SCI_STYLESETBACK, STYLE_DEFAULT, background_color_);
+    SendEditor(editor_, SCI_STYLECLEARALL);
+    SendEditor(editor_, SCI_STYLESETFORE, 1, accent_color_);
     SendEditor(editor_, SCI_STYLESETBOLD, 1, TRUE);
     SendEditor(editor_, SCI_STYLESETFORE, 2, RGB(85, 70, 110));
     SendEditor(editor_, SCI_STYLESETFONT, 2, reinterpret_cast<LPARAM>("Consolas"));
@@ -223,6 +226,26 @@ void SourceView::Configure() {
     SendEditor(editor_, SCI_STYLESETFORE, 4, RGB(155, 65, 65));
     SendEditor(editor_, SCI_INDICSETSTYLE, kErrorIndicator, INDIC_SQUIGGLE);
     SendEditor(editor_, SCI_INDICSETFORE, kErrorIndicator, RGB(210, 40, 40));
+}
+
+void SourceView::apply_appearance(COLORREF text, COLORREF background,
+                                  COLORREF accent, UINT dpi) {
+    text_color_ = text; background_color_ = background; accent_color_ = accent;
+    dpi_ = dpi ? dpi : 96;
+    if (!editor_) return;
+    SendEditor(editor_, SCI_STYLESETFORE, STYLE_DEFAULT, text_color_);
+    SendEditor(editor_, SCI_STYLESETBACK, STYLE_DEFAULT, background_color_);
+    SendEditor(editor_, SCI_STYLECLEARALL);
+    SendEditor(editor_, SCI_STYLESETFORE, 1, accent_color_);
+    SendEditor(editor_, SCI_STYLESETBOLD, 1, TRUE);
+    SendEditor(editor_, SCI_STYLESETFORE, 2, text_color_);
+    SendEditor(editor_, SCI_STYLESETFONT, 2, reinterpret_cast<LPARAM>("Consolas"));
+    SendEditor(editor_, SCI_STYLESETFORE, 3, text_color_);
+    SendEditor(editor_, SCI_STYLESETITALIC, 3, TRUE);
+    SendEditor(editor_, SCI_STYLESETFORE, 4, accent_color_);
+    ApplyStyles();
+    SendEditor(editor_, SCI_SETCARETFORE, text_color_);
+    InvalidateRect(editor_, nullptr, TRUE);
 }
 
 void SourceView::ApplyStyles() {
