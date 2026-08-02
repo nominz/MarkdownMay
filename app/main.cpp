@@ -1,4 +1,4 @@
-#include "markdownmay/app/application.hpp"
+#include "markdownmay/app/startup.hpp"
 
 #include <objbase.h>
 #include <windows.h>
@@ -14,8 +14,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     }
     int result{};
     try {
-        markdownmay::app::Application application(instance);
-        result = application.run(show_command);
+        result = markdownmay::app::RunStartup(instance, show_command);
     } catch (...) {
         MessageBoxW(nullptr, L"程序遇到无法恢复的错误。", L"马冬梅",
             MB_OK | MB_ICONERROR);

@@ -99,3 +99,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_app_shell comctl32 user32 ole32
 )
 add_test(NAME app_shell_integration COMMAND MarkdownMayAppShell)
+
+add_executable(MarkdownMayStartupSingleInstance startup_single_instance_test.cpp)
+target_link_libraries(
+    MarkdownMayStartupSingleInstance
+    PRIVATE markdownmay_compiler_options markdownmay_app_shell markdownmay_platform
+)
+add_test(NAME startup_single_instance_integration COMMAND MarkdownMayStartupSingleInstance)

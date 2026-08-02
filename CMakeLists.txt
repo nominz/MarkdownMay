@@ -37,6 +37,7 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/scintilla-5.6.4" scintilla)
 add_subdirectory(src)
 add_subdirectory(editor)
 add_subdirectory(ui)
+add_subdirectory(platform)
 add_subdirectory(app)
 
 if(MARKDOWNMAY_BUILD_PROTOTYPE)

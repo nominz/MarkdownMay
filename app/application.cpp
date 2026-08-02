@@ -62,11 +62,13 @@ Application::Application(HINSTANCE instance)
     });
     main_window_.set_close_callback([this] { return ConfirmClose(); });
     main_window_.set_activate_callback([this] { CheckExternalModification(); });
+    main_window_.set_open_request_callback([this] { DrainOpenRequests(); });
 }
 
 int Application::run(int show_command) {
     if (main_window_.create(instance_, show_command) != ErrorCode::ok) return 1;
     RefreshRecentFiles();
+    DrainOpenRequests();
     MSG message{};
     int result{};
     while ((result = GetMessageW(&message, nullptr, 0, 0)) > 0) {
@@ -79,6 +81,16 @@ int Application::run(int show_command) {
 }
 
 ui::MainWindow& Application::main_window() noexcept { return main_window_; }
+
+void Application::enqueue_open_paths(std::vector<std::filesystem::path> paths) {
+    {
+        std::lock_guard lock(incoming_mutex_);
+        if (paths.empty()) activate_requested_ = true;
+        incoming_paths_.insert(incoming_paths_.end(),
+            std::make_move_iterator(paths.begin()), std::make_move_iterator(paths.end()));
+    }
+    main_window_.notify_open_requests();
+}
 
 bool Application::ConfirmDocumentReplacement() {
     if (!session_.is_dirty()) return true;
@@ -93,7 +105,18 @@ bool Application::ConfirmDocumentReplacement() {
     return !session_.is_dirty();
 }
 
-bool Application::ConfirmClose() { return ConfirmDocumentReplacement(); }
+bool Application::ConfirmClose() {
+    const auto was_processing = processing_open_request_;
+    processing_open_request_ = true;
+    const bool document_ready = ConfirmDocumentReplacement();
+    processing_open_request_ = was_processing;
+    if (!document_ready) return false;
+    if (pending_paths_.empty()) return true;
+    const auto message = L"还有 " + std::to_wstring(pending_paths_.size()) +
+        L" 个文件等待打开。退出将取消这些请求，是否仍要退出？";
+    return MessageBoxW(main_window_.handle(), message.c_str(), L"马冬梅",
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
+}
 
 ErrorCode Application::NewDocument() {
     if (!ConfirmDocumentReplacement()) return ErrorCode::ok;
@@ -135,6 +158,7 @@ ErrorCode Application::SaveDocument() {
     if (result == ErrorCode::ok) {
         main_window_.refresh_document_chrome();
         RememberRecentFile(document.path());
+        ProcessNextOpenRequest();
     }
     return result;
 }
@@ -158,6 +182,7 @@ ErrorCode Application::SaveDocumentAs() {
     if (result == ErrorCode::ok) {
         main_window_.refresh_document_chrome();
         RememberRecentFile(document.path());
+        ProcessNextOpenRequest();
     }
     return result;
 }
@@ -208,6 +233,37 @@ void Application::RefreshRecentFiles() {
     recent_file_list_ = loaded.is_ok() ? loaded.value()
                                        : std::vector<std::filesystem::path>{};
     main_window_.set_recent_files(recent_file_list_);
+}
+
+void Application::DrainOpenRequests() {
+    std::vector<std::filesystem::path> incoming;
+    bool activate{};
+    {
+        std::lock_guard lock(incoming_mutex_);
+        incoming.swap(incoming_paths_);
+        activate = activate_requested_;
+        activate_requested_ = false;
+    }
+    if (activate && main_window_.handle()) {
+        ShowWindow(main_window_.handle(), SW_RESTORE);
+        SetForegroundWindow(main_window_.handle());
+    }
+    for (auto& path : incoming) pending_paths_.push_back(std::move(path));
+    main_window_.set_pending_open_count(pending_paths_.size());
+    ProcessNextOpenRequest();
+}
+
+void Application::ProcessNextOpenRequest() {
+    if (processing_open_request_ || pending_paths_.empty()) return;
+    processing_open_request_ = true;
+    if (ConfirmDocumentReplacement()) {
+        auto path = std::move(pending_paths_.front());
+        pending_paths_.pop_front();
+        main_window_.set_pending_open_count(pending_paths_.size());
+        const auto result = OpenPath(path);
+        if (result != ErrorCode::ok) ShowFileError(result);
+    }
+    processing_open_request_ = false;
 }
 
 void Application::CheckExternalModification() {

@@ -12,6 +12,7 @@ namespace markdownmay::ui {
 namespace {
 constexpr wchar_t kMainWindowClass[] = L"MarkdownMay.MainWindow";
 constexpr wchar_t kApplicationTitle[] = L"马冬梅 - Markdown May";
+constexpr UINT kOpenRequestsMessage = WM_APP + 17;
 
 bool RegisterMainWindowClass(HINSTANCE instance) {
     static std::once_flag once;
@@ -77,6 +78,12 @@ void MainWindow::set_close_callback(std::function<bool()> callback) {
 void MainWindow::set_activate_callback(std::function<void()> callback) {
     activate_callback_ = std::move(callback);
 }
+void MainWindow::set_open_request_callback(std::function<void()> callback) {
+    open_request_callback_ = std::move(callback);
+}
+void MainWindow::notify_open_requests() noexcept {
+    if (handle_) PostMessageW(handle_, kOpenRequestsMessage, 0, 0);
+}
 void MainWindow::refresh_document_chrome() {
     status_bar_.set_file_format(document_window_.encoding(),
         document_window_.line_ending());
@@ -85,8 +92,10 @@ void MainWindow::refresh_document_chrome() {
     if (!handle_) return;
     const auto name = document_window_.is_named()
         ? document_window_.path().filename().wstring() : std::wstring(L"无标题");
+    const auto pending = pending_open_count_ ?
+        L" [待打开 " + std::to_wstring(pending_open_count_) + L"]" : std::wstring{};
     const auto title = name + (document_window_.is_read_only() ? L" [只读]" : L"") +
-        (session_.is_dirty() ? L" *" : L"") +
+        (session_.is_dirty() ? L" *" : L"") + pending +
         L" - 马冬梅";
     SetWindowTextW(handle_, title.c_str());
 }
@@ -95,6 +104,10 @@ HACCEL MainWindow::accelerator() const noexcept {
 }
 void MainWindow::set_recent_files(std::vector<std::filesystem::path> files) {
     if (menu_controller_) menu_controller_->set_recent_files(std::move(files));
+}
+void MainWindow::set_pending_open_count(std::size_t count) {
+    pending_open_count_ = count;
+    refresh_document_chrome();
 }
 
 LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
@@ -109,6 +122,9 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
     if (!self) return DefWindowProcW(window, message, w_param, l_param);
     try {
         switch (message) {
+        case kOpenRequestsMessage:
+            if (self->open_request_callback_) self->open_request_callback_();
+            return 0;
         case WM_CREATE:
             if (self->CreateDocumentWindow() != ErrorCode::ok) return -1;
             if (self->menu_controller_ &&
