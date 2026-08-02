@@ -102,6 +102,35 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         (owner_draw.fType & MFT_OWNERDRAW) == 0) {
         DestroyWindow(window.handle()); CoUninitialize(); return 26;
     }
+    MENUITEMINFOW top_data{sizeof(top_data)};
+    top_data.fMask = MIIM_DATA | MIIM_SUBMENU;
+    if (!GetMenuItemInfoW(GetMenu(window.handle()), 0, TRUE, &top_data)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 34;
+    }
+    MEASUREITEMSTRUCT top_measure{};
+    top_measure.CtlType = ODT_MENU;
+    top_measure.itemData = top_data.dwItemData;
+    SendMessageW(window.handle(), WM_MEASUREITEM, 0,
+        reinterpret_cast<LPARAM>(&top_measure));
+    MENUITEMINFOW popup_data{sizeof(popup_data)};
+    popup_data.fMask = MIIM_DATA;
+    if (!GetMenuItemInfoW(top_data.hSubMenu, 0, TRUE, &popup_data)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 35;
+    }
+    MEASUREITEMSTRUCT popup_measure{};
+    popup_measure.CtlType = ODT_MENU;
+    popup_measure.itemData = popup_data.dwItemData;
+    SendMessageW(window.handle(), WM_MEASUREITEM, 0,
+        reinterpret_cast<LPARAM>(&popup_measure));
+    if (top_measure.itemHeight <= popup_measure.itemHeight) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 36;
+    }
+    RECT formatting{};
+    SendMessageW(render, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
+    if (formatting.left < MulDiv(7, static_cast<int>(window.dpi()), 96) ||
+        formatting.top < MulDiv(7, static_cast<int>(window.dpi()), 96)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 37;
+    }
     static_assert(static_cast<std::uint16_t>(app::CommandId::file_new) == 100);
     static_assert(static_cast<std::uint16_t>(app::CommandId::file_exit) == 104);
     static_assert(static_cast<std::uint16_t>(app::CommandId::file_print) == 105);
@@ -298,18 +327,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     SetFocus(rich);
     SendMessageW(rich, EM_SETSEL, 0, 0);
+    const auto pump = [] {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    };
+    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"正文"));
+    pump();
     SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"\r"));
-    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-"));
-    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-"));
-    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-"));
-    MSG message{};
-    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&message);
-        DispatchMessageW(&message);
-    }
+    pump();
+    SendMessageW(rich, WM_CHAR, L'-', 0);
+    pump();
+    SendMessageW(rich, WM_CHAR, L'-', 0);
+    pump();
+    SendMessageW(rich, WM_CHAR, L'-', 0);
+    pump();
     const auto live = session.snapshot();
     if (live.source.find("---") == std::string::npos) {
         DestroyWindow(window.handle()); CoUninitialize(); return 33;
+    }
+    if (live.source.find("\n\n---") == std::string::npos &&
+        live.source.find("\r\n\r\n---") == std::string::npos) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 38;
     }
     if (!live.semantic || !ContainsKind(*live.semantic->root(),
             document::NodeKind::thematic_break)) {

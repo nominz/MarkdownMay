@@ -65,6 +65,8 @@ ErrorCode ViewModeController::create(HWND parent, const RECT& bounds) {
 ErrorCode ViewModeController::switch_to(ViewMode target) {
     if (target == mode_) return ErrorCode::ok;
     auto selection = CaptureSelection();
+    const auto scroll = mode_ == ViewMode::render
+        ? render_.scroll_fraction() : split_.source_view().scroll_fraction();
     ErrorCode synchronized = ErrorCode::ok;
     if (mode_ == ViewMode::render) synchronized = render_.synchronize_change();
     else synchronized = split_.source_view().synchronize_now();
@@ -87,6 +89,10 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
     if (target != ViewMode::render) split_.set_source_only(target == ViewMode::source);
     mode_ = target;
     RestoreSelection(selection);
+    if (mode_ == ViewMode::render)
+        render_.scroll_to_fraction(scroll.first, scroll.second);
+    else
+        split_.source_view().scroll_to_fraction(scroll.first, scroll.second);
     if (mode_ == ViewMode::render) SetFocus(render_.handle());
     else SetFocus(split_.source_view().handle());
     return ErrorCode::ok;

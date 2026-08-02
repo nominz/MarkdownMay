@@ -12,6 +12,8 @@
 
 #include <windows.h>
 
+#include <utility>
+
 namespace markdownmay::editor {
 
 enum class EditorCommand : std::uint8_t {
@@ -30,10 +32,12 @@ public:
     [[nodiscard]] ErrorCode show_status_message(std::wstring_view message);
     void set_read_only(bool read_only);
     void scroll_to_fraction(std::uint64_t numerator, std::uint64_t denominator);
+    [[nodiscard]] std::pair<std::uint64_t, std::uint64_t> scroll_fraction() const;
     void reset_to_start();
     [[nodiscard]] Result<TextSelection> source_selection();
     [[nodiscard]] ErrorCode select_source_range(TextSelection selection);
     [[nodiscard]] ErrorCode synchronize_change();
+    [[nodiscard]] ErrorCode complete_thematic_break();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);
     [[nodiscard]] ErrorCode set_link(std::string_view target, std::string_view title = {});
     [[nodiscard]] ErrorCode set_heading(std::uint8_t level);

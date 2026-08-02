@@ -16,7 +16,23 @@ namespace markdownmay::editor {
 namespace {
 
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
-                                  LPARAM l_param, UINT_PTR, DWORD_PTR) {
+                                  LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
+    if (message == WM_CHAR && w_param == L'-') {
+        CHARRANGE selected{};
+        SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+        const auto line = static_cast<LONG>(SendMessageW(window, EM_LINEFROMCHAR,
+            static_cast<WPARAM>(selected.cpMin), 0));
+        const auto line_begin = static_cast<LONG>(SendMessageW(window, EM_LINEINDEX, line, 0));
+        if (selected.cpMin == selected.cpMax && selected.cpMin - line_begin == 2) {
+            wchar_t markers[3]{};
+            TEXTRANGEW range{{line_begin, selected.cpMin}, markers};
+            SendMessageW(window, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&range));
+            if (markers[0] == L'-' && markers[1] == L'-') {
+                auto* self = reinterpret_cast<RichEditHost*>(reference);
+                if (self && self->complete_thematic_break() == ErrorCode::ok) return 0;
+            }
+        }
+    }
     if (message == WM_MOUSEWHEEL) {
         const auto delta = GET_WHEEL_DELTA_WPARAM(w_param);
         if (delta != 0) {
@@ -25,7 +41,15 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
             return 0;
         }
     }
-    return DefSubclassProc(window, message, w_param, l_param);
+    const auto result = DefSubclassProc(window, message, w_param, l_param);
+    if (message == WM_SIZE) {
+        RECT formatting{};
+        GetClientRect(window, &formatting);
+        const auto inset = MulDiv(8, static_cast<int>(GetDpiForWindow(window)), 96);
+        InflateRect(&formatting, -inset, -inset);
+        SendMessageW(window, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
+    }
+    return result;
 }
 
 std::wstring ToWide(std::string_view value) {
@@ -238,13 +262,17 @@ ErrorCode RichEditHost::create(HWND parent, const RECT& bounds) {
         bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
         parent, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!handle_) return ErrorCode::editor_render_projection_failed;
-    if (!SetWindowSubclass(handle_, RichEditSubclass, 1, 0))
+    if (!SetWindowSubclass(handle_, RichEditSubclass, 1,
+            reinterpret_cast<DWORD_PTR>(this)))
         return ErrorCode::editor_render_projection_failed;
     const auto event_mask = static_cast<DWORD>(
         SendMessageW(handle_, EM_GETEVENTMASK, 0, 0));
     SendMessageW(handle_, EM_SETEVENTMASK, 0, event_mask | ENM_CHANGE);
     SendMessageW(handle_, EM_SETLIMITTEXT, 0, 0);
     SendMessageW(handle_, EM_SETUNDOLIMIT, 0, 0);
+    RECT client{};
+    GetClientRect(handle_, &client);
+    SendMessageW(handle_, WM_SIZE, 0, MAKELPARAM(client.right, client.bottom));
     return project();
 }
 
@@ -260,11 +288,13 @@ ErrorCode RichEditHost::project() {
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     POINT scroll{};
     SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+    SendMessageW(handle_, WM_SETREDRAW, FALSE, 0);
     projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source, document_path_);
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
     const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
     if (!success) {
+        SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
     }
@@ -276,6 +306,8 @@ ErrorCode RichEditHost::project() {
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     SendMessageW(handle_, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
     projecting_ = false;
+    SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(handle_, nullptr, TRUE);
     return ErrorCode::ok;
 }
 
@@ -320,6 +352,13 @@ void RichEditHost::scroll_to_fraction(std::uint64_t numerator, std::uint64_t den
                                           denominator);
     const auto current = static_cast<LONG>(SendMessageW(handle_, EM_GETFIRSTVISIBLELINE, 0, 0));
     SendMessageW(handle_, EM_LINESCROLL, 0, target - current);
+}
+
+std::pair<std::uint64_t, std::uint64_t> RichEditHost::scroll_fraction() const {
+    if (!handle_) return {0, 1};
+    return {static_cast<std::uint64_t>(SendMessageW(handle_, EM_GETFIRSTVISIBLELINE, 0, 0)),
+        static_cast<std::uint64_t>((std::max)(LRESULT{1},
+            SendMessageW(handle_, EM_GETLINECOUNT, 0, 0)))};
 }
 
 void RichEditHost::reset_to_start() {
@@ -383,15 +422,57 @@ ErrorCode RichEditHost::synchronize_change() {
     auto result = editor_.set_selection(
         {projection_.source_offsets[prefix], projection_.source_offsets[old_suffix]});
     if (result == ErrorCode::ok) {
-        const auto replacement = after.substr(prefix, new_suffix - prefix);
+        auto replacement = after.substr(prefix, new_suffix - prefix);
         const auto expected_eol = line_ending == fileio::LineEnding::lf ? "\n" : "\r\n";
-        if (projection_.source_offsets[prefix] == projection_.source_offsets[old_suffix] &&
+        const auto visible_line_begin = prefix == 0 ? 0 : after.rfind('\n', prefix - 1) + 1;
+        auto visible_line_end = after.find('\n', new_suffix);
+        if (visible_line_end == std::string::npos) visible_line_end = after.size();
+        auto visible_content_end = visible_line_end;
+        if (visible_content_end > visible_line_begin &&
+            after[visible_content_end - 1] == '\r') --visible_content_end;
+        const bool completed_thematic_break =
+            after.substr(visible_line_begin, visible_content_end - visible_line_begin) == "---";
+        auto source_line_begin = source.rfind('\n');
+        source_line_begin = source_line_begin == std::string::npos ? 0 : source_line_begin + 1;
+        if (completed_thematic_break && source_line_begin > 0) {
+            result = editor_.set_selection(
+                {source_line_begin, static_cast<std::uint64_t>(source.size())});
+            if (result == ErrorCode::ok)
+                result = editor_.insert_text(std::string(expected_eol) + "---");
+        } else if (projection_.source_offsets[prefix] == projection_.source_offsets[old_suffix] &&
             replacement == expected_eol) {
             result = list_editor_.continue_item();
             if (result == ErrorCode::editor_selection_mapping_failed)
                 result = editor_.insert_text(replacement);
         } else {
             result = editor_.insert_text(replacement);
+        }
+    }
+    if (result == ErrorCode::ok) {
+        const auto current = session_.snapshot().source;
+        const auto marker = current.rfind("---");
+        if (marker != std::string::npos && marker > 0) {
+            const auto marker_end = marker + 3;
+            const bool line_end = marker_end == current.size() || current[marker_end] == '\r' ||
+                current[marker_end] == '\n';
+            auto line_begin = current.rfind('\n', marker - 1);
+            line_begin = line_begin == std::string::npos ? 0 : line_begin + 1;
+            if (line_begin == marker && line_end) {
+                auto previous_end = marker;
+                while (previous_end > 0 &&
+                    (current[previous_end - 1] == '\r' || current[previous_end - 1] == '\n'))
+                    --previous_end;
+                auto previous_begin = previous_end == 0 ? std::string::npos :
+                    current.rfind('\n', previous_end - 1);
+                previous_begin = previous_begin == std::string::npos ? 0 : previous_begin + 1;
+                if (previous_end > previous_begin) {
+                    const auto ending = line_ending == fileio::LineEnding::lf ? "\n" : "\r\n";
+                    const auto selected = editor_.selection();
+                    const auto shifted = selected.caret + std::char_traits<char>::length(ending);
+                    result = editor_.replace_source_range(marker, marker, ending,
+                        {shifted, shifted});
+                }
+            }
         }
     }
     if (result != ErrorCode::ok) {
@@ -406,6 +487,23 @@ ErrorCode RichEditHost::synchronize_change() {
         SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
     }
     return projected;
+}
+
+ErrorCode RichEditHost::complete_thematic_break() {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    auto result = MapControlSelection(handle_, projection_, editor_);
+    if (result != ErrorCode::ok) return result;
+    const auto snapshot = session_.snapshot();
+    const auto caret = editor_.selection().caret;
+    auto line_begin = caret == 0 ? std::string::npos :
+        snapshot.source.rfind('\n', static_cast<std::size_t>(caret - 1));
+    line_begin = line_begin == std::string::npos ? 0 : line_begin + 1;
+    const auto ending = fileio::DetectLineEnding(snapshot.source) == fileio::LineEnding::lf
+        ? std::string("\n") : std::string("\r\n");
+    const auto replacement = (line_begin > 0 ? ending : std::string{}) + "---";
+    const auto next = static_cast<std::uint64_t>(line_begin + replacement.size());
+    result = editor_.replace_source_range(line_begin, caret, replacement, {next, next});
+    return result == ErrorCode::ok ? project() : result;
 }
 
 ErrorCode RichEditHost::toggle_inline(InlineFormat format) {

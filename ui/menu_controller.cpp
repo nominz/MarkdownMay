@@ -178,8 +178,10 @@ void MenuController::AddCommand(HMENU menu, app::CommandId command,
 }
 
 void MenuController::AddPopup(HMENU menu, HMENU popup, const wchar_t* text) {
+    const auto* label = KeepLabel(text);
+    if (menu == menu_) menu_bar_labels_.insert(label);
     AppendMenuW(menu, MF_POPUP | MF_OWNERDRAW,
-        reinterpret_cast<UINT_PTR>(popup), KeepLabel(text));
+        reinterpret_cast<UINT_PTR>(popup), label);
 }
 
 void MenuController::AddSeparator(HMENU menu) {
@@ -207,6 +209,7 @@ bool MenuController::measure(MEASUREITEMSTRUCT& item) const {
         return true;
     }
     const auto* label = reinterpret_cast<const wchar_t*>(item.itemData);
+    const bool menu_bar = menu_bar_labels_.contains(label);
     HDC dc = GetDC(window_);
     NONCLIENTMETRICSW metrics{sizeof(metrics)};
     SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi_);
@@ -218,8 +221,9 @@ bool MenuController::measure(MEASUREITEMSTRUCT& item) const {
     SelectObject(dc, old);
     DeleteObject(font);
     ReleaseDC(window_, dc);
-    item.itemWidth = static_cast<UINT>(size.cx + MulDiv(48, dpi_, 96));
-    item.itemHeight = popup_height;
+    item.itemWidth = static_cast<UINT>(size.cx + MulDiv(menu_bar ? 20 : 48, dpi_, 96));
+    item.itemHeight = menu_bar
+        ? static_cast<UINT>(MulDiv(36, dpi_, 96)) : popup_height;
     return true;
 }
 
@@ -227,9 +231,16 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
     if (item.CtlType != ODT_MENU) return false;
     const bool selected = (item.itemState & ODS_SELECTED) != 0;
     const bool disabled = (item.itemState & (ODS_DISABLED | ODS_GRAYED)) != 0;
-    const auto background = selected ? GetSysColor(COLOR_HIGHLIGHT) : surface_color_;
+    HIGHCONTRASTW contrast{sizeof(contrast)};
+    SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0);
+    const bool high_contrast = (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+    const auto selected_gray = GetRValue(surface_color_) < 128
+        ? RGB(70, 70, 70) : RGB(232, 232, 232);
+    const auto background = selected
+        ? high_contrast ? GetSysColor(COLOR_HIGHLIGHT) : selected_gray
+        : surface_color_;
     const auto foreground = disabled ? GetSysColor(COLOR_GRAYTEXT) :
-        selected ? GetSysColor(COLOR_HIGHLIGHTTEXT) : text_color_;
+        selected && high_contrast ? GetSysColor(COLOR_HIGHLIGHTTEXT) : text_color_;
     const auto brush = CreateSolidBrush(background);
     FillRect(item.hDC, &item.rcItem, brush);
     DeleteObject(brush);
@@ -248,9 +259,11 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
     SetBkMode(item.hDC, TRANSPARENT);
     SetTextColor(item.hDC, foreground);
     RECT text = item.rcItem;
-    text.left += MulDiv(16, dpi_, 96);
-    text.right -= MulDiv(16, dpi_, 96);
-    DrawTextW(item.hDC, reinterpret_cast<const wchar_t*>(item.itemData), -1, &text,
+    const auto* label = reinterpret_cast<const wchar_t*>(item.itemData);
+    const auto padding = menu_bar_labels_.contains(label) ? 14 : 16;
+    text.left += MulDiv(padding, dpi_, 96);
+    text.right -= MulDiv(padding, dpi_, 96);
+    DrawTextW(item.hDC, label, -1, &text,
         DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_HIDEPREFIX | DT_EXPANDTABS);
     SelectObject(item.hDC, old);
     DeleteObject(font);

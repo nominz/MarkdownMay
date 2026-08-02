@@ -134,6 +134,24 @@ ErrorCode SourceView::select_source_range(TextSelection selection) {
     return ErrorCode::ok;
 }
 
+std::pair<std::uint64_t, std::uint64_t> SourceView::scroll_fraction() const {
+    if (!editor_) return {0, 1};
+    return {static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETFIRSTVISIBLELINE)),
+        static_cast<std::uint64_t>((std::max)(sptr_t{1}, SendEditor(editor_, SCI_GETLINECOUNT)))};
+}
+
+void SourceView::scroll_to_fraction(std::uint64_t numerator, std::uint64_t denominator) {
+    if (!editor_ || denominator == 0) return;
+    const auto lines = static_cast<std::uint64_t>((std::max)(
+        sptr_t{1}, SendEditor(editor_, SCI_GETLINECOUNT)));
+    const auto target = numerator * lines / denominator;
+    const auto current = static_cast<std::uint64_t>(
+        SendEditor(editor_, SCI_GETFIRSTVISIBLELINE));
+    SendEditor(editor_, SCI_LINESCROLL, 0,
+        static_cast<LPARAM>(static_cast<std::int64_t>(target) -
+            static_cast<std::int64_t>(current)));
+}
+
 ErrorCode SourceView::cut() {
     if (!editor_) return ErrorCode::editor_source_control_failed;
     SendEditor(editor_, SCI_CUT);

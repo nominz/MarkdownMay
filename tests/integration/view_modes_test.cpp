@@ -107,5 +107,32 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         modes.switch_to(editor::ViewMode::render) != ErrorCode::ok ||
         session.snapshot().parsed_revision != session.snapshot().source_revision) return 18;
     DestroyWindow(parent);
+
+    std::string long_source;
+    for (int line = 0; line < 200; ++line)
+        long_source += "line " + std::to_string(line) + "\n\n";
+    document::DocumentSession scroll_session(long_source);
+    HWND scroll_parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
+        0, 0, 900, 300, nullptr, nullptr, instance, nullptr);
+    editor::ViewModeController scroll_modes(scroll_session);
+    RECT scroll_bounds{0, 0, 900, 300};
+    if (!scroll_parent || scroll_modes.create(scroll_parent, scroll_bounds) != ErrorCode::ok)
+        return 19;
+    scroll_modes.render_view().scroll_to_fraction(80, 200);
+    const auto before_switch = scroll_modes.render_view().scroll_fraction();
+    if (scroll_modes.switch_to(editor::ViewMode::source) != ErrorCode::ok)
+        return 20;
+    const auto in_source = scroll_modes.source_view().scroll_fraction();
+    const auto source_delta = static_cast<std::int64_t>(
+        in_source.first * before_switch.second) - static_cast<std::int64_t>(
+        before_switch.first * in_source.second);
+    if (std::abs(source_delta) > static_cast<std::int64_t>(before_switch.second * 3))
+        return 21;
+    if (scroll_modes.switch_to(editor::ViewMode::render) != ErrorCode::ok)
+        return 22;
+    const auto after_switch = scroll_modes.render_view().scroll_fraction();
+    if (after_switch.first + 3 < before_switch.first ||
+        after_switch.first > before_switch.first + 3) return 23;
+    DestroyWindow(scroll_parent);
     return 0;
 }

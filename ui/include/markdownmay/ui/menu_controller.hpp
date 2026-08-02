@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <list>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace markdownmay::ui {
@@ -44,6 +45,7 @@ private:
     HACCEL accelerator_{};
     HMENU recent_menu_{};
     std::list<std::wstring> labels_;
+    std::unordered_set<const wchar_t*> menu_bar_labels_;
     COLORREF text_color_{RGB(32, 32, 32)};
     COLORREF surface_color_{RGB(250, 250, 250)};
     UINT dpi_{96};
