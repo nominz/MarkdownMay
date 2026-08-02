@@ -18,6 +18,8 @@ bool IsKnown(std::uint16_t value) noexcept {
             value <= Native(app::CommandId::format_task_list)) ||
         (value >= Native(app::CommandId::view_render) &&
             value <= Native(app::CommandId::view_split)) ||
+        (value >= Native(app::CommandId::tools_register_association) &&
+            value <= Native(app::CommandId::tools_default_apps)) ||
         value == Native(app::CommandId::help_about);
 }
 }
@@ -36,9 +38,10 @@ bool MenuController::create(HWND window) {
     const auto edit = CreatePopupMenu();
     const auto format = CreatePopupMenu();
     const auto view = CreatePopupMenu();
+    const auto tools = CreatePopupMenu();
     const auto help = CreatePopupMenu();
     recent_menu_ = CreatePopupMenu();
-    if (!menu_ || !file || !edit || !format || !view || !help || !recent_menu_)
+    if (!menu_ || !file || !edit || !format || !view || !tools || !help || !recent_menu_)
         return false;
 
     AddCommand(file, app::CommandId::file_new, L"新建(&N)\tCtrl+N");
@@ -74,12 +77,20 @@ bool MenuController::create(HWND window) {
     AddCommand(view, app::CommandId::view_render, L"渲染模式(&R)\tCtrl+1");
     AddCommand(view, app::CommandId::view_source, L"源码模式(&S)\tCtrl+2");
     AddCommand(view, app::CommandId::view_split, L"对照模式(&P)\tCtrl+3");
+    AddCommand(tools, app::CommandId::tools_register_association,
+        L"注册为 Markdown 候选程序(&R)");
+    AddCommand(tools, app::CommandId::tools_unregister_association,
+        L"撤销文件关联注册(&U)");
+    AppendMenuW(tools, MF_SEPARATOR, 0, nullptr);
+    AddCommand(tools, app::CommandId::tools_default_apps,
+        L"打开 Windows 默认应用设置(&D)...");
     AddCommand(help, app::CommandId::help_about, L"关于马冬梅(&A)\tF1");
 
     AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(file), L"文件(&F)");
     AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(edit), L"编辑(&E)");
     AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(format), L"格式(&O)");
     AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(view), L"视图(&V)");
+    AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(tools), L"工具(&T)");
     AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"帮助(&H)");
     if (!SetMenu(window_, menu_)) return false;
 
@@ -138,7 +149,7 @@ void MenuController::set_recent_files(std::vector<std::filesystem::path> files) 
 
 void MenuController::refresh() {
     if (!menu_ || !query_) return;
-    for (std::uint16_t value = 100; value <= 500; ++value) {
+    for (std::uint16_t value = 100; value <= 702; ++value) {
         if (!IsKnown(value)) continue;
         const auto state = query_(static_cast<app::CommandId>(value));
         EnableMenuItem(menu_, value, MF_BYCOMMAND |

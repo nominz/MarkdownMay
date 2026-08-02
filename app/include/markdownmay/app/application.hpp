@@ -4,6 +4,7 @@
 #include "markdownmay/app/command_dispatcher.hpp"
 #include "markdownmay/ui/main_window.hpp"
 #include "markdownmay/services/local_services.hpp"
+#include "markdownmay/platform/file_association.hpp"
 
 #include <windows.h>
 
@@ -31,6 +32,10 @@ private:
     void RefreshRecentFiles();
     void DrainOpenRequests();
     void ProcessNextOpenRequest();
+    [[nodiscard]] ErrorCode RegisterFileAssociations();
+    [[nodiscard]] ErrorCode UnregisterFileAssociations();
+    [[nodiscard]] ErrorCode OpenDefaultApps();
+    [[nodiscard]] std::filesystem::path ExecutablePath() const;
     [[nodiscard]] ErrorCode NewDocument();
     [[nodiscard]] ErrorCode OpenDocumentDialog();
     [[nodiscard]] ErrorCode SaveDocument();
@@ -51,6 +56,7 @@ private:
     bool activate_requested_{};
     std::deque<std::filesystem::path> pending_paths_;
     bool processing_open_request_{};
+    platform::FileAssociationRegistry file_association_;
 };
 
 }  // namespace markdownmay::app

@@ -12,6 +12,15 @@
 #include <vector>
 
 namespace markdownmay::app {
+namespace {
+std::filesystem::path ExecutablePath() {
+    std::vector<wchar_t> buffer(32768);
+    const auto length = GetModuleFileNameW(nullptr, buffer.data(),
+        static_cast<DWORD>(buffer.size()));
+    return length && length < buffer.size()
+        ? std::filesystem::path(buffer.data()) : std::filesystem::path{};
+}
+}
 
 int RunStartup(HINSTANCE instance, int show_command) {
     int argument_count{};
@@ -29,6 +38,29 @@ int RunStartup(HINSTANCE instance, int show_command) {
         return 2;
     }
 
+    const auto executable = ExecutablePath();
+    platform::FileAssociationRegistry association;
+    if (options.value().register_file_types) {
+        if (executable.empty()) return 4;
+        const auto registered = association.register_application(executable);
+        if (registered != ErrorCode::ok) {
+            MessageBoxW(nullptr, L"无法注册 Markdown 候选程序。",
+                L"马冬梅", MB_OK | MB_ICONERROR);
+            return 4;
+        }
+        MessageBoxW(nullptr,
+            L"候选程序注册完成。接下来请在 Windows 设置中亲自选择默认应用。",
+            L"马冬梅", MB_OK | MB_ICONINFORMATION);
+        return platform::OpenDefaultAppsSettings() == ErrorCode::ok ? 0 : 5;
+    }
+    if (options.value().unregister_file_types) {
+        const auto removed = association.unregister_application();
+        MessageBoxW(nullptr, removed == ErrorCode::ok
+            ? L"文件关联注册已撤销。" : L"无法撤销文件关联注册。",
+            L"马冬梅", MB_OK | (removed == ErrorCode::ok ? MB_ICONINFORMATION : MB_ICONERROR));
+        return removed == ErrorCode::ok ? 0 : 6;
+    }
+
     platform::SingleInstance single_instance;
     const auto acquired = single_instance.acquire();
     if (acquired != ErrorCode::ok) {
@@ -41,6 +73,21 @@ int RunStartup(HINSTANCE instance, int show_command) {
         MessageBoxW(nullptr,
             L"无法联系已经运行的马冬梅，将打开一个独立窗口以免丢失文件请求。",
             L"马冬梅", MB_OK | MB_ICONWARNING);
+    }
+
+    if (!executable.empty() &&
+        association.state(executable) == platform::AssociationState::needs_repair &&
+        !association.repair_prompt_ignored(executable)) {
+        const auto repair = MessageBoxW(nullptr,
+            L"检测到马冬梅的位置已经变化，原文件关联路径已失效。是否修复？",
+            L"修复文件关联", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1);
+        if (repair == IDYES) {
+            if (association.register_application(executable) != ErrorCode::ok)
+                MessageBoxW(nullptr, L"文件关联修复失败，程序仍可正常使用。",
+                    L"马冬梅", MB_OK | MB_ICONWARNING);
+        } else {
+            (void)association.ignore_repair_prompt(executable);
+        }
     }
 
     Application application(instance);

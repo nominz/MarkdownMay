@@ -33,6 +33,9 @@ enum class CommandId : std::uint16_t {
     recent_first = 600,
     recent_last = 619,
     recent_clear = 620,
+    tools_register_association = 700,
+    tools_unregister_association,
+    tools_default_apps,
 };
 
 struct CommandState final {

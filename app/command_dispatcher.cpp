@@ -8,9 +8,11 @@ namespace markdownmay::app {
 
 CommandDispatcher::CommandDispatcher(ui::DocumentWindow& document_window,
                                      std::function<void()> request_exit,
-                                     FileCommands file_commands)
+                                     FileCommands file_commands,
+                                     AssociationCommands association_commands)
     : document_window_(document_window), request_exit_(std::move(request_exit)),
-      file_commands_(std::move(file_commands)) {}
+      file_commands_(std::move(file_commands)),
+      association_commands_(std::move(association_commands)) {}
 
 CommandState CommandDispatcher::query(CommandId command) const noexcept {
     const auto native = static_cast<std::uint16_t>(command);
@@ -19,6 +21,14 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {static_cast<bool>(file_commands_.open_recent), false};
     if (command == CommandId::recent_clear)
         return {static_cast<bool>(file_commands_.clear_recent), false};
+    if (command == CommandId::tools_register_association)
+        return {association_commands_.can_register &&
+            association_commands_.can_register(), false};
+    if (command == CommandId::tools_unregister_association)
+        return {association_commands_.can_unregister &&
+            association_commands_.can_unregister(), false};
+    if (command == CommandId::tools_default_apps)
+        return {static_cast<bool>(association_commands_.open_default_apps), false};
     const auto& modes = document_window_.modes();
     switch (command) {
     case CommandId::file_new:
@@ -67,6 +77,18 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     if (command == CommandId::recent_clear)
         return file_commands_.clear_recent ? file_commands_.clear_recent()
                                            : ErrorCode::document_invalid_state;
+    if (command == CommandId::tools_register_association)
+        return association_commands_.register_application
+            ? association_commands_.register_application()
+            : ErrorCode::document_invalid_state;
+    if (command == CommandId::tools_unregister_association)
+        return association_commands_.unregister_application
+            ? association_commands_.unregister_application()
+            : ErrorCode::document_invalid_state;
+    if (command == CommandId::tools_default_apps)
+        return association_commands_.open_default_apps
+            ? association_commands_.open_default_apps()
+            : ErrorCode::document_invalid_state;
     switch (command) {
     case CommandId::file_new:
         return file_commands_.new_document

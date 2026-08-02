@@ -41,8 +41,17 @@ Application::Application(HINSTANCE instance)
           [this] { return SaveDocumentAs(); },
           [this](std::size_t index) { return OpenRecentFile(index); },
           [this] { return ClearRecentFiles(); },
+      }, {
+          [this] { return file_association_.state(ExecutablePath()) !=
+              platform::AssociationState::current; },
+          [this] { return file_association_.state(ExecutablePath()) !=
+              platform::AssociationState::not_registered; },
+          [this] { return RegisterFileAssociations(); },
+          [this] { return UnregisterFileAssociations(); },
+          [this] { return OpenDefaultApps(); },
       }),
-      recent_files_(RecentFilePath(), 20) {
+      recent_files_(RecentFilePath(), 20),
+      file_association_() {
     main_window_.set_command_callbacks(
         [this](CommandId command) { return dispatcher_.query(command); },
         [this](CommandId command) {
@@ -264,6 +273,38 @@ void Application::ProcessNextOpenRequest() {
         if (result != ErrorCode::ok) ShowFileError(result);
     }
     processing_open_request_ = false;
+}
+
+std::filesystem::path Application::ExecutablePath() const {
+    std::array<wchar_t, 32768> path{};
+    const auto length = GetModuleFileNameW(nullptr, path.data(),
+        static_cast<DWORD>(path.size()));
+    return length && length < path.size()
+        ? std::filesystem::path(path.data()) : std::filesystem::path{};
+}
+
+ErrorCode Application::RegisterFileAssociations() {
+    const auto executable = ExecutablePath();
+    if (executable.empty()) return ErrorCode::platform_association_write_failed;
+    const auto result = file_association_.register_application(executable);
+    if (result != ErrorCode::ok) return result;
+    const auto choice = MessageBoxW(main_window_.handle(),
+        L"马冬梅已注册为 Markdown 候选程序。\n\n"
+        L"Windows 仍需要您亲自选择默认应用。现在打开系统设置吗？",
+        L"文件关联注册完成", MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
+    return choice == IDYES ? OpenDefaultApps() : ErrorCode::ok;
+}
+
+ErrorCode Application::UnregisterFileAssociations() {
+    const auto result = file_association_.unregister_application();
+    if (result == ErrorCode::ok)
+        MessageBoxW(main_window_.handle(), L"马冬梅的 Markdown 候选程序注册已撤销。",
+            L"文件关联", MB_OK | MB_ICONINFORMATION);
+    return result;
+}
+
+ErrorCode Application::OpenDefaultApps() {
+    return platform::OpenDefaultAppsSettings(main_window_.handle());
 }
 
 void Application::CheckExternalModification() {

@@ -106,3 +106,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_app_shell markdownmay_platform
 )
 add_test(NAME startup_single_instance_integration COMMAND MarkdownMayStartupSingleInstance)
+
+add_executable(MarkdownMayFileAssociation file_association_test.cpp)
+target_link_libraries(
+    MarkdownMayFileAssociation
+    PRIVATE markdownmay_compiler_options markdownmay_platform advapi32
+)
+add_test(NAME file_association_integration COMMAND MarkdownMayFileAssociation)
