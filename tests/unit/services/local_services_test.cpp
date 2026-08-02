@@ -68,6 +68,12 @@ int main() {
     if (!recent_files.is_ok() || recent_files.value().size() != 2 ||
         recent_files.value()[0].filename() != L"一.md") { cleanup(); return 7; }
 
+    if (recent.clear() != ErrorCode::ok) { cleanup(); return 10; }
+    const auto after_clear = recent.load();
+    if (!after_clear.is_ok() || !after_clear.value().empty()) {
+        cleanup(); return 11;
+    }
+
     const auto log_path = root / L"logs" / L"app.log";
     PrivacyLogger logger(log_path);
     const auto secret_path = root / L"绝密客户名单.md";

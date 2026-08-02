@@ -224,7 +224,32 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CoUninitialize();
         return 19;
     }
-    DestroyWindow(window.handle());
+    if (window.document_window().open_document(second) != ErrorCode::ok ||
+        window.document_window().has_external_change()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 20;
+    }
+    if (fileio::SaveTextFileAtomic({second, "# external\n",
+            fileio::TextEncoding::utf8, fileio::LineEnding::lf}) != ErrorCode::ok ||
+        !window.document_window().has_external_change()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 21;
+    }
+    window.document_window().acknowledge_external_change();
+    if (window.document_window().has_external_change()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 22;
+    }
+    SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_READONLY);
+    if (window.document_window().open_document(second) != ErrorCode::ok ||
+        !window.document_window().is_read_only() ||
+        window.document_window().save_document() != ErrorCode::file_read_only) {
+        SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
+        DestroyWindow(window.handle()); CoUninitialize(); return 23;
+    }
+    SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
+    window.set_close_callback([] { return false; });
+    SendMessageW(window.handle(), WM_CLOSE, 0, 0);
+    if (!IsWindow(window.handle())) { CoUninitialize(); return 24; }
+    window.set_close_callback([] { return true; });
+    SendMessageW(window.handle(), WM_CLOSE, 0, 0);
     CoUninitialize();
     return 0;
 }

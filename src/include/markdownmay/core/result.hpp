@@ -22,6 +22,7 @@ enum class ErrorCode : std::uint32_t {
     file_encoding_unsupported = 4005,
     file_encoding_invalid = 4006,
     file_write_failed = 4007,
+    file_read_only = 4014,
     document_invalid_state = 3001,
     document_revision_mismatch = 3002,
     document_invariant_failed = 3004,

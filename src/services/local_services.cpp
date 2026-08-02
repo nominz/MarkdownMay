@@ -215,6 +215,11 @@ ErrorCode RecentFilesStore::touch(const std::filesystem::path& path) const {
     for (const auto& value : values) output += HexEncode(PathUtf8(value)) + "\n";
     return SaveUtf8(file_, output, ErrorCode::settings_save_failed);
 }
+ErrorCode RecentFilesStore::clear() const {
+    std::error_code error;
+    std::filesystem::remove(file_, error);
+    return error ? ErrorCode::settings_save_failed : ErrorCode::ok;
+}
 
 PrivacyLogger::PrivacyLogger(std::filesystem::path file) : file_(std::move(file)) {}
 ErrorCode PrivacyLogger::append(const DiagnosticRecord& record) const {

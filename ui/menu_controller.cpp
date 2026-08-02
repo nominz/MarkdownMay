@@ -37,12 +37,16 @@ bool MenuController::create(HWND window) {
     const auto format = CreatePopupMenu();
     const auto view = CreatePopupMenu();
     const auto help = CreatePopupMenu();
-    if (!menu_ || !file || !edit || !format || !view || !help) return false;
+    recent_menu_ = CreatePopupMenu();
+    if (!menu_ || !file || !edit || !format || !view || !help || !recent_menu_)
+        return false;
 
     AddCommand(file, app::CommandId::file_new, L"新建(&N)\tCtrl+N");
     AddCommand(file, app::CommandId::file_open, L"打开(&O)...\tCtrl+O");
     AddCommand(file, app::CommandId::file_save, L"保存(&S)\tCtrl+S");
     AddCommand(file, app::CommandId::file_save_as, L"另存为(&A)...\tCtrl+Shift+S");
+    AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(file, MF_POPUP, reinterpret_cast<UINT_PTR>(recent_menu_), L"最近文件(&R)");
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
     AddCommand(file, app::CommandId::file_exit, L"退出(&X)\tAlt+F4");
 
@@ -104,12 +108,32 @@ bool MenuController::create(HWND window) {
 }
 
 bool MenuController::dispatch(std::uint16_t native_id) {
-    if (!IsKnown(native_id)) return false;
+    const bool recent = native_id >= Native(app::CommandId::recent_first) &&
+        native_id <= Native(app::CommandId::recent_clear);
+    if (!IsKnown(native_id) && !recent) return false;
     const auto command = static_cast<app::CommandId>(native_id);
     if (query_ && !query_(command).enabled) return true;
     if (execute_) execute_(command);
     refresh();
     return true;
+}
+
+void MenuController::set_recent_files(std::vector<std::filesystem::path> files) {
+    if (!recent_menu_) return;
+    while (GetMenuItemCount(recent_menu_) > 0)
+        DeleteMenu(recent_menu_, 0, MF_BYPOSITION);
+    if (files.empty()) {
+        AppendMenuW(recent_menu_, MF_STRING | MF_GRAYED, 0, L"（没有最近文件）");
+    } else {
+        for (std::size_t index = 0; index < files.size() && index < 20; ++index) {
+            auto label = std::to_wstring(index + 1) + L"  " + files[index].wstring();
+            AppendMenuW(recent_menu_, MF_STRING,
+                Native(app::CommandId::recent_first) + static_cast<UINT>(index), label.c_str());
+        }
+        AppendMenuW(recent_menu_, MF_SEPARATOR, 0, nullptr);
+        AddCommand(recent_menu_, app::CommandId::recent_clear, L"清除最近文件");
+    }
+    if (window_) DrawMenuBar(window_);
 }
 
 void MenuController::refresh() {

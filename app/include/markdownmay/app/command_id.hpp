@@ -30,6 +30,9 @@ enum class CommandId : std::uint16_t {
     view_source,
     view_split,
     help_about = 500,
+    recent_first = 600,
+    recent_last = 619,
+    recent_clear = 620,
 };
 
 struct CommandState final {

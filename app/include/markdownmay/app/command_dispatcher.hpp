@@ -16,6 +16,8 @@ public:
         std::function<ErrorCode()> open_document;
         std::function<ErrorCode()> save_document;
         std::function<ErrorCode()> save_document_as;
+        std::function<ErrorCode(std::size_t)> open_recent;
+        std::function<ErrorCode()> clear_recent;
     };
 
     CommandDispatcher(ui::DocumentWindow& document_window,

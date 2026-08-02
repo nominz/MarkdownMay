@@ -51,6 +51,7 @@ public:
     RecentFilesStore(std::filesystem::path file, std::size_t maximum = 10);
     [[nodiscard]] Result<std::vector<std::filesystem::path>> load() const;
     [[nodiscard]] ErrorCode touch(const std::filesystem::path& path) const;
+    [[nodiscard]] ErrorCode clear() const;
 private:
     std::filesystem::path file_;
     std::size_t maximum_{};

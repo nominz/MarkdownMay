@@ -71,6 +71,12 @@ void MainWindow::set_drop_callback(
     std::function<void(const std::filesystem::path&)> callback) {
     drop_callback_ = std::move(callback);
 }
+void MainWindow::set_close_callback(std::function<bool()> callback) {
+    close_callback_ = std::move(callback);
+}
+void MainWindow::set_activate_callback(std::function<void()> callback) {
+    activate_callback_ = std::move(callback);
+}
 void MainWindow::refresh_document_chrome() {
     status_bar_.set_file_format(document_window_.encoding(),
         document_window_.line_ending());
@@ -79,12 +85,16 @@ void MainWindow::refresh_document_chrome() {
     if (!handle_) return;
     const auto name = document_window_.is_named()
         ? document_window_.path().filename().wstring() : std::wstring(L"无标题");
-    const auto title = name + (session_.is_dirty() ? L" *" : L"") +
+    const auto title = name + (document_window_.is_read_only() ? L" [只读]" : L"") +
+        (session_.is_dirty() ? L" *" : L"") +
         L" - 马冬梅";
     SetWindowTextW(handle_, title.c_str());
 }
 HACCEL MainWindow::accelerator() const noexcept {
     return menu_controller_ ? menu_controller_->accelerator() : nullptr;
+}
+void MainWindow::set_recent_files(std::vector<std::filesystem::path> files) {
+    if (menu_controller_) menu_controller_->set_recent_files(std::move(files));
 }
 
 LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
@@ -147,6 +157,14 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
         }
         case WM_SIZE:
             self->Layout();
+            return 0;
+        case WM_ACTIVATE:
+            if (LOWORD(w_param) != WA_INACTIVE && self->activate_callback_)
+                self->activate_callback_();
+            return 0;
+        case WM_CLOSE:
+            if (!self->close_callback_ || self->close_callback_())
+                DestroyWindow(window);
             return 0;
         case WM_SETFOCUS:
             if (self->document_window_.handle())

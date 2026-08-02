@@ -13,6 +13,12 @@ CommandDispatcher::CommandDispatcher(ui::DocumentWindow& document_window,
       file_commands_(std::move(file_commands)) {}
 
 CommandState CommandDispatcher::query(CommandId command) const noexcept {
+    const auto native = static_cast<std::uint16_t>(command);
+    if (native >= static_cast<std::uint16_t>(CommandId::recent_first) &&
+        native <= static_cast<std::uint16_t>(CommandId::recent_last))
+        return {static_cast<bool>(file_commands_.open_recent), false};
+    if (command == CommandId::recent_clear)
+        return {static_cast<bool>(file_commands_.clear_recent), false};
     const auto& modes = document_window_.modes();
     switch (command) {
     case CommandId::file_new:
@@ -52,6 +58,15 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
 ErrorCode CommandDispatcher::execute(CommandId command) {
     if (!query(command).enabled) return ErrorCode::document_invalid_state;
     auto& modes = document_window_.modes();
+    const auto native = static_cast<std::uint16_t>(command);
+    if (native >= static_cast<std::uint16_t>(CommandId::recent_first) &&
+        native <= static_cast<std::uint16_t>(CommandId::recent_last))
+        return file_commands_.open_recent
+            ? file_commands_.open_recent(native - static_cast<std::uint16_t>(CommandId::recent_first))
+            : ErrorCode::document_invalid_state;
+    if (command == CommandId::recent_clear)
+        return file_commands_.clear_recent ? file_commands_.clear_recent()
+                                           : ErrorCode::document_invalid_state;
     switch (command) {
     case CommandId::file_new:
         return file_commands_.new_document

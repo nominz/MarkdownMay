@@ -3,6 +3,7 @@
 #include "markdownmay/document/document_session.hpp"
 #include "markdownmay/app/command_dispatcher.hpp"
 #include "markdownmay/ui/main_window.hpp"
+#include "markdownmay/services/local_services.hpp"
 
 #include <windows.h>
 
@@ -17,7 +18,13 @@ public:
     [[nodiscard]] ui::MainWindow& main_window() noexcept;
 
 private:
-    [[nodiscard]] bool CanReplaceDocument() const noexcept;
+    [[nodiscard]] bool ConfirmDocumentReplacement();
+    [[nodiscard]] bool ConfirmClose();
+    void CheckExternalModification();
+    void RememberRecentFile(const std::filesystem::path& path);
+    [[nodiscard]] ErrorCode OpenRecentFile(std::size_t index);
+    [[nodiscard]] ErrorCode ClearRecentFiles();
+    void RefreshRecentFiles();
     [[nodiscard]] ErrorCode NewDocument();
     [[nodiscard]] ErrorCode OpenDocumentDialog();
     [[nodiscard]] ErrorCode SaveDocument();
@@ -30,6 +37,9 @@ private:
     document::DocumentSession session_{""};
     ui::MainWindow main_window_{session_};
     CommandDispatcher dispatcher_;
+    services::RecentFilesStore recent_files_;
+    bool checking_external_{};
+    std::vector<std::filesystem::path> recent_file_list_;
 };
 
 }  // namespace markdownmay::app
