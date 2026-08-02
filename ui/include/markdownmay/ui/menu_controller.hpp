@@ -6,6 +6,8 @@
 
 #include <functional>
 #include <filesystem>
+#include <list>
+#include <string>
 #include <vector>
 
 namespace markdownmay::ui {
@@ -24,10 +26,16 @@ public:
     [[nodiscard]] bool dispatch(std::uint16_t native_id);
     void refresh();
     void set_recent_files(std::vector<std::filesystem::path> files);
+    void apply_appearance(COLORREF text, COLORREF surface, UINT dpi);
+    [[nodiscard]] bool measure(MEASUREITEMSTRUCT& item) const;
+    [[nodiscard]] bool draw(const DRAWITEMSTRUCT& item) const;
     [[nodiscard]] HACCEL accelerator() const noexcept;
 
 private:
     void AddCommand(HMENU menu, app::CommandId command, const wchar_t* text);
+    void AddPopup(HMENU menu, HMENU popup, const wchar_t* text);
+    void AddSeparator(HMENU menu);
+    const wchar_t* KeepLabel(std::wstring text);
 
     Query query_;
     Execute execute_;
@@ -35,6 +43,10 @@ private:
     HMENU menu_{};
     HACCEL accelerator_{};
     HMENU recent_menu_{};
+    std::list<std::wstring> labels_;
+    COLORREF text_color_{RGB(32, 32, 32)};
+    COLORREF surface_color_{RGB(250, 250, 250)};
+    UINT dpi_{96};
 };
 
 }  // namespace markdownmay::ui

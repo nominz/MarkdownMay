@@ -6,6 +6,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <windows.h>
+#include <richedit.h>
 
 #include <string>
 #include <chrono>
@@ -21,6 +22,13 @@ struct TemporaryDirectory final {
         std::filesystem::remove_all(path, ignored);
     }
 };
+bool ContainsKind(const markdownmay::document::Node& node,
+                  markdownmay::document::NodeKind kind) {
+    if (node.kind == kind) return true;
+    for (const auto& child : node.children)
+        if (ContainsKind(*child, kind)) return true;
+    return false;
+}
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
@@ -65,6 +73,34 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DestroyWindow(window.handle());
         CoUninitialize();
         return 3;
+    }
+    const auto render = window.document_window().modes().render_view().handle();
+    if ((GetWindowLongPtrW(render, GWL_STYLE) & WS_VSCROLL) != 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 25;
+    }
+    std::string long_document;
+    for (int line = 0; line < 200; ++line)
+        long_document += "scroll line " + std::to_string(line) + "\n\n";
+    if (window.document_window().modes().reload(long_document) != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 25;
+    }
+    ShowWindow(window.handle(), SW_SHOWNOACTIVATE);
+    UpdateWindow(window.handle());
+    SendMessageW(render, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(-WHEEL_DELTA)), 0);
+    if (SendMessageW(render, EM_GETFIRSTVISIBLELINE, 0, 0) <= 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 30;
+    }
+    if ((GetWindowLongPtrW(render, GWL_STYLE) & WS_VSCROLL) == 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 31;
+    }
+    if (window.document_window().new_document() != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 32;
+    }
+    MENUITEMINFOW owner_draw{sizeof(owner_draw)};
+    owner_draw.fMask = MIIM_FTYPE;
+    if (!GetMenuItemInfoW(GetMenu(window.handle()), 0, TRUE, &owner_draw) ||
+        (owner_draw.fType & MFT_OWNERDRAW) == 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 26;
     }
     static_assert(static_cast<std::uint16_t>(app::CommandId::file_new) == 100);
     static_assert(static_cast<std::uint16_t>(app::CommandId::file_exit) == 104);
@@ -183,6 +219,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 14;
     }
     const auto rich = window.document_window().modes().render_view().handle();
+    CHARRANGE opened_selection{};
+    SendMessageW(rich, EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&opened_selection));
+    if (opened_selection.cpMin != 0 || opened_selection.cpMax != 0 ||
+        SendMessageW(rich, EM_GETFIRSTVISIBLELINE, 0, 0) != 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 27;
+    }
     SendMessageW(rich, EM_SETSEL, static_cast<WPARAM>(-1), static_cast<LPARAM>(-1));
     SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"追加\r"));
     if (window.document_window().save_document() != ErrorCode::ok) {
@@ -250,6 +293,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DestroyWindow(window.handle()); CoUninitialize(); return 23;
     }
     SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
+    if (window.document_window().new_document() != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 28;
+    }
+    SetFocus(rich);
+    SendMessageW(rich, EM_SETSEL, 0, 0);
+    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"\r"));
+    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-"));
+    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-"));
+    SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"-"));
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+    const auto live = session.snapshot();
+    if (live.source.find("---") == std::string::npos) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 33;
+    }
+    if (!live.semantic || !ContainsKind(*live.semantic->root(),
+            document::NodeKind::thematic_break)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 29;
+    }
     window.set_close_callback([] { return false; });
     SendMessageW(window.handle(), WM_CLOSE, 0, 0);
     if (!IsWindow(window.handle())) { CoUninitialize(); return 24; }

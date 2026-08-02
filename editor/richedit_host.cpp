@@ -5,6 +5,7 @@
 #include <richedit.h>
 #include <richole.h>
 #include <tom.h>
+#include <commctrl.h>
 #include <shlwapi.h>
 #include <wrl/client.h>
 
@@ -13,6 +14,19 @@
 
 namespace markdownmay::editor {
 namespace {
+
+LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
+                                  LPARAM l_param, UINT_PTR, DWORD_PTR) {
+    if (message == WM_MOUSEWHEEL) {
+        const auto delta = GET_WHEEL_DELTA_WPARAM(w_param);
+        if (delta != 0) {
+            const auto lines = -3 * delta / WHEEL_DELTA;
+            SendMessageW(window, EM_LINESCROLL, 0, lines);
+            return 0;
+        }
+    }
+    return DefSubclassProc(window, message, w_param, l_param);
+}
 
 std::wstring ToWide(std::string_view value) {
     if (value.empty()) return {};
@@ -207,7 +221,10 @@ RichEditHost::RichEditHost(document::DocumentSession& session)
       find_replace_controller_(session, editor_) {}
 
 RichEditHost::~RichEditHost() {
-    if (handle_ && IsWindow(handle_)) DestroyWindow(handle_);
+    if (handle_ && IsWindow(handle_)) {
+        RemoveWindowSubclass(handle_, RichEditSubclass, 1);
+        DestroyWindow(handle_);
+    }
     if (rich_edit_module_) FreeLibrary(rich_edit_module_);
 }
 
@@ -217,10 +234,15 @@ ErrorCode RichEditHost::create(HWND parent, const RECT& bounds) {
     if (!rich_edit_module_) return ErrorCode::editor_render_projection_failed;
     handle_ = CreateWindowExW(
         WS_EX_CLIENTEDGE, MSFTEDIT_CLASS, L"",
-        WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
+        WS_CHILD | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
         bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
         parent, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!handle_) return ErrorCode::editor_render_projection_failed;
+    if (!SetWindowSubclass(handle_, RichEditSubclass, 1, 0))
+        return ErrorCode::editor_render_projection_failed;
+    const auto event_mask = static_cast<DWORD>(
+        SendMessageW(handle_, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(handle_, EM_SETEVENTMASK, 0, event_mask | ENM_CHANGE);
     SendMessageW(handle_, EM_SETLIMITTEXT, 0, 0);
     SendMessageW(handle_, EM_SETUNDOLIMIT, 0, 0);
     return project();
@@ -234,16 +256,26 @@ ErrorCode RichEditHost::project() {
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
     }
+    CHARRANGE selection{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    POINT scroll{};
+    SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
     projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source, document_path_);
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
     const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
-    projecting_ = false;
-    if (!success) return ErrorCode::editor_render_projection_failed;
+    if (!success) {
+        projecting_ = false;
+        return ErrorCode::editor_render_projection_failed;
+    }
     for (const auto& span : projection_.spans) ApplySpan(handle_, projection_, span);
     apply_appearance(text_color_, background_color_, dpi_);
-    SendMessageW(handle_, EM_SETSEL, static_cast<WPARAM>(rich_text.size()),
-                 static_cast<LPARAM>(rich_text.size()));
+    const auto length = static_cast<LONG>(rich_text.size());
+    selection.cpMin = (std::min)(selection.cpMin, length);
+    selection.cpMax = (std::min)(selection.cpMax, length);
+    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    SendMessageW(handle_, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+    projecting_ = false;
     return ErrorCode::ok;
 }
 
@@ -288,6 +320,14 @@ void RichEditHost::scroll_to_fraction(std::uint64_t numerator, std::uint64_t den
                                           denominator);
     const auto current = static_cast<LONG>(SendMessageW(handle_, EM_GETFIRSTVISIBLELINE, 0, 0));
     SendMessageW(handle_, EM_LINESCROLL, 0, target - current);
+}
+
+void RichEditHost::reset_to_start() {
+    if (!handle_) return;
+    CHARRANGE selection{0, 0};
+    POINT scroll{};
+    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    SendMessageW(handle_, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
 }
 
 Result<TextSelection> RichEditHost::source_selection() {

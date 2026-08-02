@@ -158,6 +158,16 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
         case WM_INITMENU:
             if (self->menu_controller_) self->menu_controller_->refresh();
             return 0;
+        case WM_MEASUREITEM:
+            if (self->menu_controller_ &&
+                self->menu_controller_->measure(
+                    *reinterpret_cast<MEASUREITEMSTRUCT*>(l_param))) return TRUE;
+            break;
+        case WM_DRAWITEM:
+            if (self->menu_controller_ &&
+                self->menu_controller_->draw(
+                    *reinterpret_cast<DRAWITEMSTRUCT*>(l_param))) return TRUE;
+            break;
         case WM_NOTIFY: {
             const auto* header = reinterpret_cast<const NMHDR*>(l_param);
             if (self->toolbar_ && header &&
@@ -271,6 +281,8 @@ void MainWindow::ApplyAppearance() {
         static_cast<void>(ApplyTitleBarTheme(handle_, theme_kind_));
     }
     if (toolbar_) toolbar_->apply_appearance(palette_.text, palette_.surface, dpi_);
+    if (menu_controller_) menu_controller_->apply_appearance(
+        palette_.text, palette_.surface, dpi_);
     status_bar_.apply_appearance(palette_.text, palette_.surface, dpi_);
     document_window_.apply_appearance(palette_.text, palette_.window, palette_.accent, dpi_);
     Layout();

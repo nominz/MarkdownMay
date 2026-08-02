@@ -10,6 +10,7 @@ namespace markdownmay::editor {
 namespace {
 
 constexpr wchar_t kModeHostClass[] = L"MarkdownMay.ViewMode.Host";
+constexpr UINT kSynchronizeRenderMessage = WM_APP + 1;
 
 bool RegisterModeClass() {
     static std::once_flag once;
@@ -180,7 +181,9 @@ ErrorCode ViewModeController::reload(std::string source) {
     const auto result = session_.reload(std::move(source));
     if (result != ErrorCode::ok) return result;
     if (session_.can_export()) {
+        render_.reset_to_start();
         if (render_.project() != ErrorCode::ok) return ErrorCode::editor_render_projection_failed;
+        render_.reset_to_start();
         render_.set_read_only(false);
         ShowWindow(split_.handle(), SW_HIDE);
         ShowWindow(render_.handle(), SW_SHOW);
@@ -226,6 +229,16 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
     if (!self) return DefWindowProcW(window, message, w_param, l_param);
     if (message == WM_SIZE) {
         self->Layout(LOWORD(l_param), HIWORD(l_param));
+        return 0;
+    }
+    if (message == WM_COMMAND &&
+        reinterpret_cast<HWND>(l_param) == self->render_.handle() &&
+        HIWORD(w_param) == EN_CHANGE) {
+        PostMessageW(window, kSynchronizeRenderMessage, 0, 0);
+        return 0;
+    }
+    if (message == kSynchronizeRenderMessage) {
+        static_cast<void>(self->render_.synchronize_change());
         return 0;
     }
     if (message == WM_NCDESTROY) {
