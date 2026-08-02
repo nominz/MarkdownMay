@@ -10,6 +10,8 @@ enum class CommandId : std::uint16_t {
     file_save,
     file_save_as,
     file_exit,
+    file_print,
+    file_page_setup,
     edit_undo = 200,
     edit_redo,
     edit_cut,

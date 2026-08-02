@@ -118,24 +118,46 @@ Result<Settings> SettingsStore::load() const {
     };
     const auto version = take("schema_version");
     const auto mode = take("default_mode");
-    const auto theme = take("follow_system_theme");
+    auto theme = take("theme");
+    const auto legacy_theme = take("follow_system_theme");
     const auto interval = take("recovery_interval_seconds");
-    if (!version.empty() && !ParseInteger(version, settings.schema_version))
-        return corrupt();
+    const auto landscape = take("print_landscape");
+    const auto margin_left = take("margin_left_hundredths_mm");
+    const auto margin_top = take("margin_top_hundredths_mm");
+    const auto margin_right = take("margin_right_hundredths_mm");
+    const auto margin_bottom = take("margin_bottom_hundredths_mm");
+    if (!version.empty() && (!ParseInteger(version, settings.schema_version) ||
+        settings.schema_version == 0 || settings.schema_version > 2)) return corrupt();
     if (!mode.empty()) {
         if (mode == "render") settings.default_mode = DefaultViewMode::render;
         else if (mode == "source") settings.default_mode = DefaultViewMode::source;
         else if (mode == "split") settings.default_mode = DefaultViewMode::split;
         else return corrupt();
     }
+    if (theme.empty() && !legacy_theme.empty())
+        theme = legacy_theme == "true" ? "system" : "light";
     if (!theme.empty()) {
-        if (theme == "true") settings.follow_system_theme = true;
-        else if (theme == "false") settings.follow_system_theme = false;
+        if (theme == "system") settings.theme = ThemeSetting::follow_system;
+        else if (theme == "light") settings.theme = ThemeSetting::light;
+        else if (theme == "dark") settings.theme = ThemeSetting::dark;
         else return corrupt();
     }
     if (!interval.empty() && (!ParseInteger(interval, settings.recovery_interval_seconds) ||
         settings.recovery_interval_seconds < 10 || settings.recovery_interval_seconds > 3600))
         return corrupt();
+    if (!landscape.empty()) {
+        if (landscape == "true") settings.print_landscape = true;
+        else if (landscape == "false") settings.print_landscape = false;
+        else return corrupt();
+    }
+    const auto margin = [&](const std::string& text, std::uint32_t& value) {
+        return text.empty() || (ParseInteger(text, value) && value <= 10000);
+    };
+    if (!margin(margin_left, settings.margin_left_hundredths_mm) ||
+        !margin(margin_top, settings.margin_top_hundredths_mm) ||
+        !margin(margin_right, settings.margin_right_hundredths_mm) ||
+        !margin(margin_bottom, settings.margin_bottom_hundredths_mm)) return corrupt();
+    settings.schema_version = 2;
     return Result<Settings>::success(std::move(settings));
 }
 ErrorCode SettingsStore::save(const Settings& settings) const {
@@ -143,8 +165,14 @@ ErrorCode SettingsStore::save(const Settings& settings) const {
     output << "schema_version=" << settings.schema_version << "\n"
            << "default_mode=" << (settings.default_mode == DefaultViewMode::render ? "render" :
                settings.default_mode == DefaultViewMode::source ? "source" : "split") << "\n"
-           << "follow_system_theme=" << (settings.follow_system_theme ? "true" : "false") << "\n"
-           << "recovery_interval_seconds=" << settings.recovery_interval_seconds << "\n";
+           << "theme=" << (settings.theme == ThemeSetting::follow_system ? "system" :
+               settings.theme == ThemeSetting::light ? "light" : "dark") << "\n"
+           << "recovery_interval_seconds=" << settings.recovery_interval_seconds << "\n"
+           << "print_landscape=" << (settings.print_landscape ? "true" : "false") << "\n"
+           << "margin_left_hundredths_mm=" << settings.margin_left_hundredths_mm << "\n"
+           << "margin_top_hundredths_mm=" << settings.margin_top_hundredths_mm << "\n"
+           << "margin_right_hundredths_mm=" << settings.margin_right_hundredths_mm << "\n"
+           << "margin_bottom_hundredths_mm=" << settings.margin_bottom_hundredths_mm << "\n";
     for (const auto& [key, value] : settings.unknown) output << key << "=" << value << "\n";
     return SaveUtf8(file_, output.str(), ErrorCode::settings_save_failed);
 }

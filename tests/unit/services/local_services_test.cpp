@@ -17,14 +17,17 @@ int main() {
 
     SettingsStore settings_store(root / L"settings.ini");
     Settings settings; settings.default_mode = DefaultViewMode::split;
-    settings.follow_system_theme = false; settings.recovery_interval_seconds = 45;
+    settings.theme = ThemeSetting::dark; settings.recovery_interval_seconds = 45;
+    settings.print_landscape = true; settings.margin_left_hundredths_mm = 1234;
     settings.unknown["future_option"] = "保留";
     if (settings_store.save(settings) != ErrorCode::ok) { cleanup(); return 1; }
     auto loaded_settings = settings_store.load();
     if (!loaded_settings.is_ok() ||
         loaded_settings.value().default_mode != DefaultViewMode::split ||
-        loaded_settings.value().follow_system_theme ||
+        loaded_settings.value().theme != ThemeSetting::dark ||
         loaded_settings.value().recovery_interval_seconds != 45 ||
+        !loaded_settings.value().print_landscape ||
+        loaded_settings.value().margin_left_hundredths_mm != 1234 ||
         loaded_settings.value().unknown.at("future_option") != "保留") {
         cleanup(); return 2;
     }
@@ -42,6 +45,18 @@ int main() {
         if (entry.path().filename().wstring().find(L"corrupt.ini.bad-") == 0) bad_copy_found = true;
     }
     if (!bad_copy_found) { cleanup(); return 11; }
+
+    const auto legacy_path = root / L"legacy.ini";
+    {
+        std::ofstream legacy(legacy_path, std::ios::binary);
+        legacy << "schema_version=1\nfollow_system_theme=false\nfuture_legacy=kept\n";
+    }
+    const auto migrated = SettingsStore(legacy_path).load();
+    if (!migrated.is_ok() || migrated.value().schema_version != 2 ||
+        migrated.value().theme != ThemeSetting::light ||
+        migrated.value().unknown.at("future_legacy") != "kept") {
+        cleanup(); return 12;
+    }
 
     RecoveryStore recovery(root / L"recovery");
     RecoverySnapshot snapshot{77, root / L"原文.md", "# 未保存\r\n\r\n正文 😀\n", 9};

@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-项目已完成需求冻结，正在完成瀑布开发第二阶段的总体和详细设计。当前仍不实现产品代码，先冻结模块、数据、接口和错误契约。
+项目已按瀑布路线完成第六阶段“应用外壳与系统集成”。当前已有可运行的单 EXE，支持三种编辑视图、日常文件操作、单实例、文件关联、主题、DPI、打印和本地设置。PDF、DOCX 导出将在第七阶段实现，当前版本尚未发布。
 
 - [产品与技术方案](docs/MarkdownMay-产品与技术方案.md)
 - [需求规格说明书 V02（当前评审稿）](docs/需求规格说明书_V02.md)
@@ -25,6 +25,7 @@
 - [接口头文件草案说明](docs/接口头文件草案.md)
 - [数据结构图](docs/数据结构图.md)
 - [错误码表](docs/错误码表.md)
+- [第六阶段实现与验收矩阵](docs/第六阶段实现与验收矩阵.md)
 
 ## 计划技术栈
 
@@ -37,7 +38,15 @@
 
 ## 构建
 
-设计阶段尚无可构建产品。风险样机阶段再提交正式构建目标，避免由临时代码决定架构。
+需要 CMake 和带 MSVC C++ 工具链的 Visual Studio Build Tools：
+
+```powershell
+cmake --preset windows-x64-debug
+cmake --build --preset windows-x64-debug --config Release
+ctest --test-dir build/windows-x64-debug -C Release --output-on-failure
+```
+
+主程序生成于 `build/windows-x64-debug/app/Release/MarkdownMay.exe`。
 
 ## 许可证
 

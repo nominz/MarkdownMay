@@ -11,7 +11,7 @@ constexpr UINT Native(app::CommandId command) noexcept {
 
 bool IsKnown(std::uint16_t value) noexcept {
     return (value >= Native(app::CommandId::file_new) &&
-            value <= Native(app::CommandId::file_exit)) ||
+            value <= Native(app::CommandId::file_page_setup)) ||
         (value >= Native(app::CommandId::edit_undo) &&
             value <= Native(app::CommandId::edit_replace)) ||
         (value >= Native(app::CommandId::format_bold) &&
@@ -50,6 +50,9 @@ bool MenuController::create(HWND window) {
     AddCommand(file, app::CommandId::file_save_as, L"另存为(&A)...\tCtrl+Shift+S");
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(file, MF_POPUP, reinterpret_cast<UINT_PTR>(recent_menu_), L"最近文件(&R)");
+    AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+    AddCommand(file, app::CommandId::file_print, L"打印(&P)...\tCtrl+P");
+    AddCommand(file, app::CommandId::file_page_setup, L"页面设置(&U)...");
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
     AddCommand(file, app::CommandId::file_exit, L"退出(&X)\tAlt+F4");
 
@@ -98,11 +101,12 @@ bool MenuController::create(HWND window) {
     AppendMenuW(menu_, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"帮助(&H)");
     if (!SetMenu(window_, menu_)) return false;
 
-    const std::array<ACCEL, 16> keys{{
+    const std::array<ACCEL, 17> keys{{
         {FVIRTKEY | FCONTROL, 'N', static_cast<WORD>(app::CommandId::file_new)},
         {FVIRTKEY | FCONTROL, 'O', static_cast<WORD>(app::CommandId::file_open)},
         {FVIRTKEY | FCONTROL, 'S', static_cast<WORD>(app::CommandId::file_save)},
         {FVIRTKEY | FCONTROL | FSHIFT, 'S', static_cast<WORD>(app::CommandId::file_save_as)},
+        {FVIRTKEY | FCONTROL, 'P', static_cast<WORD>(app::CommandId::file_print)},
         {FVIRTKEY | FCONTROL, 'Z', static_cast<WORD>(app::CommandId::edit_undo)},
         {FVIRTKEY | FCONTROL, 'Y', static_cast<WORD>(app::CommandId::edit_redo)},
         {FVIRTKEY | FCONTROL, 'X', static_cast<WORD>(app::CommandId::edit_cut)},

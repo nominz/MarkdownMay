@@ -37,6 +37,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             [] { return ErrorCode::ok; },
             [&window] { return window.document_window().save_document(); },
             [] { return ErrorCode::ok; },
+            [] { return ErrorCode::ok; },
+            [] { return ErrorCode::ok; },
         });
     window.set_command_callbacks(
         [&dispatcher](app::CommandId command) { return dispatcher.query(command); },
@@ -65,11 +67,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 3;
     }
     static_assert(static_cast<std::uint16_t>(app::CommandId::file_new) == 100);
+    static_assert(static_cast<std::uint16_t>(app::CommandId::file_exit) == 104);
+    static_assert(static_cast<std::uint16_t>(app::CommandId::file_print) == 105);
     static_assert(static_cast<std::uint16_t>(app::CommandId::edit_undo) == 200);
     static_assert(static_cast<std::uint16_t>(app::CommandId::format_bold) == 300);
     static_assert(static_cast<std::uint16_t>(app::CommandId::view_render) == 400);
     if (!GetMenu(window.handle()) ||
         !dispatcher.query(app::CommandId::file_open).enabled ||
+        !dispatcher.query(app::CommandId::file_print).enabled ||
         !dispatcher.query(app::CommandId::view_render).checked ||
         (GetMenuState(GetMenu(window.handle()),
              static_cast<UINT>(app::CommandId::file_open), MF_BYCOMMAND) &

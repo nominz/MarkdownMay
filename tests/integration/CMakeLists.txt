@@ -120,3 +120,8 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_ui
 )
 add_test(NAME theme_dpi_integration COMMAND MarkdownMayThemeDpi)
+
+add_executable(MarkdownMayPrintingSettings printing_settings_test.cpp)
+target_link_libraries(MarkdownMayPrintingSettings PRIVATE
+    markdownmay_compiler_options markdownmay_platform markdownmay_core user32)
+add_test(NAME printing_settings_integration COMMAND MarkdownMayPrintingSettings)

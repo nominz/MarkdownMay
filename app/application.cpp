@@ -27,6 +27,22 @@ std::filesystem::path RecentFilePath() {
         return std::filesystem::path(local.data()) / L"MarkdownMay" / L"recent.ini";
     return std::filesystem::temp_directory_path() / L"MarkdownMay-recent.ini";
 }
+std::filesystem::path SettingsFilePath() {
+    auto path = RecentFilePath();
+    path.replace_filename(L"settings.ini");
+    return path;
+}
+
+ui::ThemePreference ToUiTheme(services::ThemeSetting value) noexcept {
+    if (value == services::ThemeSetting::light) return ui::ThemePreference::light;
+    if (value == services::ThemeSetting::dark) return ui::ThemePreference::dark;
+    return ui::ThemePreference::follow_system;
+}
+services::ThemeSetting ToSettingTheme(ui::ThemePreference value) noexcept {
+    if (value == ui::ThemePreference::light) return services::ThemeSetting::light;
+    if (value == ui::ThemePreference::dark) return services::ThemeSetting::dark;
+    return services::ThemeSetting::follow_system;
+}
 }
 
 Application::Application(HINSTANCE instance)
@@ -39,6 +55,8 @@ Application::Application(HINSTANCE instance)
           [this] { return OpenDocumentDialog(); },
           [this] { return SaveDocument(); },
           [this] { return SaveDocumentAs(); },
+          [this] { return PrintDocument(); },
+          [this] { return PageSetup(); },
           [this](std::size_t index) { return OpenRecentFile(index); },
           [this] { return ClearRecentFiles(); },
       }, {
@@ -51,9 +69,14 @@ Application::Application(HINSTANCE instance)
           [this] { return OpenDefaultApps(); },
       }, {
           [this] { return main_window_.theme_preference(); },
-          [this](ui::ThemePreference value) { main_window_.set_theme_preference(value); },
+          [this](ui::ThemePreference value) {
+              main_window_.set_theme_preference(value);
+              settings_.theme = ToSettingTheme(value);
+              SaveSettings();
+          },
       }),
       recent_files_(RecentFilePath(), 20),
+      settings_store_(SettingsFilePath()),
       file_association_() {
     main_window_.set_command_callbacks(
         [this](CommandId command) { return dispatcher_.query(command); },
@@ -78,7 +101,13 @@ Application::Application(HINSTANCE instance)
 }
 
 int Application::run(int show_command) {
+    LoadSettings();
+    main_window_.set_theme_preference(ToUiTheme(settings_.theme));
     if (main_window_.create(instance_, show_command) != ErrorCode::ok) return 1;
+    const auto initial_mode = settings_.default_mode == services::DefaultViewMode::source
+        ? editor::ViewMode::source : settings_.default_mode == services::DefaultViewMode::split
+        ? editor::ViewMode::split : editor::ViewMode::render;
+    static_cast<void>(main_window_.document_window().modes().switch_to(initial_mode));
     RefreshRecentFiles();
     DrainOpenRequests();
     MSG message{};
@@ -89,7 +118,41 @@ int Application::run(int show_command) {
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
+    const auto mode = main_window_.document_window().modes().mode();
+    settings_.default_mode = mode == editor::ViewMode::source
+        ? services::DefaultViewMode::source : mode == editor::ViewMode::split
+        ? services::DefaultViewMode::split : services::DefaultViewMode::render;
+    SaveSettings();
     return result < 0 ? 2 : static_cast<int>(message.wParam);
+}
+
+void Application::LoadSettings() {
+    const auto loaded = settings_store_.load();
+    settings_ = loaded.is_ok() ? loaded.value() : services::Settings{};
+    page_setup_ = {settings_.print_landscape,
+        settings_.margin_left_hundredths_mm, settings_.margin_top_hundredths_mm,
+        settings_.margin_right_hundredths_mm, settings_.margin_bottom_hundredths_mm};
+}
+
+void Application::SaveSettings() {
+    settings_.print_landscape = page_setup_.landscape;
+    settings_.margin_left_hundredths_mm = page_setup_.left_hundredths_mm;
+    settings_.margin_top_hundredths_mm = page_setup_.top_hundredths_mm;
+    settings_.margin_right_hundredths_mm = page_setup_.right_hundredths_mm;
+    settings_.margin_bottom_hundredths_mm = page_setup_.bottom_hundredths_mm;
+    static_cast<void>(settings_store_.save(settings_));
+}
+
+ErrorCode Application::PrintDocument() {
+    auto& modes = main_window_.document_window().modes();
+    const auto prepared = modes.switch_to(editor::ViewMode::render);
+    if (prepared != ErrorCode::ok) return prepared;
+    return platform::PrintRichEdit(main_window_.handle(), modes.render_view().handle(), page_setup_);
+}
+
+ErrorCode Application::PageSetup() {
+    if (platform::ShowPageSetupDialog(main_window_.handle(), page_setup_)) SaveSettings();
+    return ErrorCode::ok;
 }
 
 ui::MainWindow& Application::main_window() noexcept { return main_window_; }

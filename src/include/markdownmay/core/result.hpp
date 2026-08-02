@@ -31,6 +31,7 @@ enum class ErrorCode : std::uint32_t {
     platform_single_instance_failed = 7101,
     platform_ipc_invalid_message = 7102,
     platform_ipc_send_failed = 7103,
+    platform_print_failed = 7301,
     document_invalid_state = 3001,
     document_revision_mismatch = 3002,
     document_invariant_failed = 3004,
