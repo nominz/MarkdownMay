@@ -70,8 +70,8 @@ bool Toolbar::create(HWND parent) {
     return true;
 }
 
-void Toolbar::resize(int width) {
-    if (handle_) MoveWindow(handle_, 0, 0, width, height_, TRUE);
+void Toolbar::resize(int width, int top) {
+    if (handle_) MoveWindow(handle_, 0, top, width, height_, TRUE);
 }
 
 void Toolbar::refresh() {

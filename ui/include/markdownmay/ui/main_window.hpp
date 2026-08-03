@@ -21,6 +21,7 @@ public:
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] DocumentWindow& document_window() noexcept;
     [[nodiscard]] Toolbar* toolbar() noexcept;
+    [[nodiscard]] MenuController* menu_controller() noexcept;
     [[nodiscard]] StatusBar& status_bar() noexcept;
     void set_command_callbacks(MenuController::Query query,
                                MenuController::Execute execute);

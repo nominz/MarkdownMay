@@ -66,6 +66,7 @@ ErrorCode MainWindow::create(HINSTANCE instance, int show_command) {
 HWND MainWindow::handle() const noexcept { return handle_; }
 DocumentWindow& MainWindow::document_window() noexcept { return document_window_; }
 Toolbar* MainWindow::toolbar() noexcept { return toolbar_.get(); }
+MenuController* MainWindow::menu_controller() noexcept { return menu_controller_.get(); }
 StatusBar& MainWindow::status_bar() noexcept { return status_bar_; }
 void MainWindow::set_command_callbacks(MenuController::Query query,
                                        MenuController::Execute execute) {
@@ -149,20 +150,23 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
             return 0;
         case WM_COMMAND:
             if (self->menu_controller_ &&
+                self->menu_controller_->handle_control(LOWORD(w_param),
+                    reinterpret_cast<HWND>(l_param))) return 0;
+            if (self->menu_controller_ &&
                 self->menu_controller_->dispatch(LOWORD(w_param))) {
                 if (self->toolbar_) self->toolbar_->refresh();
                 self->status_bar_.refresh();
                 return 0;
             }
             break;
+        case WM_SYSCHAR:
+            if (self->menu_controller_ &&
+                self->menu_controller_->handle_syschar(
+                    static_cast<wchar_t>(w_param))) return 0;
+            break;
         case WM_INITMENU:
             if (self->menu_controller_) self->menu_controller_->refresh();
             return 0;
-        case WM_MEASUREITEM:
-            if (self->menu_controller_ &&
-                self->menu_controller_->measure(
-                    *reinterpret_cast<MEASUREITEMSTRUCT*>(l_param))) return TRUE;
-            break;
         case WM_DRAWITEM:
             if (self->menu_controller_ &&
                 self->menu_controller_->draw(
@@ -258,14 +262,16 @@ void MainWindow::Layout() {
     GetClientRect(handle_, &client);
     const auto width = client.right - client.left;
     const auto height = client.bottom - client.top;
+    const auto menu_height = menu_controller_ ? menu_controller_->height() : 0;
     const auto toolbar_height = toolbar_ ? toolbar_->height() : 0;
     const auto status_height = status_bar_.handle() ? status_bar_.height() : 0;
-    if (toolbar_) toolbar_->resize(width);
+    if (menu_controller_) menu_controller_->resize(width);
+    if (toolbar_) toolbar_->resize(width, menu_height);
     status_bar_.resize(width, height);
     const auto document_bottom = (std::max)(
-        static_cast<LONG>(toolbar_height),
+        static_cast<LONG>(menu_height + toolbar_height),
         static_cast<LONG>(height - status_height));
-    RECT document{0, static_cast<LONG>(toolbar_height),
+    RECT document{0, static_cast<LONG>(menu_height + toolbar_height),
         static_cast<LONG>(width), document_bottom};
     document_window_.resize(document);
 }

@@ -1,6 +1,9 @@
 #include "markdownmay/ui/menu_controller.hpp"
 
 #include <array>
+#include <algorithm>
+#include <cwchar>
+#include <cwctype>
 #include <utility>
 
 namespace markdownmay::ui {
@@ -29,6 +32,8 @@ MenuController::MenuController(Query query, Execute execute)
 
 MenuController::~MenuController() {
     if (accelerator_) DestroyAcceleratorTable(accelerator_);
+    if (font_) DeleteObject(font_);
+    if (menu_) DestroyMenu(menu_);
 }
 
 bool MenuController::create(HWND window) {
@@ -93,13 +98,24 @@ bool MenuController::create(HWND window) {
         L"打开 Windows 默认应用设置(&D)...");
     AddCommand(help, app::CommandId::help_about, L"关于马冬梅(&A)\tF1");
 
-    AddPopup(menu_, file, L"文件(&F)");
-    AddPopup(menu_, edit, L"编辑(&E)");
-    AddPopup(menu_, format, L"格式(&O)");
-    AddPopup(menu_, view, L"视图(&V)");
-    AddPopup(menu_, tools, L"工具(&T)");
-    AddPopup(menu_, help, L"帮助(&H)");
-    if (!SetMenu(window_, menu_)) return false;
+    const std::array top_definitions{
+        std::pair{file, L"文件(&F)"}, std::pair{edit, L"编辑(&E)"},
+        std::pair{format, L"格式(&O)"}, std::pair{view, L"视图(&V)"},
+        std::pair{tools, L"工具(&T)"}, std::pair{help, L"帮助(&H)"}};
+    bar_ = CreateWindowExW(0, L"STATIC", nullptr, WS_CHILD | WS_VISIBLE,
+        0, 0, 0, height_, window_, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!bar_) return false;
+    for (std::size_t index = 0; index < top_definitions.size(); ++index) {
+        AddPopup(menu_, top_definitions[index].first, top_definitions[index].second);
+        const auto* label = KeepLabel(top_definitions[index].second);
+        const auto button = CreateWindowExW(0, L"BUTTON", label,
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_FLAT,
+            0, 0, 0, height_, bar_,
+            reinterpret_cast<HMENU>(static_cast<UINT_PTR>(9000 + index)),
+            GetModuleHandleW(nullptr), nullptr);
+        if (!button) return false;
+        top_items_.push_back({button, top_definitions[index].first, label, 0});
+    }
 
     const std::array<ACCEL, 17> keys{{
         {FVIRTKEY | FCONTROL, 'N', static_cast<WORD>(app::CommandId::file_new)},
@@ -142,19 +158,18 @@ void MenuController::set_recent_files(std::vector<std::filesystem::path> files) 
     while (GetMenuItemCount(recent_menu_) > 0)
         DeleteMenu(recent_menu_, 0, MF_BYPOSITION);
     if (files.empty()) {
-        AppendMenuW(recent_menu_, MF_OWNERDRAW | MF_GRAYED, 0,
-            KeepLabel(L"（没有最近文件）"));
+        AppendMenuW(recent_menu_, MF_STRING | MF_GRAYED, 0, L"（没有最近文件）");
     } else {
         for (std::size_t index = 0; index < files.size() && index < 20; ++index) {
             auto label = std::to_wstring(index + 1) + L"  " + files[index].wstring();
-            AppendMenuW(recent_menu_, MF_OWNERDRAW,
+            AppendMenuW(recent_menu_, MF_STRING,
                 Native(app::CommandId::recent_first) + static_cast<UINT>(index),
-                KeepLabel(std::move(label)));
+                label.c_str());
         }
         AddSeparator(recent_menu_);
         AddCommand(recent_menu_, app::CommandId::recent_clear, L"清除最近文件");
     }
-    if (window_) DrawMenuBar(window_);
+    if (bar_) InvalidateRect(bar_, nullptr, TRUE);
 }
 
 void MenuController::refresh() {
@@ -167,25 +182,22 @@ void MenuController::refresh() {
         CheckMenuItem(menu_, value, MF_BYCOMMAND |
             (state.checked ? MF_CHECKED : MF_UNCHECKED));
     }
-    DrawMenuBar(window_);
+    if (bar_) InvalidateRect(bar_, nullptr, TRUE);
 }
 
 HACCEL MenuController::accelerator() const noexcept { return accelerator_; }
 
 void MenuController::AddCommand(HMENU menu, app::CommandId command,
                                 const wchar_t* text) {
-    AppendMenuW(menu, MF_OWNERDRAW, Native(command), KeepLabel(text));
+    AppendMenuW(menu, MF_STRING, Native(command), text);
 }
 
 void MenuController::AddPopup(HMENU menu, HMENU popup, const wchar_t* text) {
-    const auto* label = KeepLabel(text);
-    if (menu == menu_) menu_bar_labels_.insert(label);
-    AppendMenuW(menu, MF_POPUP | MF_OWNERDRAW,
-        reinterpret_cast<UINT_PTR>(popup), label);
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(popup), text);
 }
 
 void MenuController::AddSeparator(HMENU menu) {
-    AppendMenuW(menu, MF_SEPARATOR | MF_OWNERDRAW, 0, nullptr);
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 }
 
 const wchar_t* MenuController::KeepLabel(std::wstring text) {
@@ -197,40 +209,32 @@ void MenuController::apply_appearance(COLORREF text, COLORREF surface, UINT dpi)
     text_color_ = text;
     surface_color_ = surface;
     dpi_ = dpi ? dpi : 96;
-    if (window_) DrawMenuBar(window_);
-}
-
-bool MenuController::measure(MEASUREITEMSTRUCT& item) const {
-    if (item.CtlType != ODT_MENU) return false;
-    const auto popup_height = static_cast<UINT>(MulDiv(33, dpi_, 96));
-    if (!item.itemData) {
-        item.itemWidth = static_cast<UINT>(MulDiv(40, dpi_, 96));
-        item.itemHeight = static_cast<UINT>(MulDiv(9, dpi_, 96));
-        return true;
-    }
-    const auto* label = reinterpret_cast<const wchar_t*>(item.itemData);
-    const bool menu_bar = menu_bar_labels_.contains(label);
-    HDC dc = GetDC(window_);
+    height_ = MulDiv(36, static_cast<int>(dpi_), 96);
     NONCLIENTMETRICSW metrics{sizeof(metrics)};
     SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi_);
-    metrics.lfMenuFont.lfHeight = -MulDiv(14, static_cast<int>(dpi_), 96);
-    const auto font = CreateFontIndirectW(&metrics.lfMenuFont);
-    const auto old = SelectObject(dc, font);
-    SIZE size{};
-    GetTextExtentPoint32W(dc, label, static_cast<int>(wcslen(label)), &size);
+    if (font_) DeleteObject(font_);
+    font_ = CreateFontIndirectW(&metrics.lfMenuFont);
+    HDC dc = GetDC(bar_ ? bar_ : window_);
+    const auto old = SelectObject(dc, font_);
+    for (auto& item : top_items_) {
+        SIZE size{};
+        GetTextExtentPoint32W(dc, item.label, static_cast<int>(wcslen(item.label)), &size);
+        item.width = size.cx + MulDiv(24, static_cast<int>(dpi_), 96);
+        SendMessageW(item.button, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
+    }
     SelectObject(dc, old);
-    DeleteObject(font);
-    ReleaseDC(window_, dc);
-    item.itemWidth = static_cast<UINT>(size.cx + MulDiv(menu_bar ? 20 : 48, dpi_, 96));
-    item.itemHeight = menu_bar
-        ? static_cast<UINT>(MulDiv(36, dpi_, 96)) : popup_height;
-    return true;
+    ReleaseDC(bar_ ? bar_ : window_, dc);
+    resize(0);
+    if (bar_) InvalidateRect(bar_, nullptr, TRUE);
 }
 
 bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
-    if (item.CtlType != ODT_MENU) return false;
-    const bool selected = (item.itemState & ODS_SELECTED) != 0;
-    const bool disabled = (item.itemState & (ODS_DISABLED | ODS_GRAYED)) != 0;
+    if (item.CtlType != ODT_BUTTON) return false;
+    const auto found = std::find_if(top_items_.begin(), top_items_.end(),
+        [&item](const TopItem& value) { return value.button == item.hwndItem; });
+    if (found == top_items_.end()) return false;
+    const bool selected = (item.itemState & (ODS_SELECTED | ODS_HOTLIGHT)) != 0;
+    const bool disabled = (item.itemState & ODS_DISABLED) != 0;
     HIGHCONTRASTW contrast{sizeof(contrast)};
     SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0);
     const bool high_contrast = (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
@@ -241,15 +245,18 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
         : surface_color_;
     const auto foreground = disabled ? GetSysColor(COLOR_GRAYTEXT) :
         selected && high_contrast ? GetSysColor(COLOR_HIGHLIGHTTEXT) : text_color_;
-    const auto brush = CreateSolidBrush(background);
-    FillRect(item.hDC, &item.rcItem, brush);
-    DeleteObject(brush);
-    if (!item.itemData) {
-        RECT line = item.rcItem;
-        const auto middle = (line.top + line.bottom) / 2;
-        line.top = middle; line.bottom = middle + 1;
-        FillRect(item.hDC, &line, reinterpret_cast<HBRUSH>(COLOR_3DSHADOW + 1));
-        return true;
+    const auto surface = CreateSolidBrush(surface_color_);
+    FillRect(item.hDC, &item.rcItem, surface);
+    DeleteObject(surface);
+    if (selected) {
+        RECT highlight = item.rcItem;
+        InflateRect(&highlight, -MulDiv(2, dpi_, 96), -MulDiv(3, dpi_, 96));
+        const auto brush = CreateSolidBrush(background);
+        const auto old_brush = SelectObject(item.hDC, brush);
+        const auto old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
+        RoundRect(item.hDC, highlight.left, highlight.top, highlight.right, highlight.bottom,
+            MulDiv(8, dpi_, 96), MulDiv(8, dpi_, 96));
+        SelectObject(item.hDC, old_pen); SelectObject(item.hDC, old_brush); DeleteObject(brush);
     }
     NONCLIENTMETRICSW metrics{sizeof(metrics)};
     SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi_);
@@ -259,15 +266,53 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
     SetBkMode(item.hDC, TRANSPARENT);
     SetTextColor(item.hDC, foreground);
     RECT text = item.rcItem;
-    const auto* label = reinterpret_cast<const wchar_t*>(item.itemData);
-    const auto padding = menu_bar_labels_.contains(label) ? 14 : 16;
-    text.left += MulDiv(padding, dpi_, 96);
-    text.right -= MulDiv(padding, dpi_, 96);
-    DrawTextW(item.hDC, label, -1, &text,
-        DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_HIDEPREFIX | DT_EXPANDTABS);
+    DrawTextW(item.hDC, found->label, -1, &text,
+        DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_HIDEPREFIX);
     SelectObject(item.hDC, old);
     DeleteObject(font);
     return true;
 }
+
+bool MenuController::handle_control(std::uint16_t native_id, HWND control) {
+    if (native_id < 9000 || native_id >= 9000 + top_items_.size()) return false;
+    const auto index = static_cast<std::size_t>(native_id - 9000);
+    if (top_items_[index].button != control) return false;
+    OpenPopup(index);
+    return true;
+}
+
+bool MenuController::handle_syschar(wchar_t character) {
+    constexpr std::array mnemonics{L'F', L'E', L'O', L'V', L'T', L'H'};
+    character = static_cast<wchar_t>(towupper(character));
+    const auto found = std::find(mnemonics.begin(), mnemonics.end(), character);
+    if (found == mnemonics.end()) return false;
+    OpenPopup(static_cast<std::size_t>(found - mnemonics.begin()));
+    return true;
+}
+
+void MenuController::OpenPopup(std::size_t index) {
+    refresh();
+    RECT bounds{};
+    GetWindowRect(top_items_[index].button, &bounds);
+    const auto command = TrackPopupMenuEx(top_items_[index].popup,
+        TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD, bounds.left, bounds.bottom,
+        window_, nullptr);
+    if (command) static_cast<void>(dispatch(static_cast<std::uint16_t>(command)));
+    InvalidateRect(top_items_[index].button, nullptr, TRUE);
+}
+
+void MenuController::resize(int width) {
+    if (!bar_) return;
+    if (width <= 0) { RECT client{}; GetClientRect(window_, &client); width = client.right; }
+    MoveWindow(bar_, 0, 0, width, height_, TRUE);
+    int left = MulDiv(4, static_cast<int>(dpi_), 96);
+    for (auto& item : top_items_) {
+        MoveWindow(item.button, left, 0, item.width, height_, TRUE);
+        left += item.width;
+    }
+}
+
+HWND MenuController::handle() const noexcept { return bar_; }
+int MenuController::height() const noexcept { return height_; }
 
 }  // namespace markdownmay::ui

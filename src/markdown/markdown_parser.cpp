@@ -294,8 +294,52 @@ bool FindThematicBreak(std::string_view source, std::size_t from, SourceRange& r
     return false;
 }
 
+bool FindListMarker(std::string_view source, std::size_t from, SourceRange& range) {
+    auto line_begin = from;
+    while (line_begin < source.size()) {
+        auto line_end = source.find('\n', line_begin);
+        if (line_end == std::string_view::npos) line_end = source.size();
+        auto content_end = line_end;
+        if (content_end > line_begin && source[content_end - 1] == '\r') --content_end;
+        auto marker = line_begin;
+        std::size_t spaces{};
+        while (marker < content_end && source[marker] == ' ' && spaces < 4) {
+            ++marker; ++spaces;
+        }
+        if (spaces <= 3 && marker < content_end &&
+            (source[marker] == '-' || source[marker] == '*' || source[marker] == '+') &&
+            (marker + 1 == content_end || source[marker + 1] == ' ' || source[marker + 1] == '\t')) {
+            range = {static_cast<std::uint64_t>(line_begin),
+                static_cast<std::uint64_t>(content_end)};
+            return true;
+        }
+        line_begin = line_end < source.size() ? line_end + 1 : source.size();
+    }
+    return false;
+}
+
 void RepairRawBlockRanges(MutableNode& node, std::string_view source,
                           std::uint64_t& cursor) {
+    if (node.kind == NodeKind::list) {
+        std::uint64_t begin = static_cast<std::uint64_t>(source.size());
+        std::uint64_t end{};
+        for (auto& item : node.children) {
+            SourceRange marker;
+            if (item->source.begin == item->source.end &&
+                FindListMarker(source, static_cast<std::size_t>(cursor), marker)) {
+                item->source.begin = marker.begin;
+                item->source.end = (std::max)(item->source.end, marker.end);
+                cursor = marker.end;
+            }
+            for (auto& child : item->children)
+                RepairRawBlockRanges(*child, source, cursor);
+            begin = (std::min)(begin, item->source.begin);
+            end = (std::max)(end, item->source.end);
+            cursor = (std::max)(cursor, item->source.end);
+        }
+        if (end >= begin) node.source = {begin, end};
+        return;
+    }
     if (node.kind == NodeKind::thematic_break) {
         SourceRange found;
         if (FindThematicBreak(source, static_cast<std::size_t>(cursor), found)) {

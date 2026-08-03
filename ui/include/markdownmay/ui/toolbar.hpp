@@ -15,7 +15,7 @@ public:
     explicit Toolbar(Query query);
     ~Toolbar();
     [[nodiscard]] bool create(HWND parent);
-    void resize(int width);
+    void resize(int width, int top = 0);
     void refresh();
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int height() const noexcept;

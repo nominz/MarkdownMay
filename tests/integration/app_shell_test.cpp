@@ -96,34 +96,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (window.document_window().new_document() != ErrorCode::ok) {
         DestroyWindow(window.handle()); CoUninitialize(); return 32;
     }
-    MENUITEMINFOW owner_draw{sizeof(owner_draw)};
-    owner_draw.fMask = MIIM_FTYPE;
-    if (!GetMenuItemInfoW(GetMenu(window.handle()), 0, TRUE, &owner_draw) ||
-        (owner_draw.fType & MFT_OWNERDRAW) == 0) {
+    if (GetMenu(window.handle()) != nullptr || !window.menu_controller() ||
+        !window.menu_controller()->handle() ||
+        window.menu_controller()->height() < MulDiv(36, static_cast<int>(window.dpi()), 96)) {
         DestroyWindow(window.handle()); CoUninitialize(); return 26;
-    }
-    MENUITEMINFOW top_data{sizeof(top_data)};
-    top_data.fMask = MIIM_DATA | MIIM_SUBMENU;
-    if (!GetMenuItemInfoW(GetMenu(window.handle()), 0, TRUE, &top_data)) {
-        DestroyWindow(window.handle()); CoUninitialize(); return 34;
-    }
-    MEASUREITEMSTRUCT top_measure{};
-    top_measure.CtlType = ODT_MENU;
-    top_measure.itemData = top_data.dwItemData;
-    SendMessageW(window.handle(), WM_MEASUREITEM, 0,
-        reinterpret_cast<LPARAM>(&top_measure));
-    MENUITEMINFOW popup_data{sizeof(popup_data)};
-    popup_data.fMask = MIIM_DATA;
-    if (!GetMenuItemInfoW(top_data.hSubMenu, 0, TRUE, &popup_data)) {
-        DestroyWindow(window.handle()); CoUninitialize(); return 35;
-    }
-    MEASUREITEMSTRUCT popup_measure{};
-    popup_measure.CtlType = ODT_MENU;
-    popup_measure.itemData = popup_data.dwItemData;
-    SendMessageW(window.handle(), WM_MEASUREITEM, 0,
-        reinterpret_cast<LPARAM>(&popup_measure));
-    if (top_measure.itemHeight <= popup_measure.itemHeight) {
-        DestroyWindow(window.handle()); CoUninitialize(); return 36;
     }
     RECT formatting{};
     SendMessageW(render, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
@@ -137,13 +113,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     static_assert(static_cast<std::uint16_t>(app::CommandId::edit_undo) == 200);
     static_assert(static_cast<std::uint16_t>(app::CommandId::format_bold) == 300);
     static_assert(static_cast<std::uint16_t>(app::CommandId::view_render) == 400);
-    if (!GetMenu(window.handle()) ||
-        !dispatcher.query(app::CommandId::file_open).enabled ||
+    if (!dispatcher.query(app::CommandId::file_open).enabled ||
         !dispatcher.query(app::CommandId::file_print).enabled ||
-        !dispatcher.query(app::CommandId::view_render).checked ||
-        (GetMenuState(GetMenu(window.handle()),
-             static_cast<UINT>(app::CommandId::file_open), MF_BYCOMMAND) &
-             (MF_DISABLED | MF_GRAYED)) != 0) {
+        !dispatcher.query(app::CommandId::view_render).checked) {
         DestroyWindow(window.handle());
         CoUninitialize();
         return 4;
@@ -184,7 +156,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     POINT corners[2]{{document.left, document.top}, {document.right, document.bottom}};
     MapWindowPoints(nullptr, window.handle(), corners, 2);
     if (corners[0].x != 0 ||
-        corners[0].y != window.toolbar()->height() ||
+        corners[0].y != window.menu_controller()->height() + window.toolbar()->height() ||
         corners[1].x != client.right ||
         corners[1].y != client.bottom - window.status_bar().height()) {
         DestroyWindow(window.handle());

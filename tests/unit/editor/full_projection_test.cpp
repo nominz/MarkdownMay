@@ -48,5 +48,21 @@ int main() {
              NodeKind::unknown_block}) {
         if (!HasSpan(projection, kind)) return 6;
     }
+
+    const std::string empty_item_source = "paragraph\n\n\n*\n\n## next\n";
+    const auto empty_item_document = markdown::ParseMarkdown(empty_item_source, 2);
+    if (!empty_item_document) return 7;
+    const auto empty_item_projection = editor::BuildInlineProjection(
+        *empty_item_document, empty_item_source, {});
+    const auto paragraph_at = empty_item_projection.text.find("paragraph");
+    const auto bullet_at = empty_item_projection.text.find("\xE2\x80\xA2 ");
+    const auto next_at = empty_item_projection.text.find("next");
+    if (paragraph_at == std::string::npos || bullet_at == std::string::npos ||
+        next_at == std::string::npos || !(paragraph_at < bullet_at && bullet_at < next_at))
+        return 8;
+    if (empty_item_projection.text.find("\n\n\n\n\n", paragraph_at) != std::string::npos)
+        return 9;
+    if (empty_item_projection.source_offsets[bullet_at] < empty_item_source.find('*'))
+        return 10;
     return 0;
 }
