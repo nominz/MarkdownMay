@@ -167,6 +167,10 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
         case WM_INITMENU:
             if (self->menu_controller_) self->menu_controller_->refresh();
             return 0;
+        case WM_MEASUREITEM:
+            if (self->menu_controller_ && self->menu_controller_->measure(
+                    *reinterpret_cast<MEASUREITEMSTRUCT*>(l_param))) return TRUE;
+            break;
         case WM_DRAWITEM:
             if (self->menu_controller_ &&
                 self->menu_controller_->draw(

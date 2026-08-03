@@ -27,6 +27,7 @@ public:
     void refresh();
     void set_recent_files(std::vector<std::filesystem::path> files);
     void apply_appearance(COLORREF text, COLORREF surface, UINT dpi);
+    [[nodiscard]] bool measure(MEASUREITEMSTRUCT& item) const;
     [[nodiscard]] bool draw(const DRAWITEMSTRUCT& item) const;
     [[nodiscard]] bool handle_control(std::uint16_t native_id, HWND control);
     [[nodiscard]] bool handle_syschar(wchar_t character);

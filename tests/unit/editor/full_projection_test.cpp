@@ -49,7 +49,7 @@ int main() {
         if (!HasSpan(projection, kind)) return 6;
     }
 
-    const std::string empty_item_source = "paragraph\n\n\n*\n\n## next\n";
+    const std::string empty_item_source = "paragraph\n\n\n* \n\n## next\n";
     const auto empty_item_document = markdown::ParseMarkdown(empty_item_source, 2);
     if (!empty_item_document) return 7;
     const auto empty_item_projection = editor::BuildInlineProjection(
@@ -64,5 +64,25 @@ int main() {
         return 9;
     if (empty_item_projection.source_offsets[bullet_at] < empty_item_source.find('*'))
         return 10;
+
+    const std::string bare_marker_source = "paragraph\n\n*";
+    const auto bare_marker_document = markdown::ParseMarkdown(bare_marker_source, 3);
+    if (!bare_marker_document) return 11;
+    const auto bare_marker_projection = editor::BuildInlineProjection(
+        *bare_marker_document, bare_marker_source, {});
+    if (bare_marker_projection.text.find('*') == std::string::npos ||
+        bare_marker_projection.text.find("\xE2\x80\xA2") != std::string::npos) return 12;
+
+    const std::string populated_item_source = "paragraph\n\n* 在";
+    const auto populated_item_document = markdown::ParseMarkdown(populated_item_source, 4);
+    if (!populated_item_document) return 13;
+    const auto populated_item_projection = editor::BuildInlineProjection(
+        *populated_item_document, populated_item_source, {});
+    const auto populated_bullet = populated_item_projection.text.find("\xE2\x80\xA2 ");
+    const auto populated_text = populated_item_projection.text.find("在");
+    if (populated_bullet == std::string::npos || populated_text == std::string::npos ||
+        populated_bullet >= populated_text) return 14;
+    if (populated_item_projection.source_offsets[populated_bullet + 4] <
+        populated_item_source.find("在")) return 15;
     return 0;
 }

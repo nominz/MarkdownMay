@@ -30,6 +30,16 @@ void AppendMappedRange(RichProjection& output, std::string_view text,
 void AppendSynthetic(RichProjection& output, std::string_view text,
                      std::uint64_t source_begin, std::uint64_t source_end);
 
+bool IsBareUnorderedMarker(std::string_view source, const document::SourceRange& range) {
+    const auto begin = (std::min)(range.begin, static_cast<std::uint64_t>(source.size()));
+    const auto end = (std::min)(range.end, static_cast<std::uint64_t>(source.size()));
+    auto value = source.substr(static_cast<std::size_t>(begin),
+        static_cast<std::size_t>(end - begin));
+    while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
+        value.remove_prefix(1);
+    return value == "*" || value == "-" || value == "+";
+}
+
 std::string ChildrenText(const document::Node& node) {
     std::string result;
     for (const auto& child : node.children) {
@@ -153,12 +163,24 @@ void Block(const document::Node& node, RichProjection& output,
                 AppendSynthetic(output, "\n", newline_at, newline_at);
             }
             const auto item_begin = static_cast<std::uint64_t>(output.text.size());
+            if (item->children.empty() && IsBareUnorderedMarker(source, item->source)) {
+                AppendMappedRange(output,
+                    source.substr(static_cast<std::size_t>(item->source.begin),
+                        static_cast<std::size_t>(item->source.end - item->source.begin)),
+                    item->source.begin, item->source.end);
+                cursor = item->source.end;
+                first = false;
+                continue;
+            }
             const auto* detail = std::get_if<document::ListItemAttributes>(&item->attributes);
             std::string marker;
             if (detail && detail->task) marker = detail->checked ? "☑ " : "☐ ";
             else if (list && list->ordered) marker = std::to_string(number++) + ". ";
             else marker = "• ";
-            AppendSynthetic(output, marker, item->source.begin, item->source.begin);
+            auto marker_source_end = item->source.end;
+            for (const auto& child : item->children)
+                marker_source_end = (std::min)(marker_source_end, child->source.begin);
+            AppendSynthetic(output, marker, item->source.begin, marker_source_end);
             for (const auto& child : item->children) {
                 if (child->kind == document::NodeKind::list &&
                     !output.text.empty() && output.text.back() != '\n')

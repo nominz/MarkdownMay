@@ -109,6 +109,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         std::wstring(first_menu_text).find(L"文件") == std::wstring::npos) {
         DestroyWindow(window.handle()); CoUninitialize(); return 38;
     }
+    MEASUREITEMSTRUCT popup_measure{};
+    popup_measure.CtlType = ODT_MENU;
+    popup_measure.itemData = reinterpret_cast<ULONG_PTR>(L"新建(&N)\tCtrl+N");
+    SendMessageW(window.handle(), WM_MEASUREITEM, 0,
+        reinterpret_cast<LPARAM>(&popup_measure));
+    if (popup_measure.itemHeight < static_cast<UINT>(
+            MulDiv(33, static_cast<int>(window.dpi()), 96))) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 39;
+    }
     RECT formatting{};
     SendMessageW(render, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
     if (formatting.left < MulDiv(7, static_cast<int>(window.dpi()), 96) ||

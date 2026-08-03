@@ -69,6 +69,31 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SendMessageW(commands.handle(), EM_SETSEL, 0, -1);
     if (commands.toggle_ordered_list(5) != markdownmay::ErrorCode::ok ||
         plain.snapshot().source != "5. alpha\n6. beta") return 11;
+
+    markdownmay::document::DocumentSession live("paragraph\n\n");
+    markdownmay::editor::RichEditHost live_host(live);
+    if (live_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 14;
+    SendMessageW(live_host.handle(), EM_SETSEL,
+        GetWindowTextLengthW(live_host.handle()), GetWindowTextLengthW(live_host.handle()));
+    SendMessageW(live_host.handle(), WM_CHAR, L'*', 0);
+    if (live_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        live.snapshot().source != "paragraph\n\n*") return 15;
+    std::array<wchar_t, 64> live_visible{};
+    GetWindowTextW(live_host.handle(), live_visible.data(),
+        static_cast<int>(live_visible.size()));
+    if (std::wstring(live_visible.data()).find(L'*') == std::wstring::npos ||
+        std::wstring(live_visible.data()).find(L'\x2022') != std::wstring::npos) return 16;
+    SendMessageW(live_host.handle(), WM_CHAR, L' ', 0);
+    if (live_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        live.snapshot().source != "paragraph\n\n* ") return 17;
+    SendMessageW(live_host.handle(), WM_CHAR, L'在', 0);
+    if (live_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        live.snapshot().source != "paragraph\n\n* 在") return 18;
+    live_visible.fill(L'\0');
+    GetWindowTextW(live_host.handle(), live_visible.data(),
+        static_cast<int>(live_visible.size()));
+    if (std::wstring(live_visible.data()).find(L"\x2022 在") == std::wstring::npos)
+        return 19;
     DestroyWindow(parent);
     return 0;
 }
