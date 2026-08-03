@@ -110,7 +110,7 @@ bool MenuController::create(HWND window) {
         const auto* label = KeepLabel(top_definitions[index].second);
         const auto button = CreateWindowExW(0, L"BUTTON", label,
             WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_FLAT,
-            0, 0, 0, height_, bar_,
+            0, 0, 0, height_, window_,
             reinterpret_cast<HMENU>(static_cast<UINT_PTR>(9000 + index)),
             GetModuleHandleW(nullptr), nullptr);
         if (!button) return false;

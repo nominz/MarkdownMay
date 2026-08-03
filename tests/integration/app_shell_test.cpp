@@ -101,6 +101,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         window.menu_controller()->height() < MulDiv(36, static_cast<int>(window.dpi()), 96)) {
         DestroyWindow(window.handle()); CoUninitialize(); return 26;
     }
+    const auto first_menu_button = GetDlgItem(window.handle(), 9000);
+    wchar_t first_menu_text[32]{};
+    if (!first_menu_button || GetParent(first_menu_button) != window.handle() ||
+        GetWindowTextW(first_menu_button, first_menu_text,
+            static_cast<int>(std::size(first_menu_text))) <= 0 ||
+        std::wstring(first_menu_text).find(L"文件") == std::wstring::npos) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 38;
+    }
     RECT formatting{};
     SendMessageW(render, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
     if (formatting.left < MulDiv(7, static_cast<int>(window.dpi()), 96) ||
