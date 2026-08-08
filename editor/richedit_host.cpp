@@ -151,7 +151,10 @@ bool HasSameFormattingStructure(const RichProjection& left,
     return true;
 }
 
-void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span) {
+void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span,
+        COLORREF text_color, COLORREF background_color, bool insert_image) {
+    const bool dark = GetRValue(background_color) + GetGValue(background_color) +
+        GetBValue(background_color) < 384;
     const auto begin = Utf16Length(projection.text, span.begin);
     const auto end = Utf16Length(projection.text, span.end);
     SendMessageW(handle, EM_SETSEL, static_cast<WPARAM>(begin), static_cast<LPARAM>(end));
@@ -165,47 +168,52 @@ void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSp
         format.dwMask = CFM_STRIKEOUT; format.dwEffects = CFE_STRIKEOUT;
     } else if (span.kind == document::NodeKind::inline_code) {
         format.dwMask = CFM_FACE | CFM_BACKCOLOR;
-        format.crBackColor = RGB(238, 238, 238);
+        format.crBackColor = dark ? RGB(55, 55, 58) : RGB(238, 238, 238);
         wcscpy_s(format.szFaceName, L"Consolas");
     } else if (span.kind == document::NodeKind::link) {
         format.dwMask = CFM_UNDERLINE | CFM_COLOR;
         format.dwEffects = CFE_UNDERLINE;
-        format.crTextColor = RGB(0, 102, 204);
+        format.crTextColor = dark ? RGB(105, 175, 245) : RGB(0, 102, 204);
     } else if (span.kind == document::NodeKind::heading) {
         format.dwMask = CFM_BOLD | CFM_SIZE;
         format.dwEffects = CFE_BOLD;
         format.yHeight = static_cast<LONG>((28 - (std::min)(span.heading_level, std::uint8_t{6}) * 2) * 20);
     } else if (span.kind == document::NodeKind::code_block) {
         format.dwMask = CFM_FACE | CFM_BACKCOLOR;
-        format.crBackColor = RGB(245, 245, 245);
+        format.crBackColor = dark ? RGB(42, 42, 45) : RGB(245, 245, 245);
         wcscpy_s(format.szFaceName, L"Consolas");
     } else if (span.kind == document::NodeKind::unknown_block) {
         format.dwMask = CFM_FACE | CFM_BACKCOLOR | CFM_COLOR;
-        format.crBackColor = RGB(250, 245, 235);
-        format.crTextColor = RGB(105, 80, 55);
+        format.crBackColor = dark ? RGB(58, 50, 40) : RGB(250, 245, 235);
+        format.crTextColor = dark ? RGB(225, 194, 155) : RGB(105, 80, 55);
         wcscpy_s(format.szFaceName, L"Consolas");
     } else if (span.kind == document::NodeKind::quote) {
         format.dwMask = CFM_COLOR;
-        format.crTextColor = RGB(96, 96, 96);
+        format.crTextColor = dark ? RGB(185, 185, 185) : RGB(96, 96, 96);
     } else if (span.kind == document::NodeKind::thematic_break) {
         format.dwMask = CFM_COLOR;
-        format.crTextColor = RGB(150, 150, 150);
+        format.crTextColor = dark ? RGB(135, 135, 135) : RGB(150, 150, 150);
     } else if (span.kind == document::NodeKind::list_item && span.task) {
         format.dwMask = CFM_COLOR;
-        format.crTextColor = span.checked ? RGB(90, 130, 90) : RGB(70, 70, 70);
+        format.crTextColor = span.checked ? (dark ? RGB(130, 190, 130) : RGB(90, 130, 90)) :
+            (dark ? text_color : RGB(70, 70, 70));
     } else if (span.kind == document::NodeKind::image) {
         format.dwMask = CFM_BACKCOLOR | CFM_COLOR;
         format.crBackColor = span.image_state == ImageDisplayState::ready
-            ? RGB(235, 245, 252) : RGB(250, 240, 230);
+            ? (dark ? RGB(35, 55, 68) : RGB(235, 245, 252))
+            : (dark ? RGB(67, 49, 38) : RGB(250, 240, 230));
         format.crTextColor = span.image_state == ImageDisplayState::ready
-            ? RGB(35, 90, 125) : RGB(145, 80, 45);
+            ? (dark ? RGB(145, 205, 235) : RGB(35, 90, 125))
+            : (dark ? RGB(230, 165, 120) : RGB(145, 80, 45));
     } else if (span.kind == document::NodeKind::table_cell) {
         format.dwMask = CFM_BACKCOLOR;
-        format.crBackColor = span.table_row == 0 ? RGB(230, 236, 242) : RGB(248, 248, 248);
+        format.crBackColor = span.table_row == 0
+            ? (dark ? RGB(54, 61, 68) : RGB(230, 236, 242))
+            : (dark ? RGB(38, 38, 41) : RGB(248, 248, 248));
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
-    if (span.kind == document::NodeKind::image &&
+    if (insert_image && span.kind == document::NodeKind::image &&
         span.image_state == ImageDisplayState::ready && !span.image_path.empty()) {
         Microsoft::WRL::ComPtr<IStream> stream;
         Microsoft::WRL::ComPtr<IRichEditOle> rich_ole;
@@ -315,7 +323,8 @@ ErrorCode RichEditHost::project() {
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
     }
-    for (const auto& span : projection_.spans) ApplySpan(handle_, projection_, span);
+    for (const auto& span : projection_.spans)
+        ApplySpan(handle_, projection_, span, text_color_, background_color_, true);
     apply_appearance(text_color_, background_color_, dpi_);
     const auto length = static_cast<LONG>(rich_text.size());
     selection.cpMin = (std::min)(selection.cpMin, length);
@@ -334,6 +343,8 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     const auto was_projecting = projecting_;
     projecting_ = true;
     SendMessageW(handle_, EM_SETBKGNDCOLOR, 0, background_color_);
+    CHARRANGE selection{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     CHARFORMAT2W format{};
     format.cbSize = sizeof(format);
     format.dwMask = CFM_COLOR | CFM_BACKCOLOR | CFM_FACE | CFM_SIZE;
@@ -343,6 +354,17 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     wcscpy_s(format.szFaceName, L"Microsoft YaHei UI");
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_DEFAULT,
         reinterpret_cast<LPARAM>(&format));
+    CHARFORMAT2W base{};
+    base.cbSize = sizeof(base);
+    base.dwMask = CFM_COLOR | CFM_BACKCOLOR;
+    base.crTextColor = text_color_;
+    base.crBackColor = background_color_;
+    SendMessageW(handle_, EM_SETSEL, 0, -1);
+    SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&base));
+    for (const auto& span : projection_.spans)
+        ApplySpan(handle_, projection_, span, text_color_, background_color_, false);
+    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = was_projecting;
     InvalidateRect(handle_, nullptr, TRUE);
 }

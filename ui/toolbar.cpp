@@ -1,8 +1,10 @@
 #include "markdownmay/ui/toolbar.hpp"
 
 #include <commctrl.h>
+#include <uxtheme.h>
 
 #include <array>
+#include <algorithm>
 #include <utility>
 
 namespace markdownmay::ui {
@@ -24,10 +26,10 @@ constexpr const wchar_t* Icon(app::CommandId command) noexcept {
     case app::CommandId::format_bold: return L"\xE8DD";
     case app::CommandId::format_italic: return L"\xE8DB";
     case app::CommandId::format_strike: return L"\xE8DC";
-    case app::CommandId::format_inline_code: return L"\xE943";
+    case app::CommandId::format_inline_code: return L"</>";
     case app::CommandId::format_quote: return L"\xE8B1";
-    case app::CommandId::format_unordered_list: return L"\xEA37";
-    case app::CommandId::format_ordered_list: return L"\xEA3A";
+    case app::CommandId::format_unordered_list: return L"";
+    case app::CommandId::format_ordered_list: return L"";
     case app::CommandId::format_task_list: return L"\xE739";
     case app::CommandId::view_render: return L"\xE7C3";
     case app::CommandId::view_source: return L"\xE943";
@@ -46,11 +48,49 @@ void FillRounded(HDC dc, const RECT& rect, int radius, HBRUSH brush) {
         FillRect(dc, &rect, brush);
     }
 }
+
+bool IsDark(COLORREF color) noexcept {
+    return GetRValue(color) + GetGValue(color) + GetBValue(color) < 384;
+}
+
+void DrawListIcon(HDC dc, RECT rect, COLORREF color, bool ordered, UINT dpi) {
+    const auto pen = CreatePen(PS_SOLID, (std::max)(1, MulDiv(1, dpi, 96)), color);
+    const auto old_pen = SelectObject(dc, pen);
+    const auto old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    const auto left = rect.left + MulDiv(7, dpi, 96);
+    const auto line_left = rect.left + MulDiv(15, dpi, 96);
+    const auto line_right = rect.right - MulDiv(6, dpi, 96);
+    const auto first_y = rect.top + MulDiv(8, dpi, 96);
+    const auto step = MulDiv(6, dpi, 96);
+    for (int row = 0; row < 3; ++row) {
+        const auto y = first_y + row * step;
+        if (ordered) {
+            const wchar_t number[2]{static_cast<wchar_t>(L'1' + row), L'\0'};
+            RECT number_rect{left - MulDiv(3, dpi, 96), y - MulDiv(4, dpi, 96),
+                line_left - MulDiv(2, dpi, 96), y + MulDiv(4, dpi, 96)};
+            DrawTextW(dc, number, 1, &number_rect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        } else {
+            const auto radius = (std::max)(1, MulDiv(1, dpi, 96));
+            const auto dot = CreateSolidBrush(color);
+            const auto old_dot = SelectObject(dc, dot);
+            Ellipse(dc, left - radius, y - radius, left + radius + 1, y + radius + 1);
+            SelectObject(dc, old_dot);
+            DeleteObject(dot);
+        }
+        MoveToEx(dc, line_left, y, nullptr);
+        LineTo(dc, line_right, y);
+    }
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+}
 }
 
 Toolbar::Toolbar(Query query, Execute execute)
     : query_(std::move(query)), execute_(std::move(execute)) {}
 Toolbar::~Toolbar() {
+    if (handle_ && IsWindow(handle_)) RemoveWindowSubclass(handle_, SubclassProcedure, 1);
     if (font_) DeleteObject(font_);
     if (icon_font_) DeleteObject(icon_font_);
 }
@@ -59,12 +99,17 @@ bool Toolbar::create(HWND parent) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
     static_cast<void>(InitCommonControlsEx(&controls));
     handle_ = CreateWindowExW(0, TOOLBARCLASSNAMEW, nullptr,
-        WS_CHILD | WS_VISIBLE | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS |
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS |
             CCS_NODIVIDER | CCS_NORESIZE,
         0, 0, 0, height_, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!handle_) return false;
+    if (!SetWindowSubclass(handle_, SubclassProcedure, 1,
+            reinterpret_cast<DWORD_PTR>(this))) return false;
     SendMessageW(handle_, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
     SendMessageW(handle_, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
+    const auto tooltip = reinterpret_cast<HWND>(SendMessageW(handle_, TB_GETTOOLTIPS, 0, 0));
+    if (tooltip) SetWindowLongPtrW(tooltip, GWL_STYLE,
+        GetWindowLongPtrW(tooltip, GWL_STYLE) | TTS_ALWAYSTIP | TTS_NOPREFIX);
 
     constexpr std::array<ButtonDefinition, 11> definitions{{
         {app::CommandId::format_bold, Icon(app::CommandId::format_bold), BTNS_BUTTON},
@@ -100,10 +145,11 @@ bool Toolbar::create(HWND parent) {
     if (!SendMessageW(handle_, TB_ADDBUTTONSW, output,
             reinterpret_cast<LPARAM>(buttons.data()))) return false;
     heading_combo_ = CreateWindowExW(0, WC_COMBOBOXW, L"",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED |
+            CBS_HASSTRINGS | WS_VSCROLL,
         MulDiv(6, dpi_, 96), MulDiv(3, dpi_, 96),
         MulDiv(kHeadingComboWidth - 10, dpi_, 96), MulDiv(240, dpi_, 96),
-        parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHeadingComboId)),
+        handle_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHeadingComboId)),
         GetModuleHandleW(nullptr), nullptr);
     if (!heading_combo_) return false;
     for (const auto* label : {L"正文", L"一级标题", L"二级标题", L"三级标题",
@@ -122,9 +168,9 @@ bool Toolbar::create(HWND parent) {
 
 void Toolbar::resize(int width, int top) {
     if (handle_) MoveWindow(handle_, 0, top, width, height_, TRUE);
-    if (heading_combo_) MoveWindow(heading_combo_, MulDiv(6, dpi_, 96),
-        top + MulDiv(3, dpi_, 96), MulDiv(kHeadingComboWidth - 10, dpi_, 96),
-        MulDiv(240, dpi_, 96), TRUE);
+    if (heading_combo_) SetWindowPos(heading_combo_, HWND_TOP, MulDiv(6, dpi_, 96),
+        MulDiv(3, dpi_, 96), MulDiv(kHeadingComboWidth - 10, dpi_, 96),
+        MulDiv(240, dpi_, 96), SWP_SHOWWINDOW | SWP_NOACTIVATE);
 }
 
 void Toolbar::refresh() {
@@ -188,6 +234,10 @@ void Toolbar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
     SendMessageW(handle_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     if (heading_combo_)
         SendMessageW(heading_combo_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+    if (heading_combo_) {
+        SetWindowTheme(heading_combo_, IsDark(background_color_) ? L"DarkMode_CFD" : L"Explorer", nullptr);
+        InvalidateRect(heading_combo_, nullptr, TRUE);
+    }
     SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
         MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
@@ -208,19 +258,74 @@ LRESULT Toolbar::custom_draw(NMTBCUSTOMDRAW& draw) {
     const bool hot = (draw.nmcd.uItemState & CDIS_HOT) != 0;
     const bool checked = (draw.nmcd.uItemState & CDIS_CHECKED) != 0;
     const bool disabled = (draw.nmcd.uItemState & CDIS_DISABLED) != 0;
-    const auto fill = checked ? RGB(220, 232, 243) : hot ? RGB(235, 235, 235) : background_color_;
+    const bool dark = IsDark(background_color_);
+    const auto fill = checked ? (dark ? RGB(61, 78, 96) : RGB(220, 232, 243)) :
+        hot ? (dark ? RGB(62, 62, 65) : RGB(235, 235, 235)) : background_color_;
     auto brush = CreateSolidBrush(fill);
     const auto radius = MulDiv(6, dpi_, 96);
     FillRounded(draw.nmcd.hdc, rect, radius, brush);
     DeleteObject(brush);
-    const auto old_font = SelectObject(draw.nmcd.hdc, icon_font_);
+    const auto command = static_cast<app::CommandId>(draw.nmcd.dwItemSpec);
+    const bool literal = command == app::CommandId::format_inline_code;
+    const auto old_font = SelectObject(draw.nmcd.hdc, literal ? font_ : icon_font_);
     SetBkMode(draw.nmcd.hdc, TRANSPARENT);
     SetTextColor(draw.nmcd.hdc, disabled ? RGB(150, 150, 150) : text_color_);
-    const auto command = static_cast<app::CommandId>(draw.nmcd.dwItemSpec);
-    DrawTextW(draw.nmcd.hdc, Icon(command), -1, &rect,
-        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    if (command == app::CommandId::format_unordered_list ||
+        command == app::CommandId::format_ordered_list) {
+        DrawListIcon(draw.nmcd.hdc, rect,
+            disabled ? (dark ? RGB(115, 115, 115) : RGB(150, 150, 150)) : text_color_,
+            command == app::CommandId::format_ordered_list, dpi_);
+    } else {
+        DrawTextW(draw.nmcd.hdc, Icon(command), -1, &rect,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
     SelectObject(draw.nmcd.hdc, old_font);
     return CDRF_SKIPDEFAULT;
+}
+
+bool Toolbar::draw_combo(const DRAWITEMSTRUCT& draw) {
+    if (draw.hwndItem != heading_combo_ || draw.CtlType != ODT_COMBOBOX) return false;
+    const bool selected = (draw.itemState & ODS_SELECTED) != 0;
+    const bool disabled = (draw.itemState & ODS_DISABLED) != 0;
+    const bool dark = IsDark(background_color_);
+    const auto fill = selected ? (dark ? RGB(62, 62, 65) : RGB(232, 232, 232)) :
+        background_color_;
+    const auto brush = CreateSolidBrush(fill);
+    FillRect(draw.hDC, &draw.rcItem, brush);
+    DeleteObject(brush);
+    if (draw.itemID != static_cast<UINT>(-1)) {
+        wchar_t label[32]{};
+        SendMessageW(heading_combo_, CB_GETLBTEXT, draw.itemID,
+            reinterpret_cast<LPARAM>(label));
+        RECT text_rect = draw.rcItem;
+        text_rect.left += MulDiv(7, dpi_, 96);
+        const auto old_font = SelectObject(draw.hDC, font_);
+        SetBkMode(draw.hDC, TRANSPARENT);
+        SetTextColor(draw.hDC, disabled ? (dark ? RGB(125, 125, 125) : RGB(150, 150, 150)) :
+            text_color_);
+        DrawTextW(draw.hDC, label, -1, &text_rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(draw.hDC, old_font);
+    }
+    if (draw.itemState & ODS_FOCUS) DrawFocusRect(draw.hDC, &draw.rcItem);
+    return true;
+}
+
+LRESULT CALLBACK Toolbar::SubclassProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data) {
+    auto* self = reinterpret_cast<Toolbar*>(data);
+    if (self && message == WM_COMMAND && self->handle_control(
+            LOWORD(w_param), HIWORD(w_param), reinterpret_cast<HWND>(l_param))) return 0;
+    if (self && message == WM_DRAWITEM && self->draw_combo(
+            *reinterpret_cast<DRAWITEMSTRUCT*>(l_param))) return TRUE;
+    if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, SubclassProcedure, id);
+        if (self) {
+            self->heading_combo_ = nullptr;
+            self->handle_ = nullptr;
+        }
+    }
+    return DefSubclassProc(window, message, w_param, l_param);
 }
 
 const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {

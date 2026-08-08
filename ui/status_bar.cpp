@@ -104,7 +104,7 @@ void StatusBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
     text_color_ = text;
     background_color_ = background;
     dpi_ = dpi;
-    height_ = MulDiv(24, static_cast<int>(dpi), 96);
+    height_ = MulDiv(27, static_cast<int>(dpi), 96);
     if (font_) DeleteObject(font_);
     font_ = CreateFontW(-MulDiv(9, static_cast<int>(dpi), 72), 0, 0, 0,
         FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
@@ -138,6 +138,14 @@ void StatusBar::Paint(HDC dc) {
     const auto background = CreateSolidBrush(background_color_);
     FillRect(dc, &client, background);
     DeleteObject(background);
+    const auto top_pen = CreatePen(PS_SOLID, 1,
+        GetRValue(background_color_) + GetGValue(background_color_) +
+            GetBValue(background_color_) < 384 ? RGB(72, 72, 74) : RGB(205, 205, 205));
+    const auto old_top_pen = SelectObject(dc, top_pen);
+    MoveToEx(dc, client.left, client.top, nullptr);
+    LineTo(dc, client.right, client.top);
+    SelectObject(dc, old_top_pen);
+    DeleteObject(top_pen);
     const auto old_font = SelectObject(dc, font_);
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, text_color_);

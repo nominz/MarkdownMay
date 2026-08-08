@@ -80,22 +80,47 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!window.status_bar().handle()) {
         DestroyWindow(window.handle()); CoUninitialize(); return 41;
     }
-    const auto heading_combo = GetDlgItem(window.handle(), 9100);
+    const auto heading_combo = GetDlgItem(window.toolbar()->handle(), 9100);
     std::array<wchar_t, 32> heading_label{};
     if (!heading_combo || SendMessageW(heading_combo, CB_GETCOUNT, 0, 0) != 7 ||
         SendMessageW(heading_combo, CB_GETLBTEXT, 1,
             reinterpret_cast<LPARAM>(heading_label.data())) < 0 ||
         std::wstring_view(heading_label.data()) != L"一级标题" ||
-        (GetWindowLongPtrW(heading_combo, GWL_STYLE) & CBS_DROPDOWNLIST) == 0) {
+        (GetWindowLongPtrW(heading_combo, GWL_STYLE) & CBS_DROPDOWNLIST) == 0 ||
+        (GetWindowLongPtrW(heading_combo, GWL_STYLE) & CBS_OWNERDRAWFIXED) == 0) {
         DestroyWindow(window.handle()); CoUninitialize(); return 38;
     }
+    ShowWindow(window.handle(), SW_SHOWNOACTIVATE);
+    UpdateWindow(window.handle());
+    SetWindowPos(window.handle(), nullptr, 0, 0, 760, 520,
+        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    const auto tooltip_window = reinterpret_cast<HWND>(
+        SendMessageW(window.toolbar()->handle(), TB_GETTOOLTIPS, 0, 0));
+    if (!IsWindowVisible(heading_combo)) return 46;
+    if (GetWindow(heading_combo, GW_HWNDPREV) != nullptr) return 49;
+    if (!tooltip_window ||
+        (GetWindowLongPtrW(tooltip_window, GWL_STYLE) & TTS_ALWAYSTIP) == 0) return 50;
     if (window.document_window().modes().reload("段落\n") != ErrorCode::ok)
         return 42;
-    SendMessageW(window.document_window().modes().render_view().handle(), EM_SETSEL, 0, 0);
+    SendMessageW(window.document_window().modes().render_view().handle(), EM_SETSEL, 1, 1);
     SendMessageW(heading_combo, CB_SETCURSEL, 1, 0);
     SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(9100, CBN_SELCHANGE),
         reinterpret_cast<LPARAM>(heading_combo));
     if (session.snapshot().source != "# 段落\n") return 43;
+
+    if (window.document_window().modes().reload("深色正文\n") != ErrorCode::ok) return 47;
+    window.set_theme_preference(ui::ThemePreference::dark);
+    const auto dark_palette = ui::PaletteFor(ui::ThemeKind::dark);
+    SendMessageW(window.document_window().modes().render_view().handle(), EM_SETSEL, 0, 4);
+    CHARFORMAT2W dark_format{};
+    dark_format.cbSize = sizeof(dark_format);
+    SendMessageW(window.document_window().modes().render_view().handle(), EM_GETCHARFORMAT,
+        SCF_SELECTION, reinterpret_cast<LPARAM>(&dark_format));
+    if ((dark_format.dwMask & (CFM_COLOR | CFM_BACKCOLOR)) !=
+            (CFM_COLOR | CFM_BACKCOLOR) ||
+        dark_format.crTextColor != dark_palette.text ||
+        dark_format.crBackColor != dark_palette.window) return 48;
+    window.set_theme_preference(ui::ThemePreference::light);
 
     if (window.document_window().modes().reload("**粗体**\n") != ErrorCode::ok)
         return 44;

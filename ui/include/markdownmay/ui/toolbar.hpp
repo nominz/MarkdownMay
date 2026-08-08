@@ -25,9 +25,12 @@ public:
     [[nodiscard]] int height() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
     [[nodiscard]] LRESULT custom_draw(NMTBCUSTOMDRAW& draw);
+    [[nodiscard]] bool draw_combo(const DRAWITEMSTRUCT& draw);
     [[nodiscard]] static const wchar_t* tooltip(std::uint16_t command) noexcept;
 
 private:
+    static LRESULT CALLBACK SubclassProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data);
     Query query_;
     Execute execute_;
     HWND handle_{};
