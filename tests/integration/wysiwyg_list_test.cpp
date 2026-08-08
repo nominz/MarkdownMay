@@ -134,6 +134,38 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         middle.snapshot().source != "before\n\n* 在\n* \n\nafter") return 30;
     const auto middle_selection = middle_host.source_selection();
     if (!middle_selection.is_ok() || middle_selection.value().caret != 16) return 31;
+
+    markdownmay::document::DocumentSession sequence("before\n\n# after");
+    markdownmay::editor::RichEditHost sequence_host(sequence);
+    if (sequence_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 32;
+    FINDTEXTEXW find_before{{0, -1}, const_cast<wchar_t*>(L"before"), {}};
+    if (SendMessageW(sequence_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+        reinterpret_cast<LPARAM>(&find_before)) < 0) return 33;
+    SendMessageW(sequence_host.handle(), EM_SETSEL,
+        find_before.chrgText.cpMax, find_before.chrgText.cpMax);
+    const auto type_and_sync = [&](wchar_t value) {
+        if (value == L'\r') {
+            SendMessageW(sequence_host.handle(), EM_REPLACESEL, TRUE,
+                reinterpret_cast<LPARAM>(L"\r\n"));
+        } else {
+            SendMessageW(sequence_host.handle(), WM_CHAR, value, 1);
+        }
+        return sequence_host.synchronize_change();
+    };
+    if (type_and_sync(L'\r') != markdownmay::ErrorCode::ok ||
+        type_and_sync(L'*') != markdownmay::ErrorCode::ok ||
+        type_and_sync(L' ') != markdownmay::ErrorCode::ok ||
+        type_and_sync(L'在') != markdownmay::ErrorCode::ok ||
+        type_and_sync(L'\r') != markdownmay::ErrorCode::ok ||
+        type_and_sync(L'\r') != markdownmay::ErrorCode::ok ||
+        type_and_sync(L'1') != markdownmay::ErrorCode::ok) return 34;
+    if (sequence.snapshot().source.find("* 在\n1\n\n# after") ==
+        std::string::npos) return 35;
+    std::array<wchar_t, 128> sequence_visible{};
+    GetWindowTextW(sequence_host.handle(), sequence_visible.data(),
+        static_cast<int>(sequence_visible.size()));
+    const std::wstring sequence_text(sequence_visible.data());
+    if (sequence_text.find(L"1. ") != std::wstring::npos) return 36;
     DestroyWindow(parent);
     return 0;
 }

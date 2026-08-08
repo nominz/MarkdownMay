@@ -42,6 +42,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         middle.snapshot().source != "前段\n\n\n# 后段") return 9;
     const auto middle_selection = middle_host.source_selection();
     if (!middle_selection.is_ok() || middle_selection.value().caret != 7) return 10;
+
+    std::string long_source;
+    for (int paragraph = 0; paragraph < 100; ++paragraph)
+        long_source += "普通正文 " + std::to_string(paragraph) + " " +
+            std::string(140, 'a') + "\n\n";
+    markdownmay::document::DocumentSession performance(long_source);
+    markdownmay::editor::RichEditHost performance_host(performance);
+    if (performance_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 11;
+    SendMessageW(performance_host.handle(), EM_SETSEL,
+        GetWindowTextLengthW(performance_host.handle()),
+        GetWindowTextLengthW(performance_host.handle()));
+    SendMessageW(performance_host.handle(), WM_CHAR, L'在', 1);
+    const auto started = GetTickCount64();
+    if (performance_host.synchronize_change() != markdownmay::ErrorCode::ok) return 12;
+    const auto elapsed = GetTickCount64() - started;
+    if (!performance.snapshot().source.ends_with("在") || elapsed > 750) return 13;
     DestroyWindow(parent);
     return 0;
 }

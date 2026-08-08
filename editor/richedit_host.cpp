@@ -134,6 +134,23 @@ void SelectSourceRange(HWND handle, const RichProjection& projection, TextSelect
     SendMessageW(handle, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selected));
 }
 
+bool HasSameFormattingStructure(const RichProjection& left,
+                                const RichProjection& right) {
+    if (left.spans.size() != right.spans.size()) return false;
+    for (std::size_t index = 0; index < left.spans.size(); ++index) {
+        const auto& a = left.spans[index];
+        const auto& b = right.spans[index];
+        if (a.kind != b.kind || a.heading_level != b.heading_level ||
+            a.list_depth != b.list_depth || a.task != b.task ||
+            a.checked != b.checked || a.image_state != b.image_state ||
+            a.image_width != b.image_width || a.image_height != b.image_height ||
+            a.image_display_percent != b.image_display_percent ||
+            a.image_path != b.image_path || a.table_row != b.table_row ||
+            a.table_column != b.table_column) return false;
+    }
+    return true;
+}
+
 void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span) {
     const auto begin = Utf16Length(projection.text, span.begin);
     const auto end = Utf16Length(projection.text, span.end);
@@ -492,6 +509,16 @@ ErrorCode RichEditHost::synchronize_change() {
     if (result != ErrorCode::ok) {
         static_cast<void>(project());
         return result;
+    }
+    const auto updated = session_.snapshot();
+    if (updated.semantic) {
+        auto next_projection = BuildInlineProjection(
+            *updated.semantic, updated.source, document_path_);
+        if (next_projection.text == after &&
+            HasSameFormattingStructure(projection_, next_projection)) {
+            projection_ = std::move(next_projection);
+            return ErrorCode::ok;
+        }
     }
     const auto projected = project();
     if (projected == ErrorCode::ok) {
