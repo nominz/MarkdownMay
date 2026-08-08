@@ -16,6 +16,7 @@ public:
 
     [[nodiscard]] ErrorCode create(HWND parent, const RECT& bounds);
     [[nodiscard]] ErrorCode project();
+    [[nodiscard]] ErrorCode synchronize_source(bool refresh_render = true);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;
@@ -32,6 +33,7 @@ private:
     RichEditHost render_;
     HWND host_{};
     bool source_only_{};
+    bool suppress_refresh_{};
 };
 
 }  // namespace markdownmay::editor

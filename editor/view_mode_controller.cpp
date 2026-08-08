@@ -69,7 +69,7 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
         ? render_.scroll_fraction() : split_.source_view().scroll_fraction();
     ErrorCode synchronized = ErrorCode::ok;
     if (mode_ == ViewMode::render) synchronized = render_.synchronize_change();
-    else synchronized = split_.source_view().synchronize_now();
+    else synchronized = split_.synchronize_source(target != ViewMode::render);
     if (synchronized != ErrorCode::ok && target == ViewMode::render)
         return ErrorCode::editor_cannot_enter_render_mode;
     if (target == ViewMode::render && !session_.can_export())

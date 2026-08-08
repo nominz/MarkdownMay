@@ -419,11 +419,25 @@ ErrorCode RichEditHost::synchronize_change() {
         static_cast<void>(project());
         return ErrorCode::editor_selection_mapping_failed;
     }
-    auto result = editor_.set_selection(
-        {projection_.source_offsets[prefix], projection_.source_offsets[old_suffix]});
+    auto source_begin = projection_.source_offsets[prefix];
+    auto source_end = projection_.source_offsets[old_suffix];
+    auto replacement = after.substr(prefix, new_suffix - prefix);
+    const auto expected_eol = line_ending == fileio::LineEnding::lf ? "\n" : "\r\n";
+    if (replacement == expected_eol && control_selection.cpMin == control_selection.cpMax) {
+        const auto target_ending = line_ending == fileio::LineEnding::mixed
+            ? fileio::LineEnding::crlf : line_ending;
+        const auto caret_after = PrefixUtf8Size(handle_, control_selection.cpMin, target_ending);
+        if (caret_after >= replacement.size()) {
+            const auto visual_insertion = caret_after - replacement.size();
+            if (visual_insertion < projection_.source_offsets.size()) {
+                source_begin = projection_.source_offsets[visual_insertion];
+                source_end = source_begin;
+            }
+        }
+    }
+    bool continued_list{};
+    auto result = editor_.set_selection({source_begin, source_end});
     if (result == ErrorCode::ok) {
-        auto replacement = after.substr(prefix, new_suffix - prefix);
-        const auto expected_eol = line_ending == fileio::LineEnding::lf ? "\n" : "\r\n";
         const auto visible_line_begin = prefix == 0 ? 0 : after.rfind('\n', prefix - 1) + 1;
         auto visible_line_end = after.find('\n', new_suffix);
         if (visible_line_end == std::string::npos) visible_line_end = after.size();
@@ -441,6 +455,7 @@ ErrorCode RichEditHost::synchronize_change() {
                 result = editor_.insert_text(std::string(expected_eol) + "---");
         } else if (replacement == expected_eol) {
             result = list_editor_.continue_item();
+            continued_list = result == ErrorCode::ok;
             if (result == ErrorCode::editor_selection_mapping_failed)
                 result = editor_.insert_text(replacement);
         } else {
@@ -479,8 +494,17 @@ ErrorCode RichEditHost::synchronize_change() {
         return result;
     }
     const auto projected = project();
-    if (projected == ErrorCode::ok)
-        SelectSourceRange(handle_, projection_, editor_.selection());
+    if (projected == ErrorCode::ok) {
+        if (replacement == expected_eol && !continued_list) {
+            const auto length = static_cast<LONG>(GetWindowTextLengthW(handle_));
+            control_selection.cpMin = (std::min)(control_selection.cpMin, length);
+            control_selection.cpMax = (std::min)(control_selection.cpMax, length);
+            SendMessageW(handle_, EM_EXSETSEL, 0,
+                reinterpret_cast<LPARAM>(&control_selection));
+        } else {
+            SelectSourceRange(handle_, projection_, editor_.selection());
+        }
+    }
     return projected;
 }
 

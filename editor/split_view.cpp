@@ -30,7 +30,9 @@ bool RegisterSplitClass() {
 SplitView::SplitView(document::DocumentSession& session)
     : session_(session), source_(session), render_(session) {
     source_.set_synchronized_callback(
-        [this](ErrorCode result) { RefreshRender(result); });
+        [this](ErrorCode result) {
+            if (!suppress_refresh_) RefreshRender(result);
+        });
     source_.set_scroll_callback([this](std::uint64_t line, std::uint64_t total) {
         render_.scroll_to_fraction(line, total);
     });
@@ -69,6 +71,13 @@ ErrorCode SplitView::project() {
     if (source_result != ErrorCode::ok) return source_result;
     RefreshRender(ErrorCode::ok);
     return ErrorCode::ok;
+}
+
+ErrorCode SplitView::synchronize_source(bool refresh_render) {
+    suppress_refresh_ = !refresh_render;
+    const auto result = source_.synchronize_now();
+    suppress_refresh_ = false;
+    return result;
 }
 
 HWND SplitView::handle() const noexcept { return host_; }

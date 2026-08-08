@@ -106,10 +106,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (modes.source_view().synchronize_now() != ErrorCode::ok ||
         modes.switch_to(editor::ViewMode::render) != ErrorCode::ok ||
         session.snapshot().parsed_revision != session.snapshot().source_revision) return 18;
+
+    if (modes.switch_to(editor::ViewMode::split) != ErrorCode::ok) return 24;
+    const auto split_insert = static_cast<WPARAM>(session.snapshot().source.find("第二段"));
+    SendMessageW(modes.source_view().handle(), SCI_SETSEL, split_insert, split_insert);
+    SendMessageW(modes.source_view().handle(), SCI_REPLACESEL, 0,
+        reinterpret_cast<LPARAM>("\n"));
+    const auto switch_started = GetTickCount64();
+    if (modes.switch_to(editor::ViewMode::render) != ErrorCode::ok) return 25;
+    if (GetTickCount64() - switch_started > 2000) return 26;
+    if (session.snapshot().source.find("\n第二段") == std::string::npos ||
+        session.snapshot().parsed_revision != session.snapshot().source_revision) return 27;
     DestroyWindow(parent);
 
     std::string long_source;
-    for (int line = 0; line < 200; ++line)
+    for (int line = 0; line < 1500; ++line)
         long_source += "line " + std::to_string(line) + "\n\n";
     document::DocumentSession scroll_session(long_source);
     HWND scroll_parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
@@ -133,6 +144,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     const auto after_switch = scroll_modes.render_view().scroll_fraction();
     if (after_switch.first + 3 < before_switch.first ||
         after_switch.first > before_switch.first + 3) return 23;
+    if (scroll_modes.switch_to(editor::ViewMode::split) != ErrorCode::ok) return 28;
+    const auto long_insert = static_cast<WPARAM>(long_source.size() / 2);
+    SendMessageW(scroll_modes.source_view().handle(), SCI_SETSEL, long_insert, long_insert);
+    SendMessageW(scroll_modes.source_view().handle(), SCI_REPLACESEL, 0,
+        reinterpret_cast<LPARAM>("\n"));
+    const auto long_switch_started = GetTickCount64();
+    if (scroll_modes.switch_to(editor::ViewMode::render) != ErrorCode::ok) return 29;
+    if (GetTickCount64() - long_switch_started > 2000) return 30;
+    if (scroll_session.snapshot().source.size() != long_source.size() + 1 ||
+        scroll_session.snapshot().parsed_revision !=
+            scroll_session.snapshot().source_revision) return 31;
     DestroyWindow(scroll_parent);
     return 0;
 }

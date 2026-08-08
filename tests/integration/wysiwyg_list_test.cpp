@@ -119,6 +119,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         reinterpret_cast<LPARAM>(L"\r\n"));
     if (ordered_host.synchronize_change() != markdownmay::ErrorCode::ok ||
         ordered.snapshot().source != "paragraph\n\n1. 甲\n2. ") return 25;
+
+    markdownmay::document::DocumentSession middle("before\n\n* 在\n\nafter");
+    markdownmay::editor::RichEditHost middle_host(middle);
+    if (middle_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 28;
+    FINDTEXTEXW find_item{{0, -1}, const_cast<wchar_t*>(L"在"), {}};
+    if (SendMessageW(middle_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+        reinterpret_cast<LPARAM>(&find_item)) < 0) return 29;
+    SendMessageW(middle_host.handle(), EM_SETSEL,
+        find_item.chrgText.cpMax, find_item.chrgText.cpMax);
+    SendMessageW(middle_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"\r\n"));
+    if (middle_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        middle.snapshot().source != "before\n\n* 在\n* \n\nafter") return 30;
+    const auto middle_selection = middle_host.source_selection();
+    if (!middle_selection.is_ok() || middle_selection.value().caret != 16) return 31;
     DestroyWindow(parent);
     return 0;
 }

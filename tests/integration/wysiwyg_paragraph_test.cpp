@@ -1,6 +1,7 @@
 #include "markdownmay/editor/richedit_host.hpp"
 
 #include <richedit.h>
+#include <commdlg.h>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     HWND parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
@@ -26,6 +27,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         session.snapshot().source != "新第一段\r\n\r\nsecond") return 5;
     if (host.redo() != markdownmay::ErrorCode::ok ||
         session.snapshot().source != "第一段\r\n\r\nsecond") return 6;
+
+    markdownmay::document::DocumentSession middle("前段\n\n# 后段");
+    markdownmay::editor::RichEditHost middle_host(middle);
+    if (middle_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 7;
+    FINDTEXTEXW find_before{{0, -1}, const_cast<wchar_t*>(L"前段"), {}};
+    if (SendMessageW(middle_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+        reinterpret_cast<LPARAM>(&find_before)) < 0) return 8;
+    const auto after_before = find_before.chrgText.cpMax;
+    SendMessageW(middle_host.handle(), EM_SETSEL, after_before, after_before);
+    SendMessageW(middle_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"\r\n"));
+    if (middle_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        middle.snapshot().source != "前段\n\n\n# 后段") return 9;
+    const auto middle_selection = middle_host.source_selection();
+    if (!middle_selection.is_ok() || middle_selection.value().caret != 7) return 10;
     DestroyWindow(parent);
     return 0;
 }
