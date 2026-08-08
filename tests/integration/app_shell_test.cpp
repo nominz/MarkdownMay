@@ -65,15 +65,45 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     std::wstring title(static_cast<std::size_t>(length) + 1, L'\0');
     GetWindowTextW(window.handle(), title.data(), length + 1);
     title.resize(static_cast<std::size_t>(length));
-    if (title != L"无标题 - 马冬梅" ||
-        window.document_window().modes().mode() != editor::ViewMode::render ||
-        !window.document_window().modes().render_view().handle() ||
-        !window.toolbar() || !window.toolbar()->handle() ||
-        !window.status_bar().handle()) {
+    if (title != L"无标题 - 马冬梅") {
         DestroyWindow(window.handle());
         CoUninitialize();
         return 3;
     }
+    if (window.document_window().modes().mode() != editor::ViewMode::render ||
+        !window.document_window().modes().render_view().handle()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 39;
+    }
+    if (!window.toolbar() || !window.toolbar()->handle()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 40;
+    }
+    if (!window.status_bar().handle()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 41;
+    }
+    const auto heading_combo = GetDlgItem(window.handle(), 9100);
+    std::array<wchar_t, 32> heading_label{};
+    if (!heading_combo || SendMessageW(heading_combo, CB_GETCOUNT, 0, 0) != 7 ||
+        SendMessageW(heading_combo, CB_GETLBTEXT, 1,
+            reinterpret_cast<LPARAM>(heading_label.data())) < 0 ||
+        std::wstring_view(heading_label.data()) != L"一级标题" ||
+        (GetWindowLongPtrW(heading_combo, GWL_STYLE) & CBS_DROPDOWNLIST) == 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 38;
+    }
+    if (window.document_window().modes().reload("段落\n") != ErrorCode::ok)
+        return 42;
+    SendMessageW(window.document_window().modes().render_view().handle(), EM_SETSEL, 0, 0);
+    SendMessageW(heading_combo, CB_SETCURSEL, 1, 0);
+    SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(9100, CBN_SELCHANGE),
+        reinterpret_cast<LPARAM>(heading_combo));
+    if (session.snapshot().source != "# 段落\n") return 43;
+
+    if (window.document_window().modes().reload("**粗体**\n") != ErrorCode::ok)
+        return 44;
+    SendMessageW(window.document_window().modes().render_view().handle(), EM_SETSEL, 0, 2);
+    window.toolbar()->refresh();
+    if (!dispatcher.query(app::CommandId::format_bold).checked ||
+        !SendMessageW(window.toolbar()->handle(), TB_ISBUTTONCHECKED,
+            static_cast<WPARAM>(app::CommandId::format_bold), 0)) return 45;
     TBBUTTONINFO button_info{};
     button_info.cbSize = sizeof(button_info);
     button_info.dwMask = TBIF_STYLE;

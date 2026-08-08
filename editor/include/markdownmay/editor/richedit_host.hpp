@@ -86,6 +86,8 @@ public:
     [[nodiscard]] ErrorCode cut();
     [[nodiscard]] ErrorCode select_all();
     [[nodiscard]] ErrorCode execute(EditorCommand command);
+    [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
+    [[nodiscard]] std::uint8_t heading_level();
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;

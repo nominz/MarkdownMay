@@ -49,6 +49,29 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (host.toggle_inline(markdownmay::editor::InlineFormat::bold) !=
             markdownmay::ErrorCode::ok ||
         session.snapshot().source != "**粗体** 和 [链接](local.md)") return 10;
+    if (!host.inline_active(markdownmay::editor::InlineFormat::bold)) return 13;
+    if (host.toggle_inline(markdownmay::editor::InlineFormat::bold) !=
+            markdownmay::ErrorCode::ok ||
+        session.snapshot().source != "粗体 和 [链接](local.md)" ||
+        host.inline_active(markdownmay::editor::InlineFormat::bold)) return 14;
+
+    SendMessageW(host.handle(), EM_SETSEL, 0, 2);
+    if (host.toggle_inline(markdownmay::editor::InlineFormat::italic) !=
+            markdownmay::ErrorCode::ok ||
+        session.snapshot().source != "*粗体* 和 [链接](local.md)" ||
+        !host.inline_active(markdownmay::editor::InlineFormat::italic)) return 15;
+    if (host.toggle_inline(markdownmay::editor::InlineFormat::italic) !=
+            markdownmay::ErrorCode::ok ||
+        session.snapshot().source != "粗体 和 [链接](local.md)") return 16;
+
+    SendMessageW(host.handle(), EM_SETSEL, 0, 2);
+    if (host.toggle_inline(markdownmay::editor::InlineFormat::strike) !=
+            markdownmay::ErrorCode::ok ||
+        session.snapshot().source != "~~粗体~~ 和 [链接](local.md)" ||
+        !host.inline_active(markdownmay::editor::InlineFormat::strike)) return 17;
+    if (host.toggle_inline(markdownmay::editor::InlineFormat::strike) !=
+            markdownmay::ErrorCode::ok ||
+        session.snapshot().source != "粗体 和 [链接](local.md)") return 18;
     DestroyWindow(parent);
     return 0;
 }

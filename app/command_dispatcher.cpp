@@ -60,14 +60,32 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::edit_redo:
         return {modes.can_redo(), false};
     case CommandId::format_bold:
+        return {modes.mode() == editor::ViewMode::render,
+            modes.inline_active(editor::InlineFormat::bold)};
     case CommandId::format_italic:
+        return {modes.mode() == editor::ViewMode::render,
+            modes.inline_active(editor::InlineFormat::italic)};
     case CommandId::format_strike:
+        return {modes.mode() == editor::ViewMode::render,
+            modes.inline_active(editor::InlineFormat::strike)};
     case CommandId::format_inline_code:
     case CommandId::format_quote:
     case CommandId::format_unordered_list:
     case CommandId::format_ordered_list:
     case CommandId::format_task_list:
         return {modes.mode() == editor::ViewMode::render, false};
+    case CommandId::format_body:
+    case CommandId::format_heading1:
+    case CommandId::format_heading2:
+    case CommandId::format_heading3:
+    case CommandId::format_heading4:
+    case CommandId::format_heading5:
+    case CommandId::format_heading6: {
+        const auto level = command == CommandId::format_body ? 0 :
+            static_cast<std::uint8_t>(native - static_cast<std::uint16_t>(CommandId::format_heading1) + 1);
+        return {modes.mode() == editor::ViewMode::render,
+            modes.mode() == editor::ViewMode::render && modes.current_heading_level() == level};
+    }
     case CommandId::view_render:
         return {true, modes.mode() == editor::ViewMode::render};
     case CommandId::view_source:
@@ -150,6 +168,13 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
         return modes.execute(editor::EditorCommand::ordered_list);
     case CommandId::format_task_list:
         return modes.execute(editor::EditorCommand::task_list);
+    case CommandId::format_body: return modes.render_view().set_heading(0);
+    case CommandId::format_heading1: return modes.render_view().set_heading(1);
+    case CommandId::format_heading2: return modes.render_view().set_heading(2);
+    case CommandId::format_heading3: return modes.render_view().set_heading(3);
+    case CommandId::format_heading4: return modes.render_view().set_heading(4);
+    case CommandId::format_heading5: return modes.render_view().set_heading(5);
+    case CommandId::format_heading6: return modes.render_view().set_heading(6);
     case CommandId::view_render: return modes.switch_to(editor::ViewMode::render);
     case CommandId::view_source: return modes.switch_to(editor::ViewMode::source);
     case CommandId::view_split: return modes.switch_to(editor::ViewMode::split);

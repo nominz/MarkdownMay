@@ -12,12 +12,15 @@ namespace markdownmay::ui {
 class Toolbar final {
 public:
     using Query = std::function<app::CommandState(app::CommandId)>;
+    using Execute = std::function<void(app::CommandId)>;
 
-    explicit Toolbar(Query query);
+    Toolbar(Query query, Execute execute);
     ~Toolbar();
     [[nodiscard]] bool create(HWND parent);
     void resize(int width, int top = 0);
     void refresh();
+    [[nodiscard]] bool handle_control(std::uint16_t identifier,
+        std::uint16_t notification, HWND control);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int height() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
@@ -26,7 +29,9 @@ public:
 
 private:
     Query query_;
+    Execute execute_;
     HWND handle_{};
+    HWND heading_combo_{};
     int height_{34};
     HFONT font_{};
     HFONT icon_font_{};

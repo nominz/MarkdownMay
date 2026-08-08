@@ -2,6 +2,8 @@
 
 #include "markdownmay/fileio/line_endings.hpp"
 
+#include <richedit.h>
+
 #include <algorithm>
 #include <mutex>
 #include <utility>
@@ -11,6 +13,7 @@ namespace {
 
 constexpr wchar_t kModeHostClass[] = L"MarkdownMay.ViewMode.Host";
 constexpr UINT kSynchronizeRenderMessage = WM_APP + 1;
+constexpr UINT kRefreshChromeMessage = WM_APP + 18;
 
 struct SwitchingGuard final {
     explicit SwitchingGuard(bool& value) : value_(value) { value_ = true; }
@@ -219,6 +222,13 @@ void ViewModeController::set_document_path(std::filesystem::path path) {
 bool ViewModeController::can_undo() const noexcept { return !undo_.empty(); }
 bool ViewModeController::can_redo() const noexcept { return !redo_.empty(); }
 ViewMode ViewModeController::mode() const noexcept { return mode_; }
+bool ViewModeController::inline_active(InlineFormat format) const noexcept {
+    return mode_ == ViewMode::render && render_.inline_active(format);
+}
+std::uint8_t ViewModeController::current_heading_level() const {
+    return mode_ == ViewMode::render
+        ? const_cast<RichEditHost&>(render_).heading_level() : 0;
+}
 HWND ViewModeController::handle() const noexcept { return host_; }
 RichEditHost& ViewModeController::render_view() noexcept { return render_; }
 SourceView& ViewModeController::source_view() noexcept { return split_.source_view(); }
@@ -249,6 +259,13 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
         HIWORD(w_param) == EN_CHANGE && !self->switching_mode_) {
         PostMessageW(window, kSynchronizeRenderMessage, 0, 0);
         return 0;
+    }
+    if (message == WM_NOTIFY) {
+        const auto* notification = reinterpret_cast<const NMHDR*>(l_param);
+        if (notification && notification->hwndFrom == self->render_.handle() &&
+            notification->code == EN_SELCHANGE) {
+            PostMessageW(GetAncestor(window, GA_ROOT), kRefreshChromeMessage, 0, 0);
+        }
     }
     if (message == kSynchronizeRenderMessage) {
         if (!self->switching_mode_ && self->mode_ == ViewMode::render)

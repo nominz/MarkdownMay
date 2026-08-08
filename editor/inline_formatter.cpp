@@ -31,6 +31,15 @@ ErrorCode InlineFormatter::toggle(InlineFormat format) {
         return editor_.replace_source_range(begin - marker_size, end + marker_size, content,
                                              {begin - marker_size, end - marker_size});
     }
+    if (begin >= marker_size && end >= marker_size && end <= source.size() &&
+        source.compare(static_cast<std::size_t>(begin - marker_size), marker.size(), marker) == 0 &&
+        source.compare(static_cast<std::size_t>(end - marker_size), marker.size(), marker) == 0) {
+        const auto content_end = end - marker_size;
+        const auto content = source.substr(static_cast<std::size_t>(begin),
+            static_cast<std::size_t>(content_end - begin));
+        return editor_.replace_source_range(begin - marker_size, end, content,
+            {begin - marker_size, content_end - marker_size});
+    }
     const auto content = source.substr(static_cast<std::size_t>(begin),
                                        static_cast<std::size_t>(end - begin));
     return editor_.replace_source_range(begin, end, marker + content + marker,

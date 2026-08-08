@@ -39,6 +39,8 @@ public:
     [[nodiscard]] bool can_undo() const noexcept;
     [[nodiscard]] bool can_redo() const noexcept;
     [[nodiscard]] ViewMode mode() const noexcept;
+    [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
+    [[nodiscard]] std::uint8_t current_heading_level() const;
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;

@@ -284,7 +284,7 @@ ErrorCode RichEditHost::create(HWND parent, const RECT& bounds) {
         return ErrorCode::editor_render_projection_failed;
     const auto event_mask = static_cast<DWORD>(
         SendMessageW(handle_, EM_GETEVENTMASK, 0, 0));
-    SendMessageW(handle_, EM_SETEVENTMASK, 0, event_mask | ENM_CHANGE);
+    SendMessageW(handle_, EM_SETEVENTMASK, 0, event_mask | ENM_CHANGE | ENM_SELCHANGE);
     SendMessageW(handle_, EM_SETLIMITTEXT, 0, 0);
     SendMessageW(handle_, EM_SETUNDOLIMIT, 0, 0);
     RECT client{};
@@ -883,6 +883,44 @@ ErrorCode RichEditHost::execute(EditorCommand command) {
         case EditorCommand::task_list: return toggle_task_list();
     }
     return ErrorCode::editor_unmapped_rich_edit_change;
+}
+
+bool RichEditHost::inline_active(InlineFormat format) const noexcept {
+    if (!handle_) return false;
+    CHARFORMAT2W value{};
+    value.cbSize = sizeof(value);
+    DWORD mask{};
+    DWORD effect{};
+    switch (format) {
+    case InlineFormat::bold: mask = CFM_BOLD; effect = CFE_BOLD; break;
+    case InlineFormat::italic: mask = CFM_ITALIC; effect = CFE_ITALIC; break;
+    case InlineFormat::strike: mask = CFM_STRIKEOUT; effect = CFE_STRIKEOUT; break;
+    case InlineFormat::code: return false;
+    }
+    value.dwMask = mask;
+    SendMessageW(handle_, EM_GETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&value));
+    return (value.dwMask & mask) != 0 && (value.dwEffects & effect) != 0;
+}
+
+std::uint8_t RichEditHost::heading_level() {
+    const auto selected = source_selection();
+    if (!selected.is_ok()) return 0;
+    const auto caret = selected.value().caret;
+    const auto snapshot = session_.snapshot();
+    if (!snapshot.semantic) return 0;
+    std::uint8_t level{};
+    std::function<void(const document::Node&)> visit = [&](const document::Node& node) {
+        if (level || caret < node.source.begin || caret > node.source.end) return;
+        if (node.kind == document::NodeKind::heading) {
+            if (const auto* heading = std::get_if<document::HeadingAttributes>(&node.attributes))
+                level = heading->level;
+            return;
+        }
+        for (const auto& child : node.children) visit(*child);
+    };
+    visit(*snapshot.semantic->root());
+    return level;
 }
 
 ErrorCode RichEditHost::undo() {

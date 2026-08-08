@@ -7,6 +7,8 @@
 
 namespace markdownmay::ui {
 namespace {
+constexpr int kHeadingComboId = 9100;
+constexpr int kHeadingComboWidth = 132;
 constexpr int Native(app::CommandId command) noexcept {
     return static_cast<int>(command);
 }
@@ -46,7 +48,8 @@ void FillRounded(HDC dc, const RECT& rect, int radius, HBRUSH brush) {
 }
 }
 
-Toolbar::Toolbar(Query query) : query_(std::move(query)) {}
+Toolbar::Toolbar(Query query, Execute execute)
+    : query_(std::move(query)), execute_(std::move(execute)) {}
 Toolbar::~Toolbar() {
     if (font_) DeleteObject(font_);
     if (icon_font_) DeleteObject(icon_font_);
@@ -76,8 +79,11 @@ bool Toolbar::create(HWND parent) {
         {app::CommandId::view_source, Icon(app::CommandId::view_source), BTNS_CHECKGROUP},
         {app::CommandId::view_split, Icon(app::CommandId::view_split), BTNS_CHECKGROUP},
     }};
-    std::array<TBBUTTON, definitions.size() + 1> buttons{};
+    std::array<TBBUTTON, definitions.size() + 2> buttons{};
     std::size_t output{};
+    buttons[output].iBitmap = MulDiv(kHeadingComboWidth, dpi_, 96);
+    buttons[output].fsStyle = BTNS_SEP;
+    ++output;
     for (std::size_t index = 0; index < definitions.size(); ++index) {
         if (index == 8) {
             buttons[output].fsStyle = BTNS_SEP;
@@ -93,6 +99,17 @@ bool Toolbar::create(HWND parent) {
     }
     if (!SendMessageW(handle_, TB_ADDBUTTONSW, output,
             reinterpret_cast<LPARAM>(buttons.data()))) return false;
+    heading_combo_ = CreateWindowExW(0, WC_COMBOBOXW, L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
+        MulDiv(6, dpi_, 96), MulDiv(3, dpi_, 96),
+        MulDiv(kHeadingComboWidth - 10, dpi_, 96), MulDiv(240, dpi_, 96),
+        parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHeadingComboId)),
+        GetModuleHandleW(nullptr), nullptr);
+    if (!heading_combo_) return false;
+    for (const auto* label : {L"正文", L"一级标题", L"二级标题", L"三级标题",
+            L"四级标题", L"五级标题", L"六级标题"})
+        SendMessageW(heading_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+    SendMessageW(heading_combo_, CB_SETCURSEL, 0, 0);
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
     SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
         MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
@@ -105,6 +122,9 @@ bool Toolbar::create(HWND parent) {
 
 void Toolbar::resize(int width, int top) {
     if (handle_) MoveWindow(handle_, 0, top, width, height_, TRUE);
+    if (heading_combo_) MoveWindow(heading_combo_, MulDiv(6, dpi_, 96),
+        top + MulDiv(3, dpi_, 96), MulDiv(kHeadingComboWidth - 10, dpi_, 96),
+        MulDiv(240, dpi_, 96), TRUE);
 }
 
 void Toolbar::refresh() {
@@ -123,6 +143,30 @@ void Toolbar::refresh() {
         SendMessageW(handle_, TB_CHECKBUTTON, Native(command),
             MAKELONG(state.checked, 0));
     }
+    int selected = 0;
+    for (int level = 1; level <= 6; ++level) {
+        const auto command = static_cast<app::CommandId>(
+            static_cast<std::uint16_t>(app::CommandId::format_heading1) + level - 1);
+        if (query_(command).checked) { selected = level; break; }
+    }
+    if (heading_combo_) {
+        SendMessageW(heading_combo_, CB_SETCURSEL, selected, 0);
+        EnableWindow(heading_combo_, query_(app::CommandId::format_body).enabled);
+    }
+}
+
+bool Toolbar::handle_control(std::uint16_t identifier,
+        std::uint16_t notification, HWND control) {
+    if (identifier != kHeadingComboId || control != heading_combo_) return false;
+    if (notification != CBN_SELCHANGE) return true;
+    const auto selected = static_cast<int>(SendMessageW(heading_combo_, CB_GETCURSEL, 0, 0));
+    if (selected < 0 || selected > 6 || !execute_) return true;
+    const auto command = selected == 0 ? app::CommandId::format_body :
+        static_cast<app::CommandId>(
+            static_cast<std::uint16_t>(app::CommandId::format_heading1) + selected - 1);
+    execute_(command);
+    refresh();
+    return true;
 }
 
 HWND Toolbar::handle() const noexcept { return handle_; }
@@ -142,6 +186,8 @@ void Toolbar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe Fluent Icons");
     if (!handle_) return;
     SendMessageW(handle_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+    if (heading_combo_)
+        SendMessageW(heading_combo_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
         MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);

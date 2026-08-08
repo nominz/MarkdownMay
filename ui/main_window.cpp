@@ -13,6 +13,7 @@ namespace {
 constexpr wchar_t kMainWindowClass[] = L"MarkdownMay.MainWindow";
 constexpr wchar_t kApplicationTitle[] = L"马冬梅 - Markdown May";
 constexpr UINT kOpenRequestsMessage = WM_APP + 17;
+constexpr UINT kRefreshChromeMessage = WM_APP + 18;
 
 bool RegisterMainWindowClass(HINSTANCE instance) {
     static std::once_flag once;
@@ -70,7 +71,7 @@ MenuController* MainWindow::menu_controller() noexcept { return menu_controller_
 StatusBar& MainWindow::status_bar() noexcept { return status_bar_; }
 void MainWindow::set_command_callbacks(MenuController::Query query,
                                        MenuController::Execute execute) {
-    toolbar_ = std::make_unique<Toolbar>(query);
+    toolbar_ = std::make_unique<Toolbar>(query, execute);
     menu_controller_ = std::make_unique<MenuController>(
         std::move(query), std::move(execute));
 }
@@ -138,6 +139,9 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
         case kOpenRequestsMessage:
             if (self->open_request_callback_) self->open_request_callback_();
             return 0;
+        case kRefreshChromeMessage:
+            if (self->toolbar_) self->toolbar_->refresh();
+            return 0;
         case WM_CREATE:
             if (self->CreateDocumentWindow() != ErrorCode::ok) return -1;
             if (self->menu_controller_ &&
@@ -149,6 +153,11 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
             self->refresh_document_chrome();
             return 0;
         case WM_COMMAND:
+            if (self->toolbar_ && self->toolbar_->handle_control(
+                    LOWORD(w_param), HIWORD(w_param), reinterpret_cast<HWND>(l_param))) {
+                self->status_bar_.refresh();
+                return 0;
+            }
             if (self->menu_controller_ &&
                 self->menu_controller_->handle_control(LOWORD(w_param),
                     reinterpret_cast<HWND>(l_param))) return 0;
