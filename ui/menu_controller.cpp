@@ -10,6 +10,16 @@
 
 namespace markdownmay::ui {
 namespace {
+void FillRounded(HDC dc, const RECT& rect, int radius, HBRUSH brush) {
+    const auto region = CreateRoundRectRgn(rect.left, rect.top,
+        rect.right + 1, rect.bottom + 1, radius, radius);
+    if (region) {
+        FillRgn(dc, region, brush);
+        DeleteObject(region);
+    } else {
+        FillRect(dc, &rect, brush);
+    }
+}
 thread_local MenuController* active_menu_controller{};
 constexpr auto kNoPopup = static_cast<std::size_t>(-1);
 constexpr UINT Native(app::CommandId command) noexcept {
@@ -270,11 +280,7 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
             InflateRect(&highlight, -MulDiv(3, dpi_, 96), -MulDiv(2, dpi_, 96));
             const auto brush = CreateSolidBrush(GetRValue(surface_color_) < 128
                 ? RGB(70, 70, 70) : RGB(232, 232, 232));
-            const auto old_brush = SelectObject(item.hDC, brush);
-            const auto old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
-            RoundRect(item.hDC, highlight.left, highlight.top, highlight.right,
-                highlight.bottom, MulDiv(7, dpi_, 96), MulDiv(7, dpi_, 96));
-            SelectObject(item.hDC, old_pen); SelectObject(item.hDC, old_brush);
+            FillRounded(item.hDC, highlight, MulDiv(7, dpi_, 96), brush);
             DeleteObject(brush);
         }
         NONCLIENTMETRICSW metrics{sizeof(metrics)};
@@ -314,11 +320,8 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
         RECT highlight = item.rcItem;
         InflateRect(&highlight, -MulDiv(2, dpi_, 96), -MulDiv(3, dpi_, 96));
         const auto brush = CreateSolidBrush(background);
-        const auto old_brush = SelectObject(item.hDC, brush);
-        const auto old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
-        RoundRect(item.hDC, highlight.left, highlight.top, highlight.right, highlight.bottom,
-            MulDiv(8, dpi_, 96), MulDiv(8, dpi_, 96));
-        SelectObject(item.hDC, old_pen); SelectObject(item.hDC, old_brush); DeleteObject(brush);
+        FillRounded(item.hDC, highlight, MulDiv(8, dpi_, 96), brush);
+        DeleteObject(brush);
     }
     NONCLIENTMETRICSW metrics{sizeof(metrics)};
     SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi_);

@@ -33,6 +33,17 @@ constexpr const wchar_t* Icon(app::CommandId command) noexcept {
     default: return L"";
     }
 }
+
+void FillRounded(HDC dc, const RECT& rect, int radius, HBRUSH brush) {
+    const auto region = CreateRoundRectRgn(rect.left, rect.top,
+        rect.right + 1, rect.bottom + 1, radius, radius);
+    if (region) {
+        FillRgn(dc, region, brush);
+        DeleteObject(region);
+    } else {
+        FillRect(dc, &rect, brush);
+    }
+}
 }
 
 Toolbar::Toolbar(Query query) : query_(std::move(query)) {}
@@ -153,12 +164,8 @@ LRESULT Toolbar::custom_draw(NMTBCUSTOMDRAW& draw) {
     const bool disabled = (draw.nmcd.uItemState & CDIS_DISABLED) != 0;
     const auto fill = checked ? RGB(220, 232, 243) : hot ? RGB(235, 235, 235) : background_color_;
     auto brush = CreateSolidBrush(fill);
-    auto old_pen = SelectObject(draw.nmcd.hdc, GetStockObject(NULL_PEN));
-    auto old_brush = SelectObject(draw.nmcd.hdc, brush);
     const auto radius = MulDiv(6, dpi_, 96);
-    RoundRect(draw.nmcd.hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
-    SelectObject(draw.nmcd.hdc, old_brush);
-    SelectObject(draw.nmcd.hdc, old_pen);
+    FillRounded(draw.nmcd.hdc, rect, radius, brush);
     DeleteObject(brush);
     const auto old_font = SelectObject(draw.nmcd.hdc, icon_font_);
     SetBkMode(draw.nmcd.hdc, TRANSPARENT);

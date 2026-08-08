@@ -3,13 +3,6 @@
   <assemblyIdentity name="nominz.MarkdownMay" processorArchitecture="amd64"
       type="win32" version="0.1.0.0"/>
   <description>马冬梅 Markdown May</description>
-  <dependency>
-    <dependentAssembly>
-      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"
-          version="6.0.0.0" processorArchitecture="*"
-          publicKeyToken="6595b64144ccf1df" language="*"/>
-    </dependentAssembly>
-  </dependency>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security><requestedPrivileges>
       <requestedExecutionLevel level="asInvoker" uiAccess="false"/>

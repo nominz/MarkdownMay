@@ -1,7 +1,6 @@
 #include "markdownmay/app/application.hpp"
 
 #include <commdlg.h>
-#include <commctrl.h>
 
 #include <array>
 #include <cwchar>
@@ -46,31 +45,9 @@ services::ThemeSetting ToSettingTheme(ui::ThemePreference value) noexcept {
 }
 
 int ConfirmUnsavedChanges(HWND owner) {
-    const TASKDIALOG_BUTTON buttons[]{
-        {IDYES, L"保存"}, {IDNO, L"不保存"}, {IDCANCEL, L"取消"}};
-    TASKDIALOGCONFIG dialog{};
-    dialog.cbSize = sizeof(dialog);
-    dialog.hwndParent = owner;
-    dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT;
-    dialog.pszWindowTitle = L"马冬梅";
-    dialog.pszMainIcon = TD_WARNING_ICON;
-    dialog.pszMainInstruction = L"是否保存对此文档的更改？";
-    dialog.pszContent = L"如果不保存，最近所做的更改将会丢失。";
-    dialog.pButtons = buttons;
-    dialog.cButtons = static_cast<UINT>(std::size(buttons));
-    dialog.nDefaultButton = IDYES;
-    int selected = IDCANCEL;
-    using TaskDialogIndirectFunction = HRESULT (WINAPI*)(
-        const TASKDIALOGCONFIG*, int*, int*, BOOL*);
-    const auto common_controls = GetModuleHandleW(L"comctl32.dll");
-    const auto task_dialog = common_controls
-        ? reinterpret_cast<TaskDialogIndirectFunction>(
-            GetProcAddress(common_controls, "TaskDialogIndirect"))
-        : nullptr;
-    if (task_dialog && SUCCEEDED(task_dialog(&dialog, &selected, nullptr, nullptr)))
-        return selected;
     return MessageBoxW(owner,
-        L"当前文档有尚未保存的修改。是否先保存？",
+        L"当前文档有尚未保存的修改。是否先保存？\n\n"
+        L"选择“是”保存，选择“否”放弃修改，选择“取消”继续编辑。",
         L"马冬梅", MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
 }
 }
