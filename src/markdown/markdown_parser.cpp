@@ -306,9 +306,17 @@ bool FindListMarker(std::string_view source, std::size_t from, SourceRange& rang
         while (marker < content_end && source[marker] == ' ' && spaces < 4) {
             ++marker; ++spaces;
         }
-        if (spaces <= 3 && marker < content_end &&
+        const bool unordered = spaces <= 3 && marker < content_end &&
             (source[marker] == '-' || source[marker] == '*' || source[marker] == '+') &&
-            (marker + 1 == content_end || source[marker + 1] == ' ' || source[marker + 1] == '\t')) {
+            (marker + 1 == content_end || source[marker + 1] == ' ' || source[marker + 1] == '\t');
+        auto ordered_end = marker;
+        while (ordered_end < content_end && source[ordered_end] >= '0' &&
+               source[ordered_end] <= '9') ++ordered_end;
+        const bool ordered = spaces <= 3 && ordered_end > marker &&
+            ordered_end < content_end && source[ordered_end] == '.' &&
+            (ordered_end + 1 == content_end || source[ordered_end + 1] == ' ' ||
+             source[ordered_end + 1] == '\t');
+        if (unordered || ordered) {
             range = {static_cast<std::uint64_t>(line_begin),
                 static_cast<std::uint64_t>(content_end)};
             return true;

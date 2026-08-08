@@ -10,6 +10,8 @@
 
 namespace markdownmay::ui {
 namespace {
+thread_local MenuController* active_menu_controller{};
+constexpr auto kNoPopup = static_cast<std::size_t>(-1);
 constexpr UINT Native(app::CommandId command) noexcept {
     return static_cast<UINT>(command);
 }
@@ -34,6 +36,15 @@ void CALLBACK RoundPopupMenu(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG,
     constexpr DWM_WINDOW_CORNER_PREFERENCE preference = DWMWCP_ROUND;
     static_cast<void>(DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE,
         &preference, sizeof(preference)));
+    RECT bounds{};
+    if (GetWindowRect(window, &bounds)) {
+        const auto width = bounds.right - bounds.left;
+        const auto height = bounds.bottom - bounds.top;
+        const auto radius = MulDiv(10, static_cast<int>(GetDpiForWindow(window)), 96);
+        const auto region = CreateRoundRectRgn(0, 0, width + 1, height + 1,
+            radius, radius);
+        if (region && !SetWindowRgn(window, region, TRUE)) DeleteObject(region);
+    }
 }
 }
 
@@ -364,18 +375,63 @@ bool MenuController::handle_syschar(wchar_t character) {
 }
 
 void MenuController::OpenPopup(std::size_t index) {
-    refresh();
-    RECT bounds{};
-    GetWindowRect(top_items_[index].button, &bounds);
-    const auto popup_hook = SetWinEventHook(EVENT_SYSTEM_MENUPOPUPSTART,
-        EVENT_SYSTEM_MENUPOPUPSTART, nullptr, RoundPopupMenu, GetCurrentProcessId(),
-        0, WINEVENT_OUTOFCONTEXT);
-    const auto command = TrackPopupMenuEx(top_items_[index].popup,
-        TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD, bounds.left, bounds.bottom,
-        window_, nullptr);
-    if (popup_hook) UnhookWinEvent(popup_hook);
-    if (command) static_cast<void>(dispatch(static_cast<std::uint16_t>(command)));
-    InvalidateRect(top_items_[index].button, nullptr, TRUE);
+    while (index < top_items_.size()) {
+        refresh();
+        RECT bounds{};
+        GetWindowRect(top_items_[index].button, &bounds);
+        active_popup_ = index;
+        pending_popup_ = kNoPopup;
+        active_menu_controller = this;
+        const auto message_hook = SetWindowsHookExW(WH_MSGFILTER, MenuMessageFilter,
+            nullptr, GetCurrentThreadId());
+        const auto popup_hook = SetWinEventHook(EVENT_SYSTEM_MENUPOPUPSTART,
+            EVENT_SYSTEM_MENUPOPUPSTART, nullptr, RoundPopupMenu, GetCurrentProcessId(),
+            0, WINEVENT_OUTOFCONTEXT);
+        const auto command = TrackPopupMenuEx(top_items_[index].popup,
+            TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD, bounds.left, bounds.bottom,
+            window_, nullptr);
+        if (popup_hook) UnhookWinEvent(popup_hook);
+        if (message_hook) UnhookWindowsHookEx(message_hook);
+        active_menu_controller = nullptr;
+        InvalidateRect(top_items_[index].button, nullptr, TRUE);
+        if (command) {
+            static_cast<void>(dispatch(static_cast<std::uint16_t>(command)));
+            break;
+        }
+        if (pending_popup_ == kNoPopup || pending_popup_ == index) break;
+        index = pending_popup_;
+    }
+    active_popup_ = kNoPopup;
+    pending_popup_ = kNoPopup;
+}
+
+LRESULT CALLBACK MenuController::MenuMessageFilter(int code, WPARAM w_param,
+                                                    LPARAM l_param) {
+    if (code == MSGF_MENU && active_menu_controller) {
+        const auto* message = reinterpret_cast<const MSG*>(l_param);
+        if (message && message->message == WM_MOUSEMOVE) {
+            POINT cursor{};
+            if (GetCursorPos(&cursor)) {
+                const auto target = active_menu_controller->TopItemAt(cursor);
+                if (target != kNoPopup &&
+                    target != active_menu_controller->active_popup_) {
+                    active_menu_controller->pending_popup_ = target;
+                    EndMenu();
+                    return 1;
+                }
+            }
+        }
+    }
+    return CallNextHookEx(nullptr, code, w_param, l_param);
+}
+
+std::size_t MenuController::TopItemAt(POINT screen_point) const {
+    for (std::size_t index = 0; index < top_items_.size(); ++index) {
+        RECT bounds{};
+        if (GetWindowRect(top_items_[index].button, &bounds) &&
+            PtInRect(&bounds, screen_point)) return index;
+    }
+    return kNoPopup;
 }
 
 void MenuController::resize(int width) {

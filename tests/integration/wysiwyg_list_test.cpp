@@ -94,6 +94,31 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         static_cast<int>(live_visible.size()));
     if (std::wstring(live_visible.data()).find(L"\x2022 在") == std::wstring::npos)
         return 19;
+    SendMessageW(live_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"\r\n"));
+    if (live_host.synchronize_change() != markdownmay::ErrorCode::ok) return 20;
+    if (live.snapshot().source != "paragraph\n\n* 在\n* ") return 26;
+
+    markdownmay::document::DocumentSession ordered("paragraph\n\n");
+    markdownmay::editor::RichEditHost ordered_host(ordered);
+    if (ordered_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 21;
+    SendMessageW(ordered_host.handle(), EM_SETSEL,
+        GetWindowTextLengthW(ordered_host.handle()),
+        GetWindowTextLengthW(ordered_host.handle()));
+    SendMessageW(ordered_host.handle(), WM_CHAR, L'1', 1);
+    SendMessageW(ordered_host.handle(), WM_CHAR, L'.', 1);
+    if (ordered_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        ordered.snapshot().source != "paragraph\n\n1.") return 22;
+    SendMessageW(ordered_host.handle(), WM_CHAR, L' ', 1);
+    if (ordered_host.synchronize_change() != markdownmay::ErrorCode::ok) return 23;
+    if (ordered.snapshot().source != "paragraph\n\n1. ") return 27;
+    SendMessageW(ordered_host.handle(), WM_CHAR, L'甲', 1);
+    if (ordered_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        ordered.snapshot().source != "paragraph\n\n1. 甲") return 24;
+    SendMessageW(ordered_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"\r\n"));
+    if (ordered_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        ordered.snapshot().source != "paragraph\n\n1. 甲\n2. ") return 25;
     DestroyWindow(parent);
     return 0;
 }

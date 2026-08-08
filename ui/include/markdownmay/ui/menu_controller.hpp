@@ -37,11 +37,13 @@ public:
     [[nodiscard]] HACCEL accelerator() const noexcept;
 
 private:
+    static LRESULT CALLBACK MenuMessageFilter(int code, WPARAM w_param, LPARAM l_param);
     void AddCommand(HMENU menu, app::CommandId command, const wchar_t* text);
     void AddPopup(HMENU menu, HMENU popup, const wchar_t* text);
     void AddSeparator(HMENU menu);
     const wchar_t* KeepLabel(std::wstring text);
     void OpenPopup(std::size_t index);
+    [[nodiscard]] std::size_t TopItemAt(POINT screen_point) const;
 
     struct TopItem final {
         HWND button{};
@@ -64,6 +66,8 @@ private:
     UINT dpi_{96};
     int height_{36};
     HFONT font_{};
+    std::size_t active_popup_{static_cast<std::size_t>(-1)};
+    std::size_t pending_popup_{static_cast<std::size_t>(-1)};
 };
 
 }  // namespace markdownmay::ui

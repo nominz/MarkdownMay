@@ -40,6 +40,31 @@ bool IsBareUnorderedMarker(std::string_view source, const document::SourceRange&
     return value == "*" || value == "-" || value == "+";
 }
 
+bool IsBareOrderedMarker(std::string_view source, const document::SourceRange& range) {
+    const auto begin = (std::min)(range.begin, static_cast<std::uint64_t>(source.size()));
+    const auto end = (std::min)(range.end, static_cast<std::uint64_t>(source.size()));
+    const auto value = source.substr(static_cast<std::size_t>(begin),
+        static_cast<std::size_t>(end - begin));
+    std::size_t cursor{};
+    while (cursor < value.size() && value[cursor] == ' ' && cursor < 3) ++cursor;
+    const auto digits = cursor;
+    while (cursor < value.size() && value[cursor] >= '0' && value[cursor] <= '9') ++cursor;
+    return cursor > digits && cursor + 1 == value.size() && value[cursor] == '.';
+}
+
+bool IsEmptyOrderedMarker(std::string_view source, const document::SourceRange& range) {
+    const auto begin = (std::min)(range.begin, static_cast<std::uint64_t>(source.size()));
+    const auto end = (std::min)(range.end, static_cast<std::uint64_t>(source.size()));
+    const auto value = source.substr(static_cast<std::size_t>(begin),
+        static_cast<std::size_t>(end - begin));
+    std::size_t cursor{};
+    while (cursor < value.size() && value[cursor] == ' ' && cursor < 3) ++cursor;
+    const auto digits = cursor;
+    while (cursor < value.size() && value[cursor] >= '0' && value[cursor] <= '9') ++cursor;
+    return cursor > digits && cursor + 2 == value.size() && value[cursor] == '.' &&
+        value[cursor + 1] == ' ';
+}
+
 std::string ChildrenText(const document::Node& node) {
     std::string result;
     for (const auto& child : node.children) {
@@ -136,6 +161,11 @@ void Block(const document::Node& node, RichProjection& output,
     } else if (node.kind == document::NodeKind::paragraph ||
         node.kind == document::NodeKind::heading) {
         for (const auto& child : node.children) Inline(*child, output, source, document_path);
+        if (node.kind == document::NodeKind::paragraph &&
+            IsEmptyOrderedMarker(source, node.source)) {
+            output.spans.push_back({document::NodeKind::list_item, begin,
+                static_cast<std::uint64_t>(output.text.size()), 0, depth, false, false});
+        }
     } else if (node.kind == document::NodeKind::quote) {
         std::uint64_t cursor{};
         bool first = true;
@@ -153,6 +183,13 @@ void Block(const document::Node& node, RichProjection& output,
     } else if (node.kind == document::NodeKind::thematic_break) {
         AppendSynthetic(output, "────────", node.source.begin, node.source.end);
     } else if (node.kind == document::NodeKind::list) {
+        if (IsBareOrderedMarker(source, node.source)) {
+            AppendMappedRange(output,
+                source.substr(static_cast<std::size_t>(node.source.begin),
+                    static_cast<std::size_t>(node.source.end - node.source.begin)),
+                node.source.begin, node.source.end);
+            return;
+        }
         const auto* list = std::get_if<document::ListAttributes>(&node.attributes);
         std::uint32_t number = list ? list->start : 1;
         bool first = true;
@@ -163,7 +200,8 @@ void Block(const document::Node& node, RichProjection& output,
                 AppendSynthetic(output, "\n", newline_at, newline_at);
             }
             const auto item_begin = static_cast<std::uint64_t>(output.text.size());
-            if (item->children.empty() && IsBareUnorderedMarker(source, item->source)) {
+            if (IsBareUnorderedMarker(source, item->source) ||
+                IsBareOrderedMarker(source, item->source)) {
                 AppendMappedRange(output,
                     source.substr(static_cast<std::size_t>(item->source.begin),
                         static_cast<std::size_t>(item->source.end - item->source.begin)),

@@ -84,5 +84,21 @@ int main() {
         populated_bullet >= populated_text) return 14;
     if (populated_item_projection.source_offsets[populated_bullet + 4] <
         populated_item_source.find("在")) return 15;
+
+    const std::string empty_ordered_source = "paragraph\n\n1. ";
+    const auto empty_ordered_document = markdown::ParseMarkdown(empty_ordered_source, 5);
+    if (!empty_ordered_document) return 16;
+    const auto empty_ordered_projection = editor::BuildInlineProjection(
+        *empty_ordered_document, empty_ordered_source, {});
+    if (empty_ordered_projection.text.find("1. ") == std::string::npos ||
+        !HasSpan(empty_ordered_projection, NodeKind::list_item)) return 17;
+
+    const std::string bare_ordered_source = "paragraph\n\n1.";
+    const auto bare_ordered_document = markdown::ParseMarkdown(bare_ordered_source, 6);
+    if (!bare_ordered_document) return 18;
+    const auto bare_ordered_projection = editor::BuildInlineProjection(
+        *bare_ordered_document, bare_ordered_source, {});
+    if (bare_ordered_projection.text.find("1.") == std::string::npos ||
+        HasSpan(bare_ordered_projection, NodeKind::list_item)) return 19;
     return 0;
 }

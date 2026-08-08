@@ -439,8 +439,7 @@ ErrorCode RichEditHost::synchronize_change() {
                 {source_line_begin, static_cast<std::uint64_t>(source.size())});
             if (result == ErrorCode::ok)
                 result = editor_.insert_text(std::string(expected_eol) + "---");
-        } else if (projection_.source_offsets[prefix] == projection_.source_offsets[old_suffix] &&
-            replacement == expected_eol) {
+        } else if (replacement == expected_eol) {
             result = list_editor_.continue_item();
             if (result == ErrorCode::editor_selection_mapping_failed)
                 result = editor_.insert_text(replacement);
@@ -480,12 +479,8 @@ ErrorCode RichEditHost::synchronize_change() {
         return result;
     }
     const auto projected = project();
-    if (projected == ErrorCode::ok) {
-        const auto length = static_cast<LONG>(GetWindowTextLengthW(handle_));
-        control_selection.cpMin = (std::min)(control_selection.cpMin, length);
-        control_selection.cpMax = (std::min)(control_selection.cpMax, length);
-        SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
-    }
+    if (projected == ErrorCode::ok)
+        SelectSourceRange(handle_, projection_, editor_.selection());
     return projected;
 }
 
