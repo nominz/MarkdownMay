@@ -12,6 +12,12 @@ namespace {
 constexpr wchar_t kModeHostClass[] = L"MarkdownMay.ViewMode.Host";
 constexpr UINT kSynchronizeRenderMessage = WM_APP + 1;
 
+struct SwitchingGuard final {
+    explicit SwitchingGuard(bool& value) : value_(value) { value_ = true; }
+    ~SwitchingGuard() { value_ = false; }
+    bool& value_;
+};
+
 bool RegisterModeClass() {
     static std::once_flag once;
     static bool available{};
@@ -64,6 +70,7 @@ ErrorCode ViewModeController::create(HWND parent, const RECT& bounds) {
 
 ErrorCode ViewModeController::switch_to(ViewMode target) {
     if (target == mode_) return ErrorCode::ok;
+    SwitchingGuard switching(switching_mode_);
     auto selection = CaptureSelection();
     const auto scroll = mode_ == ViewMode::render
         ? render_.scroll_fraction() : split_.source_view().scroll_fraction();
@@ -239,12 +246,13 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
     }
     if (message == WM_COMMAND &&
         reinterpret_cast<HWND>(l_param) == self->render_.handle() &&
-        HIWORD(w_param) == EN_CHANGE) {
+        HIWORD(w_param) == EN_CHANGE && !self->switching_mode_) {
         PostMessageW(window, kSynchronizeRenderMessage, 0, 0);
         return 0;
     }
     if (message == kSynchronizeRenderMessage) {
-        static_cast<void>(self->render_.synchronize_change());
+        if (!self->switching_mode_ && self->mode_ == ViewMode::render)
+            static_cast<void>(self->render_.synchronize_change());
         return 0;
     }
     if (message == WM_NCDESTROY) {

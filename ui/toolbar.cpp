@@ -13,13 +13,33 @@ constexpr int Native(app::CommandId command) noexcept {
 
 struct ButtonDefinition final {
     app::CommandId command;
-    const wchar_t* text;
+    const wchar_t* icon;
     BYTE style;
 };
+
+constexpr const wchar_t* Icon(app::CommandId command) noexcept {
+    switch (command) {
+    case app::CommandId::format_bold: return L"\xE8DD";
+    case app::CommandId::format_italic: return L"\xE8DB";
+    case app::CommandId::format_strike: return L"\xE8DC";
+    case app::CommandId::format_inline_code: return L"\xE943";
+    case app::CommandId::format_quote: return L"\xE8B1";
+    case app::CommandId::format_unordered_list: return L"\xEA37";
+    case app::CommandId::format_ordered_list: return L"\xEA3A";
+    case app::CommandId::format_task_list: return L"\xE739";
+    case app::CommandId::view_render: return L"\xE7C3";
+    case app::CommandId::view_source: return L"\xE943";
+    case app::CommandId::view_split: return L"\xE952";
+    default: return L"";
+    }
+}
 }
 
 Toolbar::Toolbar(Query query) : query_(std::move(query)) {}
-Toolbar::~Toolbar() { if (font_) DeleteObject(font_); }
+Toolbar::~Toolbar() {
+    if (font_) DeleteObject(font_);
+    if (icon_font_) DeleteObject(icon_font_);
+}
 
 bool Toolbar::create(HWND parent) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
@@ -33,17 +53,17 @@ bool Toolbar::create(HWND parent) {
     SendMessageW(handle_, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
 
     constexpr std::array<ButtonDefinition, 11> definitions{{
-        {app::CommandId::format_bold, L"粗体", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_italic, L"斜体", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_strike, L"删除线", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_inline_code, L"代码", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_quote, L"引用", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_unordered_list, L"项目", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_ordered_list, L"编号", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::format_task_list, L"任务", BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::view_render, L"渲染", BTNS_CHECKGROUP | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::view_source, L"源码", BTNS_CHECKGROUP | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
-        {app::CommandId::view_split, L"对照", BTNS_CHECKGROUP | BTNS_AUTOSIZE | BTNS_SHOWTEXT},
+        {app::CommandId::format_bold, Icon(app::CommandId::format_bold), BTNS_BUTTON},
+        {app::CommandId::format_italic, Icon(app::CommandId::format_italic), BTNS_BUTTON},
+        {app::CommandId::format_strike, Icon(app::CommandId::format_strike), BTNS_BUTTON},
+        {app::CommandId::format_inline_code, Icon(app::CommandId::format_inline_code), BTNS_BUTTON},
+        {app::CommandId::format_quote, Icon(app::CommandId::format_quote), BTNS_BUTTON},
+        {app::CommandId::format_unordered_list, Icon(app::CommandId::format_unordered_list), BTNS_BUTTON},
+        {app::CommandId::format_ordered_list, Icon(app::CommandId::format_ordered_list), BTNS_BUTTON},
+        {app::CommandId::format_task_list, Icon(app::CommandId::format_task_list), BTNS_BUTTON},
+        {app::CommandId::view_render, Icon(app::CommandId::view_render), BTNS_CHECKGROUP},
+        {app::CommandId::view_source, Icon(app::CommandId::view_source), BTNS_CHECKGROUP},
+        {app::CommandId::view_split, Icon(app::CommandId::view_split), BTNS_CHECKGROUP},
     }};
     std::array<TBBUTTON, definitions.size() + 1> buttons{};
     std::size_t output{};
@@ -57,12 +77,14 @@ bool Toolbar::create(HWND parent) {
         buttons[output].idCommand = Native(definition.command);
         buttons[output].fsState = TBSTATE_ENABLED;
         buttons[output].fsStyle = definition.style;
-        buttons[output].iString = reinterpret_cast<INT_PTR>(definition.text);
+        buttons[output].iString = 0;
         ++output;
     }
     if (!SendMessageW(handle_, TB_ADDBUTTONSW, output,
             reinterpret_cast<LPARAM>(buttons.data()))) return false;
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
+    SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
+        MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
     RECT bounds{};
     GetWindowRect(handle_, &bounds);
     height_ = bounds.bottom - bounds.top;
@@ -95,17 +117,57 @@ void Toolbar::refresh() {
 HWND Toolbar::handle() const noexcept { return handle_; }
 int Toolbar::height() const noexcept { return height_; }
 void Toolbar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
+    text_color_ = text;
+    background_color_ = background;
+    dpi_ = dpi;
     height_ = MulDiv(34, static_cast<int>(dpi), 96);
     if (font_) DeleteObject(font_);
+    if (icon_font_) DeleteObject(icon_font_);
     font_ = CreateFontW(-MulDiv(9, static_cast<int>(dpi), 72), 0, 0, 0,
         FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    icon_font_ = CreateFontW(-MulDiv(12, static_cast<int>(dpi), 72), 0, 0, 0,
+        FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe Fluent Icons");
     if (!handle_) return;
     SendMessageW(handle_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
-    static_cast<void>(text);
-    static_cast<void>(background);
+    SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
+        MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
     InvalidateRect(handle_, nullptr, TRUE);
+}
+
+LRESULT Toolbar::custom_draw(NMTBCUSTOMDRAW& draw) {
+    if (draw.nmcd.dwDrawStage == CDDS_PREPAINT) {
+        const auto brush = CreateSolidBrush(background_color_);
+        FillRect(draw.nmcd.hdc, &draw.nmcd.rc, brush);
+        DeleteObject(brush);
+        return CDRF_NOTIFYITEMDRAW;
+    }
+    if (draw.nmcd.dwDrawStage != CDDS_ITEMPREPAINT) return CDRF_DODEFAULT;
+    RECT rect = draw.nmcd.rc;
+    const auto inset = MulDiv(2, dpi_, 96);
+    InflateRect(&rect, -inset, -inset);
+    const bool hot = (draw.nmcd.uItemState & CDIS_HOT) != 0;
+    const bool checked = (draw.nmcd.uItemState & CDIS_CHECKED) != 0;
+    const bool disabled = (draw.nmcd.uItemState & CDIS_DISABLED) != 0;
+    const auto fill = checked ? RGB(220, 232, 243) : hot ? RGB(235, 235, 235) : background_color_;
+    auto brush = CreateSolidBrush(fill);
+    auto old_pen = SelectObject(draw.nmcd.hdc, GetStockObject(NULL_PEN));
+    auto old_brush = SelectObject(draw.nmcd.hdc, brush);
+    const auto radius = MulDiv(6, dpi_, 96);
+    RoundRect(draw.nmcd.hdc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
+    SelectObject(draw.nmcd.hdc, old_brush);
+    SelectObject(draw.nmcd.hdc, old_pen);
+    DeleteObject(brush);
+    const auto old_font = SelectObject(draw.nmcd.hdc, icon_font_);
+    SetBkMode(draw.nmcd.hdc, TRANSPARENT);
+    SetTextColor(draw.nmcd.hdc, disabled ? RGB(150, 150, 150) : text_color_);
+    const auto command = static_cast<app::CommandId>(draw.nmcd.dwItemSpec);
+    DrawTextW(draw.nmcd.hdc, Icon(command), -1, &rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(draw.nmcd.hdc, old_font);
+    return CDRF_SKIPDEFAULT;
 }
 
 const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {

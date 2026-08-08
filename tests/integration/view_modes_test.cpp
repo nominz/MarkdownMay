@@ -156,5 +156,29 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         scroll_session.snapshot().parsed_revision !=
             scroll_session.snapshot().source_revision) return 31;
     DestroyWindow(scroll_parent);
+
+    document::DocumentSession exact_session("正文\n");
+    HWND exact_parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
+        0, 0, 900, 600, nullptr, nullptr, instance, nullptr);
+    editor::ViewModeController exact_modes(exact_session);
+    if (!exact_parent || exact_modes.create(exact_parent, bounds) != ErrorCode::ok)
+        return 32;
+    SendMessageW(exact_modes.render_view().handle(), EM_SETSEL, 2, 2);
+    SendMessageW(exact_modes.render_view().handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"渲染输入"));
+    if (exact_modes.render_view().synchronize_change() != ErrorCode::ok ||
+        exact_modes.switch_to(editor::ViewMode::split) != ErrorCode::ok) return 33;
+    SendMessageW(exact_modes.source_view().handle(), SCI_SETSEL, 0, 0);
+    SendMessageW(exact_modes.source_view().handle(), SCI_REPLACESEL, 0,
+        reinterpret_cast<LPARAM>("# 标题1\n\n"));
+    if (exact_modes.source_view().synchronize_now() != ErrorCode::ok ||
+        ReadWide(exact_modes.split_view().render_view().handle()).find(L"标题1") ==
+            std::wstring::npos) return 34;
+    const auto exact_started = GetTickCount64();
+    if (exact_modes.switch_to(editor::ViewMode::render) != ErrorCode::ok ||
+        GetTickCount64() - exact_started > 1000 ||
+        ReadWide(exact_modes.render_view().handle()).find(L"标题1") ==
+            std::wstring::npos) return 35;
+    DestroyWindow(exact_parent);
     return 0;
 }

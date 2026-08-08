@@ -69,6 +69,7 @@ private:
     std::vector<HistoryEntry> redo_;
     std::shared_ptr<int> lifetime_{std::make_shared<int>(0)};
     bool applying_history_{};
+    bool switching_mode_{};
     std::uint64_t next_transaction_{1};
 };
 

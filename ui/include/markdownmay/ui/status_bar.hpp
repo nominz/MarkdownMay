@@ -6,6 +6,9 @@
 #include "markdownmay/fileio/text_encoding.hpp"
 
 #include <windows.h>
+#include <commctrl.h>
+#include <array>
+#include <string>
 
 namespace markdownmay::ui {
 
@@ -24,6 +27,9 @@ public:
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
 
 private:
+    static LRESULT CALLBACK SubclassProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data);
+    void Paint(HDC dc);
     document::DocumentSession& session_;
     editor::ViewModeController& modes_;
     HWND handle_{};
@@ -31,6 +37,10 @@ private:
     fileio::TextEncoding encoding_{fileio::TextEncoding::utf8};
     fileio::LineEnding line_ending_{fileio::LineEnding::crlf};
     HFONT font_{};
+    COLORREF text_color_{RGB(70, 70, 70)};
+    COLORREF background_color_{RGB(249, 249, 249)};
+    UINT dpi_{96};
+    std::array<std::wstring, 5> labels_{};
 };
 
 }  // namespace markdownmay::ui

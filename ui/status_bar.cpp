@@ -48,7 +48,10 @@ const wchar_t* LineEndingName(fileio::LineEnding line_ending) noexcept {
 StatusBar::StatusBar(document::DocumentSession& session,
                      editor::ViewModeController& modes)
     : session_(session), modes_(modes) {}
-StatusBar::~StatusBar() { if (font_) DeleteObject(font_); }
+StatusBar::~StatusBar() {
+    if (handle_) RemoveWindowSubclass(handle_, SubclassProcedure, 1);
+    if (font_) DeleteObject(font_);
+}
 
 bool StatusBar::create(HWND parent) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
@@ -57,6 +60,8 @@ bool StatusBar::create(HWND parent) {
         WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
         0, 0, 0, 0, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!handle_) return false;
+    if (!SetWindowSubclass(handle_, SubclassProcedure, 1,
+            reinterpret_cast<DWORD_PTR>(this))) return false;
     RECT bounds{};
     GetWindowRect(handle_, &bounds);
     height_ = bounds.bottom - bounds.top;
@@ -77,15 +82,13 @@ void StatusBar::refresh() {
     const auto snapshot = session_.snapshot();
     const auto characters = CountCharacters(snapshot.source);
     const auto count = std::to_wstring(characters) + L" 字";
-    SendMessageW(handle_, SB_SETTEXTW, 0,
-        reinterpret_cast<LPARAM>(session_.is_dirty() ? L"未保存" : L"已保存"));
-    SendMessageW(handle_, SB_SETTEXTW, 1,
-        reinterpret_cast<LPARAM>(EncodingName(encoding_)));
-    SendMessageW(handle_, SB_SETTEXTW, 2,
-        reinterpret_cast<LPARAM>(LineEndingName(line_ending_)));
-    SendMessageW(handle_, SB_SETTEXTW, 3, reinterpret_cast<LPARAM>(count.c_str()));
-    SendMessageW(handle_, SB_SETTEXTW, 4,
-        reinterpret_cast<LPARAM>(ModeName(modes_.mode())));
+    labels_ = {session_.is_dirty() ? L"未保存" : L"已保存",
+        EncodingName(encoding_), LineEndingName(line_ending_), count,
+        ModeName(modes_.mode())};
+    for (std::size_t index = 0; index < labels_.size(); ++index)
+        SendMessageW(handle_, SB_SETTEXTW, index,
+            reinterpret_cast<LPARAM>(labels_[index].c_str()));
+    InvalidateRect(handle_, nullptr, FALSE);
 }
 
 void StatusBar::set_file_format(fileio::TextEncoding encoding,
@@ -98,7 +101,9 @@ void StatusBar::set_file_format(fileio::TextEncoding encoding,
 HWND StatusBar::handle() const noexcept { return handle_; }
 int StatusBar::height() const noexcept { return height_; }
 void StatusBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
-    static_cast<void>(text);
+    text_color_ = text;
+    background_color_ = background;
+    dpi_ = dpi;
     height_ = MulDiv(24, static_cast<int>(dpi), 96);
     if (font_) DeleteObject(font_);
     font_ = CreateFontW(-MulDiv(9, static_cast<int>(dpi), 72), 0, 0, 0,
@@ -108,6 +113,54 @@ void StatusBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
     SendMessageW(handle_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     SendMessageW(handle_, SB_SETBKCOLOR, 0, background);
     InvalidateRect(handle_, nullptr, TRUE);
+}
+
+LRESULT CALLBACK StatusBar::SubclassProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data) {
+    auto* self = reinterpret_cast<StatusBar*>(data);
+    if (message == WM_PAINT && self) {
+        PAINTSTRUCT paint{};
+        const auto dc = BeginPaint(window, &paint);
+        self->Paint(dc);
+        EndPaint(window, &paint);
+        return 0;
+    }
+    if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, SubclassProcedure, id);
+        if (self) self->handle_ = nullptr;
+    }
+    return DefSubclassProc(window, message, w_param, l_param);
+}
+
+void StatusBar::Paint(HDC dc) {
+    RECT client{};
+    GetClientRect(handle_, &client);
+    const auto background = CreateSolidBrush(background_color_);
+    FillRect(dc, &client, background);
+    DeleteObject(background);
+    const auto old_font = SelectObject(dc, font_);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, text_color_);
+    const auto padding = MulDiv(12, dpi_, 96);
+    const auto separator_inset = MulDiv(6, dpi_, 96);
+    const auto separator_pen = CreatePen(PS_SOLID, 1, RGB(224, 224, 224));
+    const auto old_pen = SelectObject(dc, separator_pen);
+    for (std::size_t index = 0; index < labels_.size(); ++index) {
+        RECT part{};
+        SendMessageW(handle_, SB_GETRECT, index, reinterpret_cast<LPARAM>(&part));
+        part.left += padding;
+        part.right -= padding;
+        DrawTextW(dc, labels_[index].c_str(), -1, &part,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        if (index + 1 < labels_.size()) {
+            const auto x = part.right + padding;
+            MoveToEx(dc, x, part.top + separator_inset, nullptr);
+            LineTo(dc, x, part.bottom - separator_inset);
+        }
+    }
+    SelectObject(dc, old_pen);
+    DeleteObject(separator_pen);
+    SelectObject(dc, old_font);
 }
 
 }  // namespace markdownmay::ui

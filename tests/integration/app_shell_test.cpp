@@ -74,6 +74,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CoUninitialize();
         return 3;
     }
+    TBBUTTONINFO button_info{};
+    button_info.cbSize = sizeof(button_info);
+    button_info.dwMask = TBIF_STYLE;
+    RECT toolbar_button{};
+    if (SendMessageW(window.toolbar()->handle(), TB_GETBUTTONINFO,
+            static_cast<WPARAM>(app::CommandId::format_bold),
+            reinterpret_cast<LPARAM>(&button_info)) < 0 ||
+        (button_info.fsStyle & BTNS_SHOWTEXT) != 0 ||
+        !SendMessageW(window.toolbar()->handle(), TB_GETRECT,
+            static_cast<WPARAM>(app::CommandId::format_bold),
+            reinterpret_cast<LPARAM>(&toolbar_button)) ||
+        toolbar_button.right - toolbar_button.left <
+            MulDiv(30, static_cast<int>(window.dpi()), 96)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 37;
+    }
     const auto render = window.document_window().modes().render_view().handle();
     if ((GetWindowLongPtrW(render, GWL_STYLE) & WS_VSCROLL) != 0) {
         DestroyWindow(window.handle()); CoUninitialize(); return 25;

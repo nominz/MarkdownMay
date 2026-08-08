@@ -188,6 +188,12 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                     _TRUNCATE);
                 return 0;
             }
+            if (self->toolbar_ && header &&
+                header->hwndFrom == self->toolbar_->handle() &&
+                header->code == NM_CUSTOMDRAW) {
+                return self->toolbar_->custom_draw(
+                    *reinterpret_cast<NMTBCUSTOMDRAW*>(l_param));
+            }
             break;
         }
         case WM_DROPFILES: {
