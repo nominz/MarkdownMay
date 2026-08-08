@@ -60,10 +60,18 @@ int ConfirmUnsavedChanges(HWND owner) {
     dialog.cButtons = static_cast<UINT>(std::size(buttons));
     dialog.nDefaultButton = IDYES;
     int selected = IDCANCEL;
-    return SUCCEEDED(TaskDialogIndirect(&dialog, &selected, nullptr, nullptr))
-        ? selected : MessageBoxW(owner,
-            L"当前文档有尚未保存的修改。是否先保存？",
-            L"马冬梅", MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
+    using TaskDialogIndirectFunction = HRESULT (WINAPI*)(
+        const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+    const auto common_controls = GetModuleHandleW(L"comctl32.dll");
+    const auto task_dialog = common_controls
+        ? reinterpret_cast<TaskDialogIndirectFunction>(
+            GetProcAddress(common_controls, "TaskDialogIndirect"))
+        : nullptr;
+    if (task_dialog && SUCCEEDED(task_dialog(&dialog, &selected, nullptr, nullptr)))
+        return selected;
+    return MessageBoxW(owner,
+        L"当前文档有尚未保存的修改。是否先保存？",
+        L"马冬梅", MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
 }
 }
 
