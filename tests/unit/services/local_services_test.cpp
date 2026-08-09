@@ -19,6 +19,7 @@ int main() {
     Settings settings; settings.default_mode = DefaultViewMode::split;
     settings.theme = ThemeSetting::dark; settings.recovery_interval_seconds = 45;
     settings.print_landscape = true; settings.margin_left_hundredths_mm = 1234;
+    settings.outline_visible = false;
     settings.unknown["future_option"] = "保留";
     if (settings_store.save(settings) != ErrorCode::ok) { cleanup(); return 1; }
     auto loaded_settings = settings_store.load();
@@ -27,6 +28,7 @@ int main() {
         loaded_settings.value().theme != ThemeSetting::dark ||
         loaded_settings.value().recovery_interval_seconds != 45 ||
         !loaded_settings.value().print_landscape ||
+        loaded_settings.value().outline_visible ||
         loaded_settings.value().margin_left_hundredths_mm != 1234 ||
         loaded_settings.value().unknown.at("future_option") != "保留") {
         cleanup(); return 2;
@@ -52,7 +54,8 @@ int main() {
         legacy << "schema_version=1\nfollow_system_theme=false\nfuture_legacy=kept\n";
     }
     const auto migrated = SettingsStore(legacy_path).load();
-    if (!migrated.is_ok() || migrated.value().schema_version != 2 ||
+    if (!migrated.is_ok() || migrated.value().schema_version != 3 ||
+        !migrated.value().outline_visible ||
         migrated.value().theme != ThemeSetting::light ||
         migrated.value().unknown.at("future_legacy") != "kept") {
         cleanup(); return 12;

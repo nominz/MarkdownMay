@@ -109,6 +109,7 @@ Application::Application(HINSTANCE instance)
 
 int Application::run(int show_command) {
     LoadSettings();
+    main_window_.document_window().set_outline_visible(settings_.outline_visible);
     main_window_.set_theme_preference(ToUiTheme(settings_.theme));
     if (main_window_.create(instance_, show_command) != ErrorCode::ok) return 1;
     const auto initial_mode = settings_.default_mode == services::DefaultViewMode::source
@@ -129,6 +130,7 @@ int Application::run(int show_command) {
     settings_.default_mode = mode == editor::ViewMode::source
         ? services::DefaultViewMode::source : mode == editor::ViewMode::split
         ? services::DefaultViewMode::split : services::DefaultViewMode::render;
+    settings_.outline_visible = main_window_.document_window().outline_visible();
     SaveSettings();
     return result < 0 ? 2 : static_cast<int>(message.wParam);
 }
@@ -142,6 +144,7 @@ void Application::LoadSettings() {
 }
 
 void Application::SaveSettings() {
+    settings_.outline_visible = main_window_.document_window().outline_visible();
     settings_.print_landscape = page_setup_.landscape;
     settings_.margin_left_hundredths_mm = page_setup_.left_hundredths_mm;
     settings_.margin_top_hundredths_mm = page_setup_.top_hundredths_mm;

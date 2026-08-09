@@ -2,6 +2,7 @@ add_library(markdownmay_ui STATIC
     document_window.cpp
     main_window.cpp
     menu_controller.cpp
+    outline_view.cpp
     status_bar.cpp
     toolbar.cpp
     theme.cpp

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "markdownmay/editor/view_mode_controller.hpp"
+#include "markdownmay/ui/outline_view.hpp"
 
 #include <windows.h>
 
@@ -15,6 +16,11 @@ public:
     void resize(const RECT& bounds);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] editor::ViewModeController& modes() noexcept;
+    void set_outline_visible(bool visible);
+    void toggle_outline();
+    [[nodiscard]] bool outline_visible() const noexcept;
+    [[nodiscard]] HWND outline_handle() const noexcept;
+    [[nodiscard]] bool handle_control(HWND control, std::uint16_t notification);
     [[nodiscard]] ErrorCode new_document();
     [[nodiscard]] ErrorCode open_document(const std::filesystem::path& path);
     [[nodiscard]] ErrorCode save_document();
@@ -33,6 +39,9 @@ public:
 
 private:
     editor::ViewModeController modes_;
+    OutlineView outline_;
+    RECT bounds_{};
+    bool outline_visible_{true};
     std::filesystem::path path_;
     fileio::TextEncoding encoding_{fileio::TextEncoding::utf8};
     fileio::LineEnding line_ending_{fileio::LineEnding::crlf};

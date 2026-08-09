@@ -4,20 +4,44 @@
 
 namespace markdownmay::ui {
 
-DocumentWindow::DocumentWindow(document::DocumentSession& session) : modes_(session) {}
+DocumentWindow::DocumentWindow(document::DocumentSession& session)
+    : modes_(session), outline_(session, modes_) {}
 
 ErrorCode DocumentWindow::create(HWND parent, const RECT& bounds) {
-    return modes_.create(parent, bounds);
+    bounds_ = bounds;
+    if (!outline_.create(parent)) return ErrorCode::editor_split_control_failed;
+    const auto result = modes_.create(parent, bounds);
+    resize(bounds);
+    return result;
 }
 
 void DocumentWindow::resize(const RECT& bounds) {
+    bounds_ = bounds;
     if (!modes_.handle()) return;
-    MoveWindow(modes_.handle(), bounds.left, bounds.top,
-        bounds.right - bounds.left, bounds.bottom - bounds.top, TRUE);
+    const auto available = static_cast<int>((std::max)(0L,
+        (bounds.right - bounds.left) / 2));
+    const auto outline_width = outline_visible_
+        ? (std::min)(outline_.width(), available) : 0;
+    if (outline_.handle()) {
+        ShowWindow(outline_.handle(), outline_visible_ ? SW_SHOW : SW_HIDE);
+        outline_.resize({bounds.left, bounds.top, bounds.left + outline_width, bounds.bottom});
+    }
+    MoveWindow(modes_.handle(), bounds.left + outline_width, bounds.top,
+        bounds.right - bounds.left - outline_width, bounds.bottom - bounds.top, TRUE);
 }
 
 HWND DocumentWindow::handle() const noexcept { return modes_.handle(); }
 editor::ViewModeController& DocumentWindow::modes() noexcept { return modes_; }
+void DocumentWindow::set_outline_visible(bool visible) {
+    outline_visible_ = visible;
+    resize(bounds_);
+}
+void DocumentWindow::toggle_outline() { set_outline_visible(!outline_visible_); }
+bool DocumentWindow::outline_visible() const noexcept { return outline_visible_; }
+HWND DocumentWindow::outline_handle() const noexcept { return outline_.handle(); }
+bool DocumentWindow::handle_control(HWND control, std::uint16_t notification) {
+    return outline_.handle_control(control, notification);
+}
 
 ErrorCode DocumentWindow::new_document() {
     const auto result = modes_.reload("");
@@ -91,6 +115,8 @@ void DocumentWindow::set_line_ending(fileio::LineEnding line_ending) noexcept {
 void DocumentWindow::apply_appearance(COLORREF text, COLORREF background,
                                       COLORREF accent, UINT dpi) {
     modes_.apply_appearance(text, background, accent, dpi);
+    outline_.apply_appearance(text, background, dpi);
+    resize(bounds_);
 }
 
 }  // namespace markdownmay::ui

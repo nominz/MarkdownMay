@@ -37,6 +37,12 @@ bool RegisterMainWindowClass(HINSTANCE instance) {
 MainWindow::MainWindow(document::DocumentSession& session)
     : session_(session), document_window_(session),
       status_bar_(session, document_window_.modes()) {
+    status_bar_.set_outline_callbacks(
+        [this] { return document_window_.outline_visible(); },
+        [this] {
+            document_window_.toggle_outline();
+            if (menu_controller_) menu_controller_->refresh();
+        });
     const std::weak_ptr<int> lifetime(lifetime_);
     session.subscribe([this, lifetime](const document::DocumentEvent&) {
         if (!lifetime.expired()) refresh_document_chrome();
@@ -153,6 +159,8 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
             self->refresh_document_chrome();
             return 0;
         case WM_COMMAND:
+            if (self->document_window_.handle_control(
+                    reinterpret_cast<HWND>(l_param), HIWORD(w_param))) return 0;
             if (self->toolbar_ && self->toolbar_->handle_control(
                     LOWORD(w_param), HIWORD(w_param), reinterpret_cast<HWND>(l_param))) {
                 self->status_bar_.refresh();

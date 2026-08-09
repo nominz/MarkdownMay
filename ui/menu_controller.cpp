@@ -117,6 +117,8 @@ bool MenuController::create(HWND window) {
     AddCommand(view, app::CommandId::view_source, L"源码模式(&S)\tCtrl+2");
     AddCommand(view, app::CommandId::view_split, L"对照模式(&P)\tCtrl+3");
     AddSeparator(view);
+    AddCommand(view, app::CommandId::view_outline, L"大纲(&O)");
+    AddSeparator(view);
     AddCommand(view, app::CommandId::view_theme_system, L"主题：跟随系统(&Y)");
     AddCommand(view, app::CommandId::view_theme_light, L"主题：浅色(&L)");
     AddCommand(view, app::CommandId::view_theme_dark, L"主题：深色(&D)");

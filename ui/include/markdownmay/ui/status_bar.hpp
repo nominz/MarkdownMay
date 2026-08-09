@@ -9,6 +9,7 @@
 #include <commctrl.h>
 #include <array>
 #include <string>
+#include <functional>
 
 namespace markdownmay::ui {
 
@@ -25,6 +26,8 @@ public:
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int height() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
+    void set_outline_callbacks(std::function<bool()> visible,
+                               std::function<void()> toggle);
 
 private:
     static LRESULT CALLBACK SubclassProcedure(HWND window, UINT message,
@@ -40,7 +43,9 @@ private:
     COLORREF text_color_{RGB(70, 70, 70)};
     COLORREF background_color_{RGB(249, 249, 249)};
     UINT dpi_{96};
-    std::array<std::wstring, 5> labels_{};
+    std::array<std::wstring, 6> labels_{};
+    std::function<bool()> outline_visible_;
+    std::function<void()> toggle_outline_;
 };
 
 }  // namespace markdownmay::ui

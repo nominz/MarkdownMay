@@ -122,12 +122,13 @@ Result<Settings> SettingsStore::load() const {
     const auto legacy_theme = take("follow_system_theme");
     const auto interval = take("recovery_interval_seconds");
     const auto landscape = take("print_landscape");
+    const auto outline_visible = take("outline_visible");
     const auto margin_left = take("margin_left_hundredths_mm");
     const auto margin_top = take("margin_top_hundredths_mm");
     const auto margin_right = take("margin_right_hundredths_mm");
     const auto margin_bottom = take("margin_bottom_hundredths_mm");
     if (!version.empty() && (!ParseInteger(version, settings.schema_version) ||
-        settings.schema_version == 0 || settings.schema_version > 2)) return corrupt();
+        settings.schema_version == 0 || settings.schema_version > 3)) return corrupt();
     if (!mode.empty()) {
         if (mode == "render") settings.default_mode = DefaultViewMode::render;
         else if (mode == "source") settings.default_mode = DefaultViewMode::source;
@@ -150,6 +151,11 @@ Result<Settings> SettingsStore::load() const {
         else if (landscape == "false") settings.print_landscape = false;
         else return corrupt();
     }
+    if (!outline_visible.empty()) {
+        if (outline_visible == "true") settings.outline_visible = true;
+        else if (outline_visible == "false") settings.outline_visible = false;
+        else return corrupt();
+    }
     const auto margin = [&](const std::string& text, std::uint32_t& value) {
         return text.empty() || (ParseInteger(text, value) && value <= 10000);
     };
@@ -157,7 +163,7 @@ Result<Settings> SettingsStore::load() const {
         !margin(margin_top, settings.margin_top_hundredths_mm) ||
         !margin(margin_right, settings.margin_right_hundredths_mm) ||
         !margin(margin_bottom, settings.margin_bottom_hundredths_mm)) return corrupt();
-    settings.schema_version = 2;
+    settings.schema_version = 3;
     return Result<Settings>::success(std::move(settings));
 }
 ErrorCode SettingsStore::save(const Settings& settings) const {
@@ -169,6 +175,7 @@ ErrorCode SettingsStore::save(const Settings& settings) const {
                settings.theme == ThemeSetting::light ? "light" : "dark") << "\n"
            << "recovery_interval_seconds=" << settings.recovery_interval_seconds << "\n"
            << "print_landscape=" << (settings.print_landscape ? "true" : "false") << "\n"
+           << "outline_visible=" << (settings.outline_visible ? "true" : "false") << "\n"
            << "margin_left_hundredths_mm=" << settings.margin_left_hundredths_mm << "\n"
            << "margin_top_hundredths_mm=" << settings.margin_top_hundredths_mm << "\n"
            << "margin_right_hundredths_mm=" << settings.margin_right_hundredths_mm << "\n"

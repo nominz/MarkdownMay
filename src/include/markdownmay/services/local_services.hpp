@@ -14,11 +14,12 @@ enum class DefaultViewMode : std::uint8_t { render, source, split };
 enum class ThemeSetting : std::uint8_t { follow_system, light, dark };
 
 struct Settings final {
-    std::uint32_t schema_version{2};
+    std::uint32_t schema_version{3};
     DefaultViewMode default_mode{DefaultViewMode::render};
     ThemeSetting theme{ThemeSetting::follow_system};
     std::uint32_t recovery_interval_seconds{30};
     bool print_landscape{};
+    bool outline_visible{true};
     std::uint32_t margin_left_hundredths_mm{2000};
     std::uint32_t margin_top_hundredths_mm{2000};
     std::uint32_t margin_right_hundredths_mm{2000};

@@ -38,6 +38,7 @@ enum class CommandId : std::uint16_t {
     view_render = 400,
     view_source,
     view_split,
+    view_outline,
     view_theme_system,
     view_theme_light,
     view_theme_dark,

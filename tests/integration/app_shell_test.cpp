@@ -80,6 +80,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!window.status_bar().handle()) {
         DestroyWindow(window.handle()); CoUninitialize(); return 41;
     }
+    if (!window.document_window().outline_handle() ||
+        SendMessageW(window.document_window().outline_handle(), LB_GETCOUNT, 0, 0) != 1) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 52;
+    }
+    if (window.document_window().modes().reload("# 一级\n\n### 三级\n") != ErrorCode::ok ||
+        SendMessageW(window.document_window().outline_handle(), LB_GETCOUNT, 0, 0) != 2) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 53;
+    }
+    std::array<wchar_t, 32> outline_label{};
+    SendMessageW(window.document_window().outline_handle(), LB_GETTEXT, 1,
+        reinterpret_cast<LPARAM>(outline_label.data()));
+    if (std::wstring_view(outline_label.data()).find(L"    三级") != 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 54;
+    }
+    SendMessageW(window.document_window().outline_handle(), LB_SETCURSEL, 1, 0);
+    SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(4100, LBN_SELCHANGE),
+        reinterpret_cast<LPARAM>(window.document_window().outline_handle()));
+    const auto outline_selection = window.document_window().modes().render_view().source_selection();
+    if (!outline_selection.is_ok() || outline_selection.value().caret == 0 || session.is_dirty()) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 55;
+    }
+    static_cast<void>(window.document_window().new_document());
     const auto heading_combo = GetDlgItem(window.toolbar()->handle(), 9100);
     std::array<wchar_t, 32> heading_label{};
     if (!heading_combo || SendMessageW(heading_combo, CB_GETCOUNT, 0, 0) != 7 ||
@@ -242,13 +264,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     GetWindowRect(window.document_window().handle(), &document);
     POINT corners[2]{{document.left, document.top}, {document.right, document.bottom}};
     MapWindowPoints(nullptr, window.handle(), corners, 2);
-    if (corners[0].x != 0 ||
+    if (corners[0].x <= 0 ||
         corners[0].y != window.menu_controller()->height() + window.toolbar()->height() ||
         corners[1].x != client.right ||
         corners[1].y != client.bottom - window.status_bar().height()) {
         DestroyWindow(window.handle());
         CoUninitialize();
         return 8;
+    }
+    if (!dispatcher.query(app::CommandId::view_outline).checked ||
+        dispatcher.execute(app::CommandId::view_outline) != ErrorCode::ok ||
+        window.document_window().outline_visible()) {
+        DestroyWindow(window.handle());
+        CoUninitialize();
+        return 38;
+    }
+    GetWindowRect(window.document_window().handle(), &document);
+    corners[0] = {document.left, document.top};
+    MapWindowPoints(nullptr, window.handle(), corners, 1);
+    if (corners[0].x != 0) {
+        DestroyWindow(window.handle());
+        CoUninitialize();
+        return 39;
     }
     const auto before = session.snapshot();
     document::EditTransaction edit{1, before.source_revision,

@@ -229,6 +229,15 @@ std::uint8_t ViewModeController::current_heading_level() const {
     return mode_ == ViewMode::render
         ? const_cast<RichEditHost&>(render_).heading_level() : 0;
 }
+ErrorCode ViewModeController::navigate_to_source(std::uint64_t offset) {
+    const TextSelection selection{offset, offset};
+    const auto result = mode_ == ViewMode::render
+        ? render_.select_source_range(selection)
+        : split_.source_view().select_source_range(selection);
+    if (result == ErrorCode::ok) SetFocus(mode_ == ViewMode::render
+        ? render_.handle() : split_.source_view().handle());
+    return result;
+}
 HWND ViewModeController::handle() const noexcept { return host_; }
 RichEditHost& ViewModeController::render_view() noexcept { return render_; }
 SourceView& ViewModeController::source_view() noexcept { return split_.source_view(); }

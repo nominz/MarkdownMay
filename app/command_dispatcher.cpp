@@ -92,6 +92,8 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {true, modes.mode() == editor::ViewMode::source};
     case CommandId::view_split:
         return {true, modes.mode() == editor::ViewMode::split};
+    case CommandId::view_outline:
+        return {true, document_window_.outline_visible()};
     default:
         return {true, false};
     }
@@ -178,6 +180,9 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     case CommandId::view_render: return modes.switch_to(editor::ViewMode::render);
     case CommandId::view_source: return modes.switch_to(editor::ViewMode::source);
     case CommandId::view_split: return modes.switch_to(editor::ViewMode::split);
+    case CommandId::view_outline:
+        document_window_.toggle_outline();
+        return ErrorCode::ok;
     case CommandId::help_about:
         MessageBoxW(document_window_.handle(),
             L"马冬梅（Markdown May）\n轻量、免费、开源的 Markdown 编辑器",

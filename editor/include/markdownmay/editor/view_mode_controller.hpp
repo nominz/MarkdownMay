@@ -41,6 +41,7 @@ public:
     [[nodiscard]] ViewMode mode() const noexcept;
     [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
     [[nodiscard]] std::uint8_t current_heading_level() const;
+    [[nodiscard]] ErrorCode navigate_to_source(std::uint64_t offset);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;

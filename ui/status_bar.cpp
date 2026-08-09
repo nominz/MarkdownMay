@@ -1,9 +1,11 @@
 #include "markdownmay/ui/status_bar.hpp"
 
 #include <commctrl.h>
+#include <windowsx.h>
 
 #include <array>
 #include <string>
+#include <utility>
 
 namespace markdownmay::ui {
 namespace {
@@ -71,7 +73,7 @@ bool StatusBar::create(HWND parent) {
 
 void StatusBar::resize(int width, int client_height) {
     if (!handle_) return;
-    const std::array<int, 5> parts{140, 250, 340, width - 150, -1};
+    const std::array<int, 6> parts{140, 250, 340, width - 260, width - 150, -1};
     SendMessageW(handle_, SB_SETPARTS, parts.size(),
         reinterpret_cast<LPARAM>(parts.data()));
     MoveWindow(handle_, 0, client_height - height_, width, height_, TRUE);
@@ -84,7 +86,7 @@ void StatusBar::refresh() {
     const auto count = std::to_wstring(characters) + L" 字";
     labels_ = {session_.is_dirty() ? L"未保存" : L"已保存",
         EncodingName(encoding_), LineEndingName(line_ending_), count,
-        ModeName(modes_.mode())};
+        ModeName(modes_.mode()), L"大纲"};
     for (std::size_t index = 0; index < labels_.size(); ++index)
         SendMessageW(handle_, SB_SETTEXTW, index,
             reinterpret_cast<LPARAM>(labels_[index].c_str()));
@@ -114,6 +116,11 @@ void StatusBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
     SendMessageW(handle_, SB_SETBKCOLOR, 0, background);
     InvalidateRect(handle_, nullptr, TRUE);
 }
+void StatusBar::set_outline_callbacks(std::function<bool()> visible,
+                                      std::function<void()> toggle) {
+    outline_visible_ = std::move(visible);
+    toggle_outline_ = std::move(toggle);
+}
 
 LRESULT CALLBACK StatusBar::SubclassProcedure(HWND window, UINT message,
         WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data) {
@@ -124,6 +131,16 @@ LRESULT CALLBACK StatusBar::SubclassProcedure(HWND window, UINT message,
         self->Paint(dc);
         EndPaint(window, &paint);
         return 0;
+    }
+    if (message == WM_LBUTTONUP && self && self->toggle_outline_) {
+        RECT part{};
+        SendMessageW(window, SB_GETRECT, 5, reinterpret_cast<LPARAM>(&part));
+        POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+        if (PtInRect(&part, point)) {
+            self->toggle_outline_();
+            self->refresh();
+            return 0;
+        }
     }
     if (message == WM_NCDESTROY) {
         RemoveWindowSubclass(window, SubclassProcedure, id);
@@ -148,12 +165,13 @@ void StatusBar::Paint(HDC dc) {
     DeleteObject(top_pen);
     const auto old_font = SelectObject(dc, font_);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, text_color_);
     const auto padding = MulDiv(12, dpi_, 96);
     const auto separator_inset = MulDiv(6, dpi_, 96);
     const auto separator_pen = CreatePen(PS_SOLID, 1, RGB(224, 224, 224));
     const auto old_pen = SelectObject(dc, separator_pen);
     for (std::size_t index = 0; index < labels_.size(); ++index) {
+        SetTextColor(dc, index == 5 && outline_visible_ && !outline_visible_()
+            ? GetSysColor(COLOR_GRAYTEXT) : text_color_);
         RECT part{};
         SendMessageW(handle_, SB_GETRECT, index, reinterpret_cast<LPARAM>(&part));
         part.left += padding;
