@@ -55,6 +55,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (command_host.toggle_quote() != markdownmay::ErrorCode::ok) return 9;
     if (command_host.undo() != markdownmay::ErrorCode::ok ||
         plain.snapshot().source != "### 标题") return 10;
+    markdownmay::document::DocumentSession empty("");
+    markdownmay::editor::RichEditHost empty_host(empty);
+    if (empty_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 11;
+    if (empty_host.set_heading(1) != markdownmay::ErrorCode::ok ||
+        empty.snapshot().source != "# ") return 12;
+    const auto empty_selection = empty_host.source_selection();
+    if (!empty_selection.is_ok() || empty_selection.value().caret != 2 ||
+        empty_selection.value().anchor != 2) return 13;
+    SendMessageW(empty_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"在"));
+    if (empty_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        empty.snapshot().source != "# 在") return 14;
     DestroyWindow(parent);
     return 0;
 }

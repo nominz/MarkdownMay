@@ -287,7 +287,9 @@ RichProjection BuildInlineProjection(
     }
     if (source_cursor < source.size())
         AppendNewlines(output, source, source_cursor, static_cast<std::uint64_t>(source.size()));
-    if (output.source_offsets.empty()) output.source_offsets.push_back(0);
+    // Marker-only blocks (for example "# ") have no visible characters, but
+    // their sole visual caret belongs after the hidden Markdown marker.
+    if (output.source_offsets.empty()) output.source_offsets.push_back(source.size());
     return output;
 }
 

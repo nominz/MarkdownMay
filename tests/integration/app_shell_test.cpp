@@ -133,6 +133,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SendMessageW(window.toolbar()->handle(), TB_GETTOOLTIPS, 0, 0));
     if (!IsWindowVisible(heading_combo)) return 46;
     if (GetWindow(heading_combo, GW_HWNDPREV) != nullptr) return 49;
+    if (window.document_window().modes().reload("") != ErrorCode::ok) return 51;
+    const auto empty_render = window.document_window().modes().render_view().handle();
+    SendMessageW(heading_combo, CB_SETCURSEL, 1, 0);
+    SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(9100, CBN_SELCHANGE),
+        reinterpret_cast<LPARAM>(heading_combo));
+    if (session.snapshot().source != "# " || GetFocus() != empty_render) return 52;
+    const auto heading_selection =
+        window.document_window().modes().render_view().source_selection();
+    if (!heading_selection.is_ok() || heading_selection.value().caret != 2 ||
+        heading_selection.value().anchor != 2) return 53;
+    SendMessageW(empty_render, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"在"));
+    if (window.document_window().modes().render_view().synchronize_change() != ErrorCode::ok ||
+        session.snapshot().source != "# 在") return 54;
     if (!tooltip_window ||
         (GetWindowLongPtrW(tooltip_window, GWL_STYLE) & TTS_ALWAYSTIP) == 0) return 50;
     if (window.document_window().modes().reload("段落\n") != ErrorCode::ok)

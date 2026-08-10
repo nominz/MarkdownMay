@@ -69,6 +69,18 @@ int main() {
         document::DocumentSession session("");
         editor::ParagraphEditor editor(session);
         editor::BlockFormatter blocks(session, editor);
+        if (blocks.set_heading(1) != ErrorCode::ok ||
+            session.snapshot().source != "# " ||
+            editor.selection().caret != 2 || editor.selection().anchor != 2) return 16;
+        const auto projection = editor::BuildInlineProjection(
+            *session.snapshot().semantic, session.snapshot().source);
+        if (!projection.text.empty() || projection.source_offsets.size() != 1 ||
+            projection.source_offsets.front() != 2) return 17;
+    }
+    {
+        document::DocumentSession session("");
+        editor::ParagraphEditor editor(session);
+        editor::BlockFormatter blocks(session, editor);
         if (blocks.insert_thematic_break() != ErrorCode::ok ||
             !Contains(*session.snapshot().semantic->root(), document::NodeKind::thematic_break)) return 11;
         const auto written = markdown::WriteMarkdown(*session.snapshot().semantic,
