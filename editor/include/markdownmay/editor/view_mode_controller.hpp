@@ -1,6 +1,7 @@
 #pragma once
 
 #include "markdownmay/editor/richedit_host.hpp"
+#include "markdownmay/editor/find_replace_controller.hpp"
 #include "markdownmay/editor/split_view.hpp"
 #include "markdownmay/fileio/file_service.hpp"
 
@@ -42,6 +43,12 @@ public:
     [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
     [[nodiscard]] std::uint8_t current_heading_level() const;
     [[nodiscard]] ErrorCode navigate_to_source(std::uint64_t offset);
+    [[nodiscard]] Result<TextSelection> find_text(std::string_view query,
+        bool forward, bool case_sensitive, bool wildcards, bool wrap = true);
+    [[nodiscard]] ErrorCode replace_current_text(std::string_view query,
+        std::string_view replacement, bool case_sensitive, bool wildcards);
+    [[nodiscard]] Result<std::size_t> replace_all_text(std::string_view query,
+        std::string_view replacement, bool case_sensitive, bool wildcards);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;
@@ -63,6 +70,8 @@ private:
     [[nodiscard]] ErrorCode SynchronizeActive();
 
     document::DocumentSession& session_;
+    ParagraphEditor search_editor_;
+    FindReplaceController find_replace_;
     RichEditHost render_;
     SplitView split_;
     HWND host_{};

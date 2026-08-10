@@ -150,7 +150,7 @@ bool MenuController::create(HWND window) {
         top_items_.push_back({button, top_definitions[index].first, label, 0});
     }
 
-    const std::array<ACCEL, 19> keys{{
+    const std::array<ACCEL, 21> keys{{
         {FVIRTKEY | FCONTROL, 'N', static_cast<WORD>(app::CommandId::file_new)},
         {FVIRTKEY | FCONTROL, 'O', static_cast<WORD>(app::CommandId::file_open)},
         {FVIRTKEY | FCONTROL, 'S', static_cast<WORD>(app::CommandId::file_save)},
@@ -162,6 +162,8 @@ bool MenuController::create(HWND window) {
         {FVIRTKEY | FCONTROL, 'C', static_cast<WORD>(app::CommandId::edit_copy)},
         {FVIRTKEY | FCONTROL, 'V', static_cast<WORD>(app::CommandId::edit_paste)},
         {FVIRTKEY | FCONTROL, 'A', static_cast<WORD>(app::CommandId::edit_select_all)},
+        {FVIRTKEY | FCONTROL, 'F', static_cast<WORD>(app::CommandId::edit_find)},
+        {FVIRTKEY | FCONTROL, 'H', static_cast<WORD>(app::CommandId::edit_replace)},
         {FVIRTKEY | FCONTROL, 'B', static_cast<WORD>(app::CommandId::format_bold)},
         {FVIRTKEY | FCONTROL, 'I', static_cast<WORD>(app::CommandId::format_italic)},
         {FVIRTKEY | FCONTROL | FALT, '1', static_cast<WORD>(app::CommandId::format_heading1)},

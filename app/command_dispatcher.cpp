@@ -54,7 +54,7 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {static_cast<bool>(file_commands_.page_setup), false};
     case CommandId::edit_find:
     case CommandId::edit_replace:
-        return {};
+        return {true, false};
     case CommandId::edit_undo:
         return {modes.can_undo(), false};
     case CommandId::edit_redo:
@@ -158,6 +158,12 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     case CommandId::edit_copy: return modes.copy();
     case CommandId::edit_paste: return modes.paste();
     case CommandId::edit_select_all: return modes.select_all();
+    case CommandId::edit_find:
+        document_window_.show_find(false);
+        return ErrorCode::ok;
+    case CommandId::edit_replace:
+        document_window_.show_find(true);
+        return ErrorCode::ok;
     case CommandId::format_bold: return modes.execute(editor::EditorCommand::bold);
     case CommandId::format_italic: return modes.execute(editor::EditorCommand::italic);
     case CommandId::format_strike: return modes.execute(editor::EditorCommand::strike);

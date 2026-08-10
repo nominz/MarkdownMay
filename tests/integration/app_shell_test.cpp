@@ -225,6 +225,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     static_assert(static_cast<std::uint16_t>(app::CommandId::view_render) == 400);
     if (!dispatcher.query(app::CommandId::file_open).enabled ||
         !dispatcher.query(app::CommandId::file_print).enabled ||
+        !dispatcher.query(app::CommandId::edit_find).enabled ||
+        !dispatcher.query(app::CommandId::edit_replace).enabled ||
         !dispatcher.query(app::CommandId::view_render).checked) {
         DestroyWindow(window.handle());
         CoUninitialize();

@@ -7,10 +7,11 @@
 namespace markdownmay::ui {
 
 DocumentWindow::DocumentWindow(document::DocumentSession& session)
-    : modes_(session), outline_(session, modes_) {}
+    : modes_(session), find_replace_(modes_), outline_(session, modes_) {}
 
 ErrorCode DocumentWindow::create(HWND parent, const RECT& bounds) {
     bounds_ = bounds;
+    if (!find_replace_.create(parent)) return ErrorCode::editor_split_control_failed;
     if (!outline_.create(parent)) return ErrorCode::editor_split_control_failed;
     outline_divider_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_NOTIFY,
         0, 0, 0, 0, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -24,6 +25,9 @@ ErrorCode DocumentWindow::create(HWND parent, const RECT& bounds) {
 void DocumentWindow::resize(const RECT& bounds) {
     bounds_ = bounds;
     if (!modes_.handle()) return;
+    find_replace_.resize(bounds);
+    RECT content = bounds;
+    content.top += find_replace_.height();
     const auto available = static_cast<int>((std::max)(0L,
         (bounds.right - bounds.left) / 2));
     const bool effective_visible = outline_visible_ && outline_.has_headings();
@@ -31,16 +35,16 @@ void DocumentWindow::resize(const RECT& bounds) {
         ? (std::min)(outline_.width(), available) : 0;
     if (outline_.handle()) {
         ShowWindow(outline_.handle(), effective_visible ? SW_SHOW : SW_HIDE);
-        outline_.resize({bounds.left, bounds.top, bounds.left + outline_width, bounds.bottom});
+        outline_.resize({content.left, content.top, content.left + outline_width, content.bottom});
     }
     const auto divider = effective_visible ? MulDiv(5, GetDpiForWindow(modes_.handle()), 96) : 0;
     if (outline_divider_) {
         ShowWindow(outline_divider_, effective_visible ? SW_SHOW : SW_HIDE);
-        MoveWindow(outline_divider_, bounds.left + outline_width, bounds.top,
-            divider, bounds.bottom - bounds.top, TRUE);
+        MoveWindow(outline_divider_, content.left + outline_width, content.top,
+            divider, content.bottom - content.top, TRUE);
     }
-    MoveWindow(modes_.handle(), bounds.left + outline_width + divider, bounds.top,
-        bounds.right - bounds.left - outline_width - divider, bounds.bottom - bounds.top, TRUE);
+    MoveWindow(modes_.handle(), content.left + outline_width + divider, content.top,
+        content.right - content.left - outline_width - divider, content.bottom - content.top, TRUE);
 }
 
 HWND DocumentWindow::handle() const noexcept { return modes_.handle(); }
@@ -56,7 +60,12 @@ bool DocumentWindow::outline_visible() const noexcept {
 void DocumentWindow::refresh_outline_state() { resize(bounds_); }
 HWND DocumentWindow::outline_handle() const noexcept { return outline_.handle(); }
 bool DocumentWindow::handle_control(HWND control, std::uint16_t notification) {
-    return outline_.handle_control(control, notification);
+    return find_replace_.handle_control(control, notification) ||
+        outline_.handle_control(control, notification);
+}
+void DocumentWindow::show_find(bool replace_mode) {
+    find_replace_.show(replace_mode);
+    resize(bounds_);
 }
 
 ErrorCode DocumentWindow::new_document() {
@@ -131,6 +140,7 @@ void DocumentWindow::set_line_ending(fileio::LineEnding line_ending) noexcept {
 void DocumentWindow::apply_appearance(COLORREF text, COLORREF background,
                                       COLORREF accent, UINT dpi) {
     modes_.apply_appearance(text, background, accent, dpi);
+    find_replace_.apply_appearance(text, background, dpi);
     outline_.apply_appearance(text, background, dpi);
     resize(bounds_);
 }

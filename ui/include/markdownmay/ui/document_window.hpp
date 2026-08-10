@@ -2,6 +2,7 @@
 
 #include "markdownmay/editor/view_mode_controller.hpp"
 #include "markdownmay/ui/outline_view.hpp"
+#include "markdownmay/ui/find_replace_bar.hpp"
 
 #include <windows.h>
 
@@ -22,6 +23,7 @@ public:
     void refresh_outline_state();
     [[nodiscard]] HWND outline_handle() const noexcept;
     [[nodiscard]] bool handle_control(HWND control, std::uint16_t notification);
+    void show_find(bool replace_mode);
     [[nodiscard]] ErrorCode new_document();
     [[nodiscard]] ErrorCode open_document(const std::filesystem::path& path);
     [[nodiscard]] ErrorCode save_document();
@@ -42,6 +44,7 @@ public:
 
 private:
     editor::ViewModeController modes_;
+    FindReplaceBar find_replace_;
     OutlineView outline_;
     RECT bounds_{};
     bool outline_visible_{true};

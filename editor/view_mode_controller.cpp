@@ -40,7 +40,8 @@ bool RegisterModeClass() {
 }  // namespace
 
 ViewModeController::ViewModeController(document::DocumentSession& session)
-    : session_(session), render_(session), split_(session),
+    : session_(session), search_editor_(session), find_replace_(session, search_editor_),
+      render_(session), split_(session),
       observed_source_(session.snapshot().source) {
     const std::weak_ptr<int> lifetime(lifetime_);
     session_.subscribe([this, lifetime](const document::DocumentEvent& event) {
@@ -240,6 +241,52 @@ ErrorCode ViewModeController::navigate_to_source(std::uint64_t offset) {
         : split_.source_view().select_source_range(selection);
     if (result == ErrorCode::ok) SetFocus(mode_ == ViewMode::render
         ? render_.handle() : split_.source_view().handle());
+    return result;
+}
+Result<TextSelection> ViewModeController::find_text(std::string_view query,
+        bool forward, bool case_sensitive, bool wildcards, bool wrap) {
+    const auto synchronized = SynchronizeActive();
+    if (synchronized != ErrorCode::ok && synchronized != ErrorCode::markdown_parse_failed)
+        return Result<TextSelection>::failure(synchronized);
+    const auto selected = CaptureSelection();
+    if (search_editor_.set_selection(selected) != ErrorCode::ok)
+        return Result<TextSelection>::failure(ErrorCode::editor_selection_mapping_failed);
+    auto found = find_replace_.find(query, forward, case_sensitive, wrap, wildcards);
+    if (found.is_ok()) {
+        RestoreSelection(found.value());
+        SetFocus(mode_ == ViewMode::render ? render_.handle() : split_.source_view().handle());
+    }
+    return found;
+}
+ErrorCode ViewModeController::replace_current_text(std::string_view query,
+        std::string_view replacement, bool case_sensitive, bool wildcards) {
+    const auto synchronized = SynchronizeActive();
+    if (synchronized != ErrorCode::ok && synchronized != ErrorCode::markdown_parse_failed)
+        return synchronized;
+    const auto selected = CaptureSelection();
+    if (search_editor_.set_selection(selected) != ErrorCode::ok)
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto result = find_replace_.replace_current(
+        query, replacement, case_sensitive, wildcards);
+    if (result != ErrorCode::ok) return result;
+    const auto next = search_editor_.selection();
+    const auto refreshed = RefreshActive();
+    if (refreshed == ErrorCode::ok) RestoreSelection(next);
+    return refreshed;
+}
+Result<std::size_t> ViewModeController::replace_all_text(std::string_view query,
+        std::string_view replacement, bool case_sensitive, bool wildcards) {
+    const auto synchronized = SynchronizeActive();
+    if (synchronized != ErrorCode::ok && synchronized != ErrorCode::markdown_parse_failed)
+        return Result<std::size_t>::failure(synchronized);
+    const auto selected = CaptureSelection();
+    if (search_editor_.set_selection(selected) != ErrorCode::ok)
+        return Result<std::size_t>::failure(ErrorCode::editor_selection_mapping_failed);
+    auto result = find_replace_.replace_all(query, replacement, case_sensitive, wildcards);
+    if (result.is_ok() && result.value() > 0) {
+        const auto refreshed = RefreshActive();
+        if (refreshed != ErrorCode::ok) return Result<std::size_t>::failure(refreshed);
+    }
     return result;
 }
 HWND ViewModeController::handle() const noexcept { return host_; }

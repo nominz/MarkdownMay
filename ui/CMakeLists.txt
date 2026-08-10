@@ -1,5 +1,6 @@
 add_library(markdownmay_ui STATIC
     document_window.cpp
+    find_replace_bar.cpp
     main_window.cpp
     menu_controller.cpp
     outline_view.cpp

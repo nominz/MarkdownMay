@@ -37,6 +37,34 @@ int main() {
     auto backward = find.find("alpha", false, true, false);
     if (!backward.is_ok() || backward.value().anchor != 12 ||
         find.find("ALPHA", false, true, false).is_ok()) return 11;
+
+    document::DocumentSession wildcard_session("cat cot c中文t c？t\tend\nnext");
+    editor::ParagraphEditor wildcard_editor(wildcard_session);
+    editor::FindReplaceController wildcard_find(wildcard_session, wildcard_editor);
+    if (wildcard_editor.set_selection({0, 0}) != ErrorCode::ok) return 12;
+    auto wildcard = wildcard_find.find("c?t", true, true, true, true);
+    if (!wildcard.is_ok() || wildcard.value().anchor != 0 || wildcard.value().caret != 3)
+        return 13;
+    if (wildcard_editor.set_selection({3, 3}) != ErrorCode::ok) return 14;
+    wildcard = wildcard_find.find("c*t", true, true, false, true);
+    if (!wildcard.is_ok() || wildcard.value().anchor != 4 ||
+        wildcard.value().caret != wildcard_session.snapshot().source.find('\t'))
+        return 15;
+    if (wildcard_editor.set_selection({0, 0}) != ErrorCode::ok) return 16;
+    auto full_width = wildcard_find.find("c？t", true, true, false, true);
+    if (!full_width.is_ok() || full_width.value().caret - full_width.value().anchor != 5)
+        return 21;
+    if (wildcard_editor.set_selection({0, 0}) != ErrorCode::ok) return 17;
+    auto special = wildcard_find.find("^tend^pnext", true, true, false, true);
+    if (!special.is_ok()) return 18;
+    if (wildcard_find.replace_current("^tend^pnext", "^t完成", true, true) != ErrorCode::ok ||
+        wildcard_session.snapshot().source.find("\t完成") == std::string::npos) return 19;
+    document::DocumentSession all_session("one AxxZ\ntwo AZ\nAline\nZ");
+    editor::ParagraphEditor all_editor(all_session);
+    editor::FindReplaceController all_find(all_session, all_editor);
+    auto all_wildcards = all_find.replace_all("A*Z", "X", true, true);
+    if (!all_wildcards.is_ok() || all_wildcards.value() != 2 ||
+        all_session.snapshot().source != "one X\ntwo X\nAline\nZ") return 20;
     if (paragraphs.set_selection({session.snapshot().source.size(), session.snapshot().source.size()}) !=
             ErrorCode::ok || clipboard.paste_html("<p><em>斜体</em></p>") != ErrorCode::ok ||
         session.snapshot().source.find("*斜体*") == std::string::npos) return 7;
