@@ -36,7 +36,7 @@ bool IsKnown(std::uint16_t value) noexcept {
         (value >= Native(app::CommandId::view_render) &&
             value <= Native(app::CommandId::view_theme_dark)) ||
         (value >= Native(app::CommandId::tools_register_association) &&
-            value <= Native(app::CommandId::tools_default_apps)) ||
+            value <= Native(app::CommandId::tools_settings)) ||
         value == Native(app::CommandId::help_about);
 }
 

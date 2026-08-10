@@ -1,6 +1,7 @@
 #include "markdownmay/ui/find_replace_bar.hpp"
 
 #include <windowsx.h>
+#include <commctrl.h>
 
 #include <algorithm>
 #include <string>
@@ -25,6 +26,7 @@ HWND Child(HWND parent, const wchar_t* type, const wchar_t* text, DWORD style, i
 }
 
 FindReplaceBar::~FindReplaceBar() {
+    if (bar_ && IsWindow(bar_)) RemoveWindowSubclass(bar_, BarProcedure, 1);
     if (font_) DeleteObject(font_);
 }
 
@@ -32,21 +34,27 @@ bool FindReplaceBar::create(HWND parent) {
     parent_ = parent;
     bar_ = Child(parent, L"STATIC", L"", WS_CLIPCHILDREN, 0);
     if (!bar_) return false;
+    if (!SetWindowSubclass(bar_, BarProcedure, 1,
+            reinterpret_cast<DWORD_PTR>(this))) return false;
     Child(bar_, L"STATIC", L"查找：", WS_VISIBLE | SS_CENTERIMAGE, 0);
     find_edit_ = Child(bar_, L"EDIT", L"", WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, kFind);
     replace_label_ = Child(bar_, L"STATIC", L"替换为：", SS_CENTERIMAGE, 0);
     replace_edit_ = Child(bar_, L"EDIT", L"", WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL, kReplace);
-    find_button_ = Child(bar_, L"BUTTON", L"查找下一个", WS_VISIBLE | WS_TABSTOP, kFindNext);
-    replace_button_ = Child(bar_, L"BUTTON", L"替换", WS_TABSTOP, kReplaceOne);
-    replace_all_button_ = Child(bar_, L"BUTTON", L"全部替换", WS_TABSTOP, kReplaceAll);
+    find_button_ = Child(bar_, L"BUTTON", L"查找下一个", WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, kFindNext);
+    replace_button_ = Child(bar_, L"BUTTON", L"替换", WS_TABSTOP | BS_OWNERDRAW, kReplaceOne);
+    replace_all_button_ = Child(bar_, L"BUTTON", L"全部替换", WS_TABSTOP | BS_OWNERDRAW, kReplaceAll);
     case_box_ = Child(bar_, L"BUTTON", L"区分大小写", WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, kCase);
     wildcard_box_ = Child(bar_, L"BUTTON", L"使用通配符", WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, kWildcard);
-    special_button_ = Child(bar_, L"BUTTON", L"特殊格式", WS_VISIBLE | WS_TABSTOP, kSpecial);
-    close_button_ = Child(bar_, L"BUTTON", L"关闭", WS_VISIBLE | WS_TABSTOP, kClose);
-    status_ = Child(bar_, L"STATIC", L"^p 段落标记；^t 制表符（Tab）", WS_VISIBLE | SS_CENTERIMAGE, 0);
+    special_button_ = Child(bar_, L"BUTTON", L"特殊格式  ▾", WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, kSpecial);
+    close_button_ = Child(bar_, L"BUTTON", L"关闭", WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, kClose);
+    status_ = Child(bar_, L"STATIC", L"", WS_VISIBLE | SS_CENTERIMAGE, 0);
     return find_edit_ && replace_label_ && replace_edit_ && find_button_ &&
         replace_button_ && replace_all_button_ && case_box_ && wildcard_box_ &&
         special_button_ && close_button_ && status_;
+}
+void FindReplaceBar::toggle(bool replace_mode) {
+    if (visible() && replace_mode_ == replace_mode) hide();
+    else show(replace_mode);
 }
 
 void FindReplaceBar::show(bool replace_mode) {
@@ -152,6 +160,8 @@ void FindReplaceBar::InsertSpecial(const wchar_t* token) {
     SetFocus(target);
 }
 void FindReplaceBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
+    text_color_ = text;
+    background_color_ = background;
     dpi_ = dpi ? dpi : 96;
     if (!bar_) return;
     if (font_) DeleteObject(font_);
@@ -164,6 +174,39 @@ void FindReplaceBar::apply_appearance(COLORREF text, COLORREF background, UINT d
     if (bar_) InvalidateRect(bar_, nullptr, TRUE);
     static_cast<void>(background);
     static_cast<void>(text);
+}
+
+LRESULT CALLBACK FindReplaceBar::BarProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data) {
+    auto* self = reinterpret_cast<FindReplaceBar*>(data);
+    if (self && message == WM_COMMAND) {
+        if (self->handle_control(reinterpret_cast<HWND>(l_param), HIWORD(w_param))) return 0;
+    }
+    if (self && message == WM_DRAWITEM) {
+        const auto& draw = *reinterpret_cast<DRAWITEMSTRUCT*>(l_param);
+        const bool pressed = (draw.itemState & ODS_SELECTED) != 0;
+        const bool disabled = (draw.itemState & ODS_DISABLED) != 0;
+        const auto fill = pressed ? RGB(218, 228, 238) : self->background_color_;
+        const auto brush = CreateSolidBrush(fill);
+        const auto radius = MulDiv(8, self->dpi_, 96);
+        const auto region = CreateRoundRectRgn(draw.rcItem.left, draw.rcItem.top,
+            draw.rcItem.right + 1, draw.rcItem.bottom + 1, radius, radius);
+        if (region) { FillRgn(draw.hDC, region, brush); DeleteObject(region); }
+        DeleteObject(brush);
+        const auto old = SelectObject(draw.hDC, self->font_);
+        SetBkMode(draw.hDC, TRANSPARENT);
+        SetTextColor(draw.hDC, disabled ? RGB(145, 145, 145) : self->text_color_);
+        wchar_t label[64]{}; GetWindowTextW(draw.hwndItem, label, 64);
+        RECT rect = draw.rcItem;
+        DrawTextW(draw.hDC, label, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(draw.hDC, old);
+        return TRUE;
+    }
+    if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, BarProcedure, id);
+        if (self) self->bar_ = nullptr;
+    }
+    return DefSubclassProc(window, message, w_param, l_param);
 }
 
 }  // namespace markdownmay::ui

@@ -67,6 +67,10 @@ void DocumentWindow::show_find(bool replace_mode) {
     find_replace_.show(replace_mode);
     resize(bounds_);
 }
+void DocumentWindow::toggle_find(bool replace_mode) {
+    find_replace_.toggle(replace_mode);
+    resize(bounds_);
+}
 
 ErrorCode DocumentWindow::new_document() {
     const auto result = modes_.reload("");

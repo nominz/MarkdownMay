@@ -34,6 +34,8 @@ constexpr const wchar_t* Icon(app::CommandId command) noexcept {
     case app::CommandId::view_render: return L"\xE7C3";
     case app::CommandId::view_source: return L"\xE943";
     case app::CommandId::view_split: return L"\xE952";
+    case app::CommandId::edit_find: return L"\xE721";
+    case app::CommandId::tools_settings: return L"\xE713";
     default: return L"";
     }
 }
@@ -111,7 +113,7 @@ bool Toolbar::create(HWND parent) {
     if (tooltip) SetWindowLongPtrW(tooltip, GWL_STYLE,
         GetWindowLongPtrW(tooltip, GWL_STYLE) | TTS_ALWAYSTIP | TTS_NOPREFIX);
 
-    constexpr std::array<ButtonDefinition, 11> definitions{{
+    constexpr std::array<ButtonDefinition, 13> definitions{{
         {app::CommandId::format_bold, Icon(app::CommandId::format_bold), BTNS_BUTTON},
         {app::CommandId::format_italic, Icon(app::CommandId::format_italic), BTNS_BUTTON},
         {app::CommandId::format_strike, Icon(app::CommandId::format_strike), BTNS_BUTTON},
@@ -123,15 +125,18 @@ bool Toolbar::create(HWND parent) {
         {app::CommandId::view_render, Icon(app::CommandId::view_render), BTNS_CHECKGROUP},
         {app::CommandId::view_source, Icon(app::CommandId::view_source), BTNS_CHECKGROUP},
         {app::CommandId::view_split, Icon(app::CommandId::view_split), BTNS_CHECKGROUP},
+        {app::CommandId::edit_find, Icon(app::CommandId::edit_find), BTNS_BUTTON},
+        {app::CommandId::tools_settings, Icon(app::CommandId::tools_settings), BTNS_BUTTON},
     }};
-    std::array<TBBUTTON, definitions.size() + 2> buttons{};
+    std::array<TBBUTTON, definitions.size() + 5> buttons{};
     std::size_t output{};
     buttons[output].iBitmap = MulDiv(kHeadingComboWidth, dpi_, 96);
     buttons[output].fsStyle = BTNS_SEP;
     ++output;
     for (std::size_t index = 0; index < definitions.size(); ++index) {
-        if (index == 8) {
+        if (index == 4 || index == 8 || index == 11 || index == 12) {
             buttons[output].fsStyle = BTNS_SEP;
+            buttons[output].iBitmap = index == 12 ? MulDiv(120, dpi_, 96) : MulDiv(8, dpi_, 96);
             ++output;
         }
         const auto& definition = definitions[index];
@@ -156,6 +161,9 @@ bool Toolbar::create(HWND parent) {
             L"四级标题", L"五级标题", L"六级标题"})
         SendMessageW(heading_combo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
     SendMessageW(heading_combo_, CB_SETCURSEL, 0, 0);
+    SendMessageW(heading_combo_, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), MulDiv(28, dpi_, 96));
+    SendMessageW(heading_combo_, CB_SETITEMHEIGHT, 0, MulDiv(34, dpi_, 96));
+    SendMessageW(heading_combo_, CB_SETDROPPEDWIDTH, MulDiv(180, dpi_, 96), 0);
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
     SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
         MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
@@ -171,6 +179,12 @@ void Toolbar::resize(int width, int top) {
     if (heading_combo_) SetWindowPos(heading_combo_, HWND_TOP, MulDiv(6, dpi_, 96),
         MulDiv(3, dpi_, 96), MulDiv(kHeadingComboWidth - 10, dpi_, 96),
         MulDiv(240, dpi_, 96), SWP_SHOWWINDOW | SWP_NOACTIVATE);
+    if (heading_combo_) {
+        const auto radius = MulDiv(8, dpi_, 96);
+        const auto region = CreateRoundRectRgn(0, 0, MulDiv(kHeadingComboWidth - 10, dpi_, 96) + 1,
+            MulDiv(30, dpi_, 96) + 1, radius, radius);
+        if (region && !SetWindowRgn(heading_combo_, region, TRUE)) DeleteObject(region);
+    }
 }
 
 void Toolbar::refresh() {
@@ -181,7 +195,8 @@ void Toolbar::refresh() {
         app::CommandId::format_quote, app::CommandId::format_unordered_list,
         app::CommandId::format_ordered_list, app::CommandId::format_task_list,
         app::CommandId::view_render, app::CommandId::view_source,
-        app::CommandId::view_split};
+        app::CommandId::view_split, app::CommandId::edit_find,
+        app::CommandId::tools_settings};
     for (const auto command : commands) {
         const auto state = query_(command);
         SendMessageW(handle_, TB_ENABLEBUTTON, Native(command),
@@ -341,6 +356,8 @@ const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {
     case app::CommandId::view_render: return L"切换到渲染模式（Ctrl+1）";
     case app::CommandId::view_source: return L"切换到源码模式（Ctrl+2）";
     case app::CommandId::view_split: return L"切换到对照模式（Ctrl+3）";
+    case app::CommandId::edit_find: return L"查找（Ctrl+F）";
+    case app::CommandId::tools_settings: return L"设置（即将提供）";
     default: return L"";
     }
 }

@@ -31,6 +31,7 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
             association_commands_.can_unregister(), false};
     if (command == CommandId::tools_default_apps)
         return {static_cast<bool>(association_commands_.open_default_apps), false};
+    if (command == CommandId::tools_settings) return {false, false};
     if (command >= CommandId::view_theme_system && command <= CommandId::view_theme_dark) {
         const auto preference = appearance_commands_.preference
             ? appearance_commands_.preference() : ui::ThemePreference::follow_system;
@@ -159,7 +160,7 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     case CommandId::edit_paste: return modes.paste();
     case CommandId::edit_select_all: return modes.select_all();
     case CommandId::edit_find:
-        document_window_.show_find(false);
+        document_window_.toggle_find(false);
         return ErrorCode::ok;
     case CommandId::edit_replace:
         document_window_.show_find(true);

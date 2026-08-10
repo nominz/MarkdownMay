@@ -12,6 +12,7 @@ public:
     ~FindReplaceBar();
     [[nodiscard]] bool create(HWND parent);
     void show(bool replace_mode);
+    void toggle(bool replace_mode);
     void hide();
     void resize(const RECT& bounds);
     [[nodiscard]] bool visible() const noexcept;
@@ -20,6 +21,8 @@ public:
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
 
 private:
+    static LRESULT CALLBACK BarProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data);
     [[nodiscard]] std::string ReadUtf8(HWND control) const;
     void SetStatus(const wchar_t* text);
     void FindNext();
@@ -42,6 +45,8 @@ private:
     HFONT font_{};
     UINT dpi_{96};
     bool replace_mode_{};
+    COLORREF text_color_{RGB(24, 24, 24)};
+    COLORREF background_color_{RGB(249, 249, 249)};
 };
 
 }  // namespace markdownmay::ui

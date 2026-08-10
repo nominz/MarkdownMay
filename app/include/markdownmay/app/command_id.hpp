@@ -49,6 +49,7 @@ enum class CommandId : std::uint16_t {
     tools_register_association = 700,
     tools_unregister_association,
     tools_default_apps,
+    tools_settings,
 };
 
 struct CommandState final {

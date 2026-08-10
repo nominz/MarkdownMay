@@ -29,6 +29,15 @@ bool ContainsKind(const markdownmay::document::Node& node,
         if (ContainsKind(*child, kind)) return true;
     return false;
 }
+HWND FindDescendantById(HWND root, int identifier) {
+    struct Context { int id; HWND result; } context{identifier, nullptr};
+    EnumChildWindows(root, [](HWND window, LPARAM value) -> BOOL {
+        auto& context = *reinterpret_cast<Context*>(value);
+        if (GetDlgCtrlID(window) == context.id) { context.result = window; return FALSE; }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&context));
+    return context.result;
+}
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
@@ -235,6 +244,29 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CoUninitialize();
         return 4;
     }
+    if (!SendMessageW(window.toolbar()->handle(), TB_ISBUTTONENABLED,
+            static_cast<WPARAM>(app::CommandId::edit_find), 0) ||
+        SendMessageW(window.toolbar()->handle(), TB_ISBUTTONENABLED,
+            static_cast<WPARAM>(app::CommandId::tools_settings), 0)) return 64;
+    if (window.document_window().modes().reload("alpha beta\n") != ErrorCode::ok ||
+        dispatcher.execute(app::CommandId::edit_find) != ErrorCode::ok) return 57;
+    const auto find_edit = FindDescendantById(window.handle(), 8101);
+    const auto find_next = FindDescendantById(window.handle(), 8103);
+    if (!find_edit || !find_next || !IsWindowVisible(find_edit)) return 58;
+    SetWindowTextW(find_edit, L"alpha");
+    SendMessageW(GetParent(find_next), WM_COMMAND,
+        MAKEWPARAM(8103, BN_CLICKED), reinterpret_cast<LPARAM>(find_next));
+    const auto found_selection = window.document_window().modes().render_view().source_selection();
+    if (!found_selection.is_ok() || found_selection.value().anchor != 0 ||
+        found_selection.value().caret != 5) return 59;
+    if (dispatcher.execute(app::CommandId::edit_find) != ErrorCode::ok ||
+        IsWindowVisible(find_edit)) return 60;
+    if (dispatcher.execute(app::CommandId::edit_replace) != ErrorCode::ok) return 61;
+    const auto close_find = FindDescendantById(window.handle(), 8109);
+    if (!close_find || !IsWindowVisible(find_edit)) return 62;
+    SendMessageW(GetParent(close_find), WM_COMMAND,
+        MAKEWPARAM(8109, BN_CLICKED), reinterpret_cast<LPARAM>(close_find));
+    if (IsWindowVisible(find_edit)) return 63;
     if (std::wstring(ui::Toolbar::tooltip(
             static_cast<std::uint16_t>(app::CommandId::view_source))).find(
             L"源码模式") == std::wstring::npos) {
