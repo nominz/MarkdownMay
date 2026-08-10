@@ -153,6 +153,7 @@ void FindReplaceBar::InsertSpecial(const wchar_t* token) {
 }
 void FindReplaceBar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
     dpi_ = dpi ? dpi : 96;
+    if (!bar_) return;
     if (font_) DeleteObject(font_);
     font_ = CreateFontW(-MulDiv(14, dpi_, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,

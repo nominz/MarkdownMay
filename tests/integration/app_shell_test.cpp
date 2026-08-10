@@ -57,6 +57,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     window.set_drop_callback([&dropped_path](const std::filesystem::path& path) {
         dropped_path = path;
     });
+    // Persisted appearance is applied before Application creates any HWND.
+    window.set_theme_preference(ui::ThemePreference::dark);
+    window.set_theme_preference(ui::ThemePreference::follow_system);
     if (window.create(instance, SW_HIDE) != ErrorCode::ok || !window.handle()) {
         CoUninitialize();
         return 2;
