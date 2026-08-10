@@ -98,6 +98,7 @@ void MainWindow::notify_open_requests() noexcept {
     if (handle_) PostMessageW(handle_, kOpenRequestsMessage, 0, 0);
 }
 void MainWindow::refresh_document_chrome() {
+    document_window_.refresh_outline_state();
     status_bar_.set_file_format(document_window_.encoding(),
         document_window_.line_ending());
     if (menu_controller_) menu_controller_->refresh();

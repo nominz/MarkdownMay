@@ -85,6 +85,8 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
     if (target == ViewMode::render && !session_.can_export())
         return ErrorCode::editor_cannot_enter_render_mode;
 
+    if (target == ViewMode::render) ShowWindow(split_.handle(), SW_HIDE);
+
     if (mode_ == ViewMode::render && target != ViewMode::render) {
         const auto result = split_.project();
         if (result != ErrorCode::ok) return result;
@@ -105,6 +107,8 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
         split_.source_view().scroll_to_fraction(scroll.first, scroll.second);
     if (mode_ == ViewMode::render) SetFocus(render_.handle());
     else SetFocus(split_.source_view().handle());
+    if (mode_ == ViewMode::render) RedrawWindow(render_.handle(), nullptr, nullptr,
+        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
     return ErrorCode::ok;
 }
 

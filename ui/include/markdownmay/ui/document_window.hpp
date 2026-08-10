@@ -19,6 +19,7 @@ public:
     void set_outline_visible(bool visible);
     void toggle_outline();
     [[nodiscard]] bool outline_visible() const noexcept;
+    void refresh_outline_state();
     [[nodiscard]] HWND outline_handle() const noexcept;
     [[nodiscard]] bool handle_control(HWND control, std::uint16_t notification);
     [[nodiscard]] ErrorCode new_document();
@@ -36,12 +37,16 @@ public:
     void set_line_ending(fileio::LineEnding line_ending) noexcept;
     void apply_appearance(COLORREF text, COLORREF background,
                           COLORREF accent, UINT dpi);
+    static LRESULT CALLBACK DividerProcedure(HWND window, UINT message,
+        WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data);
 
 private:
     editor::ViewModeController modes_;
     OutlineView outline_;
     RECT bounds_{};
     bool outline_visible_{true};
+    HWND outline_divider_{};
+    bool dragging_outline_{};
     std::filesystem::path path_;
     fileio::TextEncoding encoding_{fileio::TextEncoding::utf8};
     fileio::LineEnding line_ending_{fileio::LineEnding::crlf};

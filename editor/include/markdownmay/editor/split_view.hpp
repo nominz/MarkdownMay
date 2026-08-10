@@ -34,6 +34,8 @@ private:
     HWND host_{};
     bool source_only_{};
     bool suppress_refresh_{};
+    int divider_position_{};
+    bool dragging_divider_{};
 };
 
 }  // namespace markdownmay::editor

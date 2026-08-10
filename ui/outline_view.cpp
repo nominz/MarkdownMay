@@ -53,7 +53,7 @@ OutlineView::~OutlineView() {
 
 bool OutlineView::create(HWND parent) {
     handle_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", nullptr,
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY |
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL | LBS_NOTIFY |
             LBS_NOINTEGRALHEIGHT,
         0, 0, 0, 0, parent, reinterpret_cast<HMENU>(4100),
         GetModuleHandleW(nullptr), nullptr);
@@ -72,6 +72,7 @@ void OutlineView::refresh() {
     SendMessageW(handle_, WM_SETREDRAW, FALSE, 0);
     SendMessageW(handle_, LB_RESETCONTENT, 0, 0);
     items_.clear();
+    int horizontal_extent = 0;
     const auto snapshot = session_.snapshot();
     if (snapshot.semantic && snapshot.parsed_revision == snapshot.source_revision) {
         std::vector<std::pair<std::wstring, Item>> values;
@@ -79,9 +80,20 @@ void OutlineView::refresh() {
         for (auto& [label, item] : values) {
             SendMessageW(handle_, LB_ADDSTRING, 0,
                 reinterpret_cast<LPARAM>(label.c_str()));
+            HDC dc = GetDC(handle_);
+            if (dc) {
+                const auto old = SelectObject(dc, font_ ? font_ : GetStockObject(DEFAULT_GUI_FONT));
+                SIZE size{};
+                GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &size);
+                SelectObject(dc, old);
+                ReleaseDC(handle_, dc);
+                horizontal_extent = (std::max)(horizontal_extent,
+                    static_cast<int>(size.cx) + MulDiv(20, dpi_, 96));
+            }
             items_.push_back(item);
         }
     }
+    SendMessageW(handle_, LB_SETHORIZONTALEXTENT, horizontal_extent, 0);
     if (items_.empty()) {
         const wchar_t* message = snapshot.semantic ? L"当前文档没有标题" : L"大纲暂不可用";
         SendMessageW(handle_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(message));
@@ -99,7 +111,11 @@ bool OutlineView::handle_control(HWND control, std::uint16_t notification) {
 }
 
 HWND OutlineView::handle() const noexcept { return handle_; }
-int OutlineView::width() const noexcept { return MulDiv(240, static_cast<int>(dpi_), 96); }
+int OutlineView::width() const noexcept { return MulDiv(width_, static_cast<int>(dpi_), 96); }
+void OutlineView::set_width(int width) noexcept {
+    width_ = (std::max)(120, MulDiv(width, 96, static_cast<int>(dpi_)));
+}
+bool OutlineView::has_headings() const noexcept { return !items_.empty(); }
 
 void OutlineView::apply_appearance(COLORREF, COLORREF, UINT dpi) {
     dpi_ = dpi ? dpi : 96;

@@ -84,6 +84,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SendMessageW(window.document_window().outline_handle(), LB_GETCOUNT, 0, 0) != 1) {
         DestroyWindow(window.handle()); CoUninitialize(); return 52;
     }
+    if (window.document_window().outline_visible()) return 56;
     if (window.document_window().modes().reload("# 一级\n\n### 三级\n") != ErrorCode::ok ||
         SendMessageW(window.document_window().outline_handle(), LB_GETCOUNT, 0, 0) != 2) {
         DestroyWindow(window.handle()); CoUninitialize(); return 53;
@@ -264,7 +265,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     GetWindowRect(window.document_window().handle(), &document);
     POINT corners[2]{{document.left, document.top}, {document.right, document.bottom}};
     MapWindowPoints(nullptr, window.handle(), corners, 2);
-    if (corners[0].x <= 0 ||
+    if (corners[0].x != 0 ||
         corners[0].y != window.menu_controller()->height() + window.toolbar()->height() ||
         corners[1].x != client.right ||
         corners[1].y != client.bottom - window.status_bar().height()) {
@@ -272,7 +273,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CoUninitialize();
         return 8;
     }
-    if (!dispatcher.query(app::CommandId::view_outline).checked ||
+    if (dispatcher.query(app::CommandId::view_outline).checked ||
         dispatcher.execute(app::CommandId::view_outline) != ErrorCode::ok ||
         window.document_window().outline_visible()) {
         DestroyWindow(window.handle());
@@ -297,7 +298,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 9;
     }
     wchar_t status[64]{};
-    SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 0,
+    SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 1,
         reinterpret_cast<LPARAM>(status));
     if (std::wstring(status) != L"未保存") {
         DestroyWindow(window.handle());
@@ -311,7 +312,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     window.status_bar().set_file_format(fileio::TextEncoding::utf16_le,
         fileio::LineEnding::lf);
-    SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 1,
+    SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 2,
         reinterpret_cast<LPARAM>(status));
     if (std::wstring(status) != L"UTF-16 LE") {
         DestroyWindow(window.handle());

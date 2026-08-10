@@ -1,5 +1,7 @@
 #include "markdownmay/editor/split_view.hpp"
 
+#include <windowsx.h>
+
 #include <mutex>
 #include <string>
 
@@ -105,6 +107,29 @@ LRESULT CALLBACK SplitView::HostProcedure(HWND window, UINT message,
         self->Layout(LOWORD(l_param), HIWORD(l_param));
         return 0;
     }
+    if (message == WM_LBUTTONDOWN && !self->source_only_) {
+        const auto x = GET_X_LPARAM(l_param);
+        if (x >= self->divider_position_ && x < self->divider_position_ + kDividerWidth) {
+            self->dragging_divider_ = true;
+            SetCapture(window);
+            return 0;
+        }
+    }
+    if (message == WM_MOUSEMOVE && self->dragging_divider_) {
+        RECT client{};
+        GetClientRect(window, &client);
+        const auto minimum = (std::min)(MulDiv(120, GetDpiForWindow(window), 96),
+            static_cast<int>(client.right / 3));
+        self->divider_position_ = (std::clamp)(GET_X_LPARAM(l_param), minimum,
+            (std::max)(minimum, static_cast<int>(client.right) - minimum - kDividerWidth));
+        self->Layout(client.right, client.bottom);
+        return 0;
+    }
+    if (message == WM_LBUTTONUP && self->dragging_divider_) {
+        self->dragging_divider_ = false;
+        ReleaseCapture();
+        return 0;
+    }
     if (message == WM_NCDESTROY) {
         SetWindowLongPtrW(window, GWLP_USERDATA, 0);
         self->host_ = nullptr;
@@ -118,7 +143,12 @@ void SplitView::Layout(int width, int height) {
         MoveWindow(source_.host_handle(), 0, 0, width, height, TRUE);
         return;
     }
-    const auto left = (std::max)(1, (width - kDividerWidth) / 2);
+    if (divider_position_ <= 0)
+        divider_position_ = (std::max)(1, (width - kDividerWidth) / 2);
+    const auto minimum = (std::min)(MulDiv(120, host_ ? GetDpiForWindow(host_) : 96, 96), width / 3);
+    const auto left = (std::clamp)(divider_position_, minimum,
+        (std::max)(minimum, width - minimum - kDividerWidth));
+    divider_position_ = left;
     MoveWindow(source_.host_handle(), 0, 0, left, height, TRUE);
     MoveWindow(render_.handle(), left + kDividerWidth, 0,
         (std::max)(1, width - left - kDividerWidth), height, TRUE);

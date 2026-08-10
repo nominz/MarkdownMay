@@ -73,7 +73,7 @@ bool StatusBar::create(HWND parent) {
 
 void StatusBar::resize(int width, int client_height) {
     if (!handle_) return;
-    const std::array<int, 6> parts{140, 250, 340, width - 260, width - 150, -1};
+    const std::array<int, 6> parts{90, 230, 340, 430, width - 150, -1};
     SendMessageW(handle_, SB_SETPARTS, parts.size(),
         reinterpret_cast<LPARAM>(parts.data()));
     MoveWindow(handle_, 0, client_height - height_, width, height_, TRUE);
@@ -84,9 +84,9 @@ void StatusBar::refresh() {
     const auto snapshot = session_.snapshot();
     const auto characters = CountCharacters(snapshot.source);
     const auto count = std::to_wstring(characters) + L" 字";
-    labels_ = {session_.is_dirty() ? L"未保存" : L"已保存",
+    labels_ = {L"大纲", session_.is_dirty() ? L"未保存" : L"已保存",
         EncodingName(encoding_), LineEndingName(line_ending_), count,
-        ModeName(modes_.mode()), L"大纲"};
+        ModeName(modes_.mode())};
     for (std::size_t index = 0; index < labels_.size(); ++index)
         SendMessageW(handle_, SB_SETTEXTW, index,
             reinterpret_cast<LPARAM>(labels_[index].c_str()));
@@ -134,7 +134,7 @@ LRESULT CALLBACK StatusBar::SubclassProcedure(HWND window, UINT message,
     }
     if (message == WM_LBUTTONUP && self && self->toggle_outline_) {
         RECT part{};
-        SendMessageW(window, SB_GETRECT, 5, reinterpret_cast<LPARAM>(&part));
+        SendMessageW(window, SB_GETRECT, 0, reinterpret_cast<LPARAM>(&part));
         POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
         if (PtInRect(&part, point)) {
             self->toggle_outline_();
@@ -170,7 +170,7 @@ void StatusBar::Paint(HDC dc) {
     const auto separator_pen = CreatePen(PS_SOLID, 1, RGB(224, 224, 224));
     const auto old_pen = SelectObject(dc, separator_pen);
     for (std::size_t index = 0; index < labels_.size(); ++index) {
-        SetTextColor(dc, index == 5 && outline_visible_ && !outline_visible_()
+        SetTextColor(dc, index == 0 && outline_visible_ && !outline_visible_()
             ? GetSysColor(COLOR_GRAYTEXT) : text_color_);
         RECT part{};
         SendMessageW(handle_, SB_GETRECT, index, reinterpret_cast<LPARAM>(&part));

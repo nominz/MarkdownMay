@@ -22,6 +22,8 @@ public:
     [[nodiscard]] bool handle_control(HWND control, std::uint16_t notification);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int width() const noexcept;
+    void set_width(int width) noexcept;
+    [[nodiscard]] bool has_headings() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
 
 private:
@@ -30,6 +32,7 @@ private:
     HWND handle_{};
     HFONT font_{};
     UINT dpi_{96};
+    int width_{240};
     std::vector<Item> items_;
     std::shared_ptr<int> lifetime_{std::make_shared<int>(0)};
 };
