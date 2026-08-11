@@ -1,4 +1,5 @@
 #include "markdownmay/ui/main_window.hpp"
+#include "resource.h"
 
 #include <commctrl.h>
 #include <shellapi.h>
@@ -24,6 +25,11 @@ bool RegisterMainWindowClass(HINSTANCE instance) {
         value.style = CS_HREDRAW | CS_VREDRAW;
         value.lpfnWndProc = MainWindow::WindowProcedure;
         value.hInstance = instance;
+        value.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_MARKDOWNMAY));
+        value.hIconSm = static_cast<HICON>(LoadImageW(
+            instance, MAKEINTRESOURCEW(IDI_MARKDOWNMAY), IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR));
         value.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         value.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         value.lpszClassName = kMainWindowClass;

@@ -7,7 +7,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options comdlg32 ole32 user32
 )
 
-add_executable(MarkdownMay WIN32 main.cpp)
+add_executable(MarkdownMay WIN32
+    main.cpp
+    "${PROJECT_SOURCE_DIR}/resources/MarkdownMay.rc"
+)
 target_link_libraries(
     MarkdownMay
     PRIVATE markdownmay_compiler_options markdownmay_app_shell ole32 shell32 user32

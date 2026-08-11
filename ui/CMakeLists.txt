@@ -10,7 +10,9 @@ add_library(markdownmay_ui STATIC
 )
 target_include_directories(markdownmay_ui
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    PRIVATE "${PROJECT_SOURCE_DIR}/app/include"
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/app/include"
+        "${PROJECT_SOURCE_DIR}/resources"
 )
 target_link_libraries(
     markdownmay_ui

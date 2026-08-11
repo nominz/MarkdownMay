@@ -1,0 +1,3 @@
+#include "resource.h"
+
+IDI_MARKDOWNMAY ICON "icons/MarkdownMay.ico"
