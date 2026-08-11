@@ -475,6 +475,7 @@ ErrorCode RichEditHost::synchronize_change() {
         }
     }
     bool continued_list{};
+    bool completed_thematic_break{};
     auto result = editor_.set_selection({source_begin, source_end});
     if (result == ErrorCode::ok) {
         const auto visible_line_begin = prefix == 0 ? 0 : after.rfind('\n', prefix - 1) + 1;
@@ -483,7 +484,7 @@ ErrorCode RichEditHost::synchronize_change() {
         auto visible_content_end = visible_line_end;
         if (visible_content_end > visible_line_begin &&
             after[visible_content_end - 1] == '\r') --visible_content_end;
-        const bool completed_thematic_break =
+        completed_thematic_break =
             after.substr(visible_line_begin, visible_content_end - visible_line_begin) == "---";
         auto source_line_begin = source.rfind('\n');
         source_line_begin = source_line_begin == std::string::npos ? 0 : source_line_begin + 1;
@@ -506,11 +507,13 @@ ErrorCode RichEditHost::synchronize_change() {
         const auto marker = current.rfind("---");
         if (marker != std::string::npos && marker > 0) {
             const auto marker_end = marker + 3;
+            const bool edited_marker = completed_thematic_break ||
+                (source_begin >= marker && source_begin <= marker_end);
             const bool line_end = marker_end == current.size() || current[marker_end] == '\r' ||
                 current[marker_end] == '\n';
             auto line_begin = current.rfind('\n', marker - 1);
             line_begin = line_begin == std::string::npos ? 0 : line_begin + 1;
-            if (line_begin == marker && line_end) {
+            if (edited_marker && line_begin == marker && line_end) {
                 auto previous_end = marker;
                 while (previous_end > 0 &&
                     (current[previous_end - 1] == '\r' || current[previous_end - 1] == '\n'))
