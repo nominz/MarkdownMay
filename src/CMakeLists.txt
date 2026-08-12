@@ -11,6 +11,7 @@ add_library(
     document/document_session.cpp
     export/export_document.cpp
     export/export_task.cpp
+    export/pdf_writer.cpp
     export/txt_writer.cpp
     markdown/markdown_parser.cpp
     markdown/markdown_writer.cpp
@@ -22,4 +23,4 @@ target_include_directories(
     PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(markdownmay_core PRIVATE markdownmay_compiler_options md4c_vendor)
+target_link_libraries(markdownmay_core PRIVATE markdownmay_compiler_options md4c_vendor fontsub gdi32 ole32 windowscodecs)
