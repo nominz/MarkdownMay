@@ -1,6 +1,7 @@
 #include "markdownmay/document/document_session.hpp"
 
 #include "markdownmay/markdown/markdown_parser.hpp"
+#include "markdownmay/services/source_position_mapper.hpp"
 
 #include <stdexcept>
 #include <vector>
@@ -84,5 +85,28 @@ int RunDocumentSessionTests() {
             ErrorCode::file_encoding_invalid ||
         session.snapshot().source != valid_reload.source ||
         session.snapshot().source_revision != valid_reload.source_revision) return 34;
+
+    DocumentSession plain("# 普通文字\r\n", DocumentKind::plain_text);
+    const auto plain_snapshot = plain.snapshot();
+    if (plain_snapshot.kind != DocumentKind::plain_text ||
+        plain_snapshot.semantic || plain_snapshot.parsed_revision != 0 ||
+        plain.can_export() || plain.has_markdown_semantics()) return 35;
+    EditTransaction plain_edit{45, 1, EditOrigin::source_view,
+        {{{0, 0}, "前缀"}}};
+    if (plain.commit(plain_edit) != ErrorCode::ok ||
+        plain.snapshot().semantic || plain.can_export()) return 36;
+
+    using markdownmay::services::SourcePositionMapper;
+    const auto mapped = SourcePositionMapper::MapCaret(
+        plain_snapshot, plain_snapshot.source_revision, 2, 2);
+    if (!mapped.is_ok() || mapped.value().utf8_byte != 2 ||
+        mapped.value().revision != plain_snapshot.source_revision) return 37;
+    if (SourcePositionMapper::MapCaret(plain_snapshot, 99, 0, 0).error() !=
+        ErrorCode::document_revision_mismatch) return 38;
+    if (SourcePositionMapper::MapCaret(plain_snapshot, 1, 0, 1).error() !=
+        ErrorCode::editor_selection_mapping_failed) return 39;
+    const auto cr = plain_snapshot.source.find('\r');
+    if (SourcePositionMapper::MapCaret(plain_snapshot, 1, cr + 1, cr + 1).error() !=
+        ErrorCode::editor_selection_mapping_failed) return 40;
     return 0;
 }

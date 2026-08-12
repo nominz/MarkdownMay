@@ -8,15 +8,16 @@
 
 namespace markdownmay::document {
 
-DocumentSession::DocumentSession(std::string source) : source_(std::move(source)) {
-    if (fileio::IsValidUtf8(source_)) {
+DocumentSession::DocumentSession(std::string source, DocumentKind kind)
+    : source_(std::move(source)), kind_(kind) {
+    if (kind_ == DocumentKind::markdown && fileio::IsValidUtf8(source_)) {
         semantic_ = markdown::ParseMarkdown(source_, source_revision_);
         if (semantic_) parsed_revision_ = source_revision_;
     }
 }
 
 SessionSnapshot DocumentSession::snapshot() const {
-    return {source_, source_revision_, parsed_revision_, saved_revision_, semantic_};
+    return {source_, kind_, source_revision_, parsed_revision_, saved_revision_, semantic_};
 }
 
 ErrorCode DocumentSession::commit(const EditTransaction& transaction) {
@@ -39,13 +40,14 @@ ErrorCode DocumentSession::commit(const EditTransaction& transaction) {
         return ErrorCode::document_invalid_state;
     }
     const auto next_revision = source_revision_ + 1;
-    auto parsed = markdown::ParseMarkdown(candidate, next_revision);
+    auto parsed = kind_ == DocumentKind::markdown
+        ? markdown::ParseMarkdown(candidate, next_revision) : nullptr;
     if (parsed && semantic_) {
         parsed = ReconcileNodeIds(*semantic_, *parsed, next_revision);
     }
     source_ = std::move(candidate);
     source_revision_ = next_revision;
-    if (parsed) {
+    if (kind_ == DocumentKind::markdown && parsed) {
         semantic_ = std::move(parsed);
         parsed_revision_ = source_revision_;
     }
@@ -60,6 +62,9 @@ ErrorCode DocumentSession::commit_semantic(
     EditOrigin origin) {
     if (expected_revision != source_revision_) {
         return ErrorCode::document_revision_mismatch;
+    }
+    if (kind_ != DocumentKind::markdown) {
+        return ErrorCode::document_invalid_state;
     }
     const auto next_revision = source_revision_ + 1;
     if (!semantic || semantic->revision() != next_revision ||
@@ -78,6 +83,9 @@ ErrorCode DocumentSession::commit_semantic(
 ErrorCode DocumentSession::accept_parse_result(
     std::uint64_t source_revision,
     std::shared_ptr<const Document> semantic) {
+    if (kind_ != DocumentKind::markdown) {
+        return ErrorCode::document_invalid_state;
+    }
     if (source_revision != source_revision_) {
         return ErrorCode::document_revision_mismatch;
     }
@@ -97,7 +105,8 @@ ErrorCode DocumentSession::accept_parse_result(
 ErrorCode DocumentSession::reload(std::string source) {
     if (!fileio::IsValidUtf8(source)) return ErrorCode::file_encoding_invalid;
     const auto next_revision = source_revision_ + 1;
-    auto semantic = markdown::ParseMarkdown(source, next_revision);
+    auto semantic = kind_ == DocumentKind::markdown
+        ? markdown::ParseMarkdown(source, next_revision) : nullptr;
     source_ = std::move(source);
     source_revision_ = next_revision;
     semantic_ = std::move(semantic);
@@ -114,11 +123,16 @@ ErrorCode DocumentSession::mark_saved(std::uint64_t revision) noexcept {
 }
 
 bool DocumentSession::can_export() const noexcept {
-    return semantic_ && parsed_revision_ == source_revision_ &&
+    return kind_ == DocumentKind::markdown && semantic_ &&
+           parsed_revision_ == source_revision_ &&
            semantic_->revision() == source_revision_;
 }
 bool DocumentSession::is_dirty() const noexcept {
     return saved_revision_ != source_revision_;
+}
+DocumentKind DocumentSession::kind() const noexcept { return kind_; }
+bool DocumentSession::has_markdown_semantics() const noexcept {
+    return kind_ == DocumentKind::markdown;
 }
 void DocumentSession::subscribe(DocumentObserver observer) {
     if (observer) observers_.push_back(std::move(observer));

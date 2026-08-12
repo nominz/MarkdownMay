@@ -18,6 +18,7 @@ add_library(
     markdown/markdown_parser.cpp
     markdown/markdown_writer.cpp
     services/local_services.cpp
+    services/source_position_mapper.cpp
 )
 
 target_include_directories(
