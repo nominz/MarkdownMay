@@ -2,6 +2,8 @@
 
 #include <variant>
 
+int RunExportTaskTests();
+
 int main() {
     using namespace markdownmay;
     using namespace markdownmay::exporting;
@@ -54,5 +56,5 @@ int main() {
     if (rejected.is_ok() ||
         rejected.error() != ErrorCode::export_revision_not_current) return 8;
 
-    return 0;
+    return RunExportTaskTests();
 }

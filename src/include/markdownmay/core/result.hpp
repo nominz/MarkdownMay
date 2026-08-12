@@ -49,7 +49,10 @@ enum class ErrorCode : std::uint32_t {
     image_mark_deleted_failed = 5008,
     image_restore_name_conflict = 5009,
     export_revision_not_current = 6001,
+    export_cancelled = 6002,
+    export_target_failed = 6003,
     export_invalid_options = 6004,
+    export_validation_failed = 6005,
 };
 
 template <typename T>
