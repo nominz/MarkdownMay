@@ -45,5 +45,16 @@ int main() {
     constexpr std::string_view soft_break = "> 第一行\n> 第二行\n";
     const auto with_soft_break = markdownmay::markdown::ParseMarkdown(soft_break, 8);
     if (!with_soft_break || !with_soft_break->validate(soft_break.size())) return 5;
+    constexpr std::string_view formulas = "行内 $a+b$ 和块 $$\\frac{a}{b}$$。\n";
+    const auto with_formulas = markdownmay::markdown::ParseMarkdown(formulas, 9);
+    std::size_t inline_formulas{}, block_formulas{};
+    std::function<void(const Node&)> count_formulas = [&](const Node& node) {
+        if (node.kind == NodeKind::formula_inline && node.text == "a+b") ++inline_formulas;
+        if (node.kind == NodeKind::formula_block && node.text == "\\frac{a}{b}") ++block_formulas;
+        for (const auto& child : node.children) count_formulas(*child);
+    };
+    if (!with_formulas) return 6;
+    count_formulas(*with_formulas->root());
+    if (inline_formulas != 1 || block_formulas != 1) return 7;
     return RunDocumentSessionTests();
 }

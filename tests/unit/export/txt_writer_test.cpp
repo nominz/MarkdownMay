@@ -24,7 +24,8 @@ int RunTxtWriterTests() {
         "# 一级\n\n### 三级\n\n正文有 **粗体**、[链接](notes.md) 和 ![图](a.png)。\n\n"
         "3. 三\n4. 四\n   - 子项\n\n- [x] 完成\n- [ ] 待办\n\n"
         "```cpp\nint main() {}\n```\n\n```mermaid\nflowchart TD\nA-->B\n```\n\n"
-        "| 姓名 | 状态 |\n| --- | --- |\n| 马冬梅 | 正常 |\n";
+        "| 姓名 | 状态 |\n| --- | --- |\n| 马冬梅 | 正常 |\n\n"
+        "行内 $a+b$ 和 $$\\frac{a}{b}$$。\n";
     document::DocumentSession session(source);
     const auto snapshot = session.snapshot();
     auto outline = BuildExportDocument(
@@ -53,6 +54,8 @@ int RunTxtWriterTests() {
     if (full_text.find("[Mermaid 源码]\r\nflowchart TD\r\nA-->B") ==
             std::string::npos) return 44;
     if (full_text.find("姓名\t状态\r\n马冬梅\t正常") == std::string::npos) return 45;
+    if (full_text.find("[公式：a+b]") == std::string::npos ||
+        full_text.find("[块公式：\\frac{a}{b}]") == std::string::npos) return 46;
     if (full_text.find("**") != std::string::npos || full_text.find("```") != std::string::npos ||
         full_text.find("\n") != std::string::npos && full_text.find("\r\n") == std::string::npos)
         return 34;

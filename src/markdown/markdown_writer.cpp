@@ -45,6 +45,8 @@ std::string Inline(const Node& node) {
             const std::string fence = node.text.find('`') == std::string::npos ? "`" : "``";
             return fence + node.text + fence;
         }
+        case NodeKind::formula_inline: return "$" + node.text + "$";
+        case NodeKind::formula_block: return "$$" + node.text + "$$";
         case NodeKind::link:
         case NodeKind::image: {
             const auto* value = std::get_if<LinkAttributes>(&node.attributes);

@@ -16,6 +16,12 @@ void AppendInline(const ExportNode& node, std::string& output) {
         output += node.text;
         return;
     }
+    if (node.kind == document::NodeKind::formula_inline ||
+        node.kind == document::NodeKind::formula_block) {
+        output += node.kind == document::NodeKind::formula_inline ? "[公式：" : "[块公式：";
+        output += node.text + "]";
+        return;
+    }
     std::string visible;
     for (const auto& child : node.children) AppendInline(child, visible);
     if (node.kind == document::NodeKind::link) {

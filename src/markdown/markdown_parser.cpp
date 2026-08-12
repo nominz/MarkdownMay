@@ -97,6 +97,8 @@ NodeKind SpanKind(MD_SPANTYPE type) {
         case MD_SPAN_IMG: return NodeKind::image;
         case MD_SPAN_CODE: return NodeKind::inline_code;
         case MD_SPAN_DEL: return NodeKind::strike;
+        case MD_SPAN_LATEXMATH: return NodeKind::formula_inline;
+        case MD_SPAN_LATEXMATH_DISPLAY: return NodeKind::formula_block;
         default: return NodeKind::text;
     }
 }
@@ -207,7 +209,8 @@ int Text(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* data) {
     auto* parent = builder.stack.back();
     builder.Touch(*parent, text, size);
     if (parent->kind == NodeKind::unknown_block || parent->kind == NodeKind::code_block ||
-        parent->kind == NodeKind::inline_code) {
+        parent->kind == NodeKind::inline_code ||
+        parent->kind == NodeKind::formula_inline || parent->kind == NodeKind::formula_block) {
         parent->text.append(text, size);
     } else {
         auto child = std::make_unique<MutableNode>();
@@ -374,7 +377,8 @@ void RepairRawBlockRanges(MutableNode& node, std::string_view source,
 std::shared_ptr<const Document> ParseMarkdown(std::string_view source, std::uint64_t revision) {
     if (source.size() > static_cast<std::size_t>((std::numeric_limits<MD_SIZE>::max)())) return {};
     Builder builder{source.data(), source.size()};
-    MD_PARSER parser{}; parser.abi_version = 0; parser.flags = MD_DIALECT_GITHUB;
+    MD_PARSER parser{}; parser.abi_version = 0;
+    parser.flags = MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = EnterBlock; parser.leave_block = LeaveBlock;
     parser.enter_span = EnterSpan; parser.leave_span = LeaveSpan; parser.text = Text;
     if (md_parse(source.data(), static_cast<MD_SIZE>(source.size()), &parser, &builder) != 0 || !builder.root) return {};

@@ -1,5 +1,8 @@
 #include "markdownmay/export/export_document.hpp"
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <variant>
 
 int RunExportTaskTests();
@@ -56,6 +59,27 @@ int main() {
         no_semantic, no_semantic.source_revision, ExportScope::full, ExportFormat::pdf);
     if (rejected.is_ok() ||
         rejected.error() != ErrorCode::export_revision_not_current) return 8;
+
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("markdownmay-export-resources-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(directory);
+    const auto document_path = directory / "note.md";
+    { std::ofstream image(directory / "image.png", std::ios::binary); image << "PNGDATA"; }
+    document::DocumentSession resources_session(
+        "![本地](image.png) ![远程](https://example.invalid/image.png) ![缺失](missing.png)\n");
+    const auto resource_snapshot = resources_session.snapshot();
+    auto resources = BuildExportDocument(resource_snapshot, resource_snapshot.source_revision,
+        ExportScope::full, ExportFormat::pdf, ExportContext{document_path, 1024, 1024});
+    std::error_code cleanup_error;
+    std::filesystem::remove_all(directory, cleanup_error);
+    if (!resources.is_ok()) return 9;
+    if (resources.value().resources.size() != 3) return 10;
+    if (resources.value().resources[0].state != ExportResourceState::embedded) return 11;
+    if (std::string(resources.value().resources[0].bytes.begin(),
+            resources.value().resources[0].bytes.end()) != "PNGDATA") return 14;
+    if (resources.value().resources[1].state != ExportResourceState::remote_blocked) return 12;
+    if (resources.value().resources[2].state != ExportResourceState::missing) return 13;
 
     const auto task = RunExportTaskTests();
     return task == 0 ? RunTxtWriterTests() : task;

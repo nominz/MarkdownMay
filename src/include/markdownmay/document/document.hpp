@@ -21,7 +21,8 @@ struct SourceRange final {
 enum class NodeKind : std::uint8_t {
     document, paragraph, heading, quote, list, list_item, code_block,
     table, table_head, table_body, table_row, table_cell, thematic_break,
-    unknown_block, text, emphasis, strong, strike, inline_code, link, image
+    unknown_block, text, emphasis, strong, strike, inline_code, link, image,
+    formula_inline, formula_block
 };
 
 struct HeadingAttributes final { std::uint8_t level{1}; };
