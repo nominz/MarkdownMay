@@ -48,6 +48,8 @@ enum class ErrorCode : std::uint32_t {
     image_assets_path_unsafe = 5007,
     image_mark_deleted_failed = 5008,
     image_restore_name_conflict = 5009,
+    export_revision_not_current = 6001,
+    export_invalid_options = 6004,
 };
 
 template <typename T>
