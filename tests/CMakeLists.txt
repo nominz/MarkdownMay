@@ -60,6 +60,20 @@ target_link_libraries(
 
 add_test(NAME image_probe_smoke COMMAND MarkdownMayImageProbeSmoke)
 
+add_executable(
+    MarkdownMayHtmlExportProbe
+    html_export_probe.cpp
+)
+
+target_link_libraries(
+    MarkdownMayHtmlExportProbe
+    PRIVATE
+        markdownmay_compiler_options
+        markdownmay_prototype_core
+)
+
+add_test(NAME html_export_probe COMMAND MarkdownMayHtmlExportProbe)
+
 add_subdirectory(unit/fileio)
 add_subdirectory(unit/document)
 add_subdirectory(roundtrip)

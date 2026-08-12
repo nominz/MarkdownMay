@@ -7,6 +7,8 @@ add_library(
     markdown_probe.hpp
     minimal_export.cpp
     minimal_export.hpp
+    safe_html_probe.cpp
+    safe_html_probe.hpp
 )
 
 target_include_directories(
