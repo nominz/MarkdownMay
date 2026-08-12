@@ -3,6 +3,7 @@
 #include <variant>
 
 int RunExportTaskTests();
+int RunTxtWriterTests();
 
 int main() {
     using namespace markdownmay;
@@ -56,5 +57,6 @@ int main() {
     if (rejected.is_ok() ||
         rejected.error() != ErrorCode::export_revision_not_current) return 8;
 
-    return RunExportTaskTests();
+    const auto task = RunExportTaskTests();
+    return task == 0 ? RunTxtWriterTests() : task;
 }

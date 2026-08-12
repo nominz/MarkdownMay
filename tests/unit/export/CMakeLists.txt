@@ -2,6 +2,7 @@ add_executable(
     MarkdownMayExportUnit
     export_document_test.cpp
     export_task_test.cpp
+    txt_writer_test.cpp
 )
 target_link_libraries(
     MarkdownMayExportUnit

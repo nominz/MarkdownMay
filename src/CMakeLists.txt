@@ -11,6 +11,7 @@ add_library(
     document/document_session.cpp
     export/export_document.cpp
     export/export_task.cpp
+    export/txt_writer.cpp
     markdown/markdown_parser.cpp
     markdown/markdown_writer.cpp
     services/local_services.cpp
