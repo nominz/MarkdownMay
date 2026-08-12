@@ -1,10 +1,17 @@
 #include "markdownmay/app/application.hpp"
+#include "markdownmay/export/docx_writer.hpp"
+#include "markdownmay/export/html_writer.hpp"
+#include "markdownmay/export/pdf_writer.hpp"
+#include "markdownmay/export/txt_writer.hpp"
 
 #include <commdlg.h>
+#include <commctrl.h>
 
 #include <array>
 #include <cwchar>
 #include <string_view>
+#include <atomic>
+#include <thread>
 
 namespace markdownmay::app {
 namespace {
@@ -50,6 +57,41 @@ int ConfirmUnsavedChanges(HWND owner) {
         L"选择“是”保存，选择“否”放弃修改，选择“取消”继续编辑。",
         L"马冬梅", MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
 }
+
+struct ExportRun final {
+    exporting::ExportDocument document;
+    exporting::ExportFormat format{};
+    std::filesystem::path target;
+    exporting::CancellationSource cancellation;
+    std::jthread worker;
+    std::atomic<bool> done{};
+    ErrorCode result{ErrorCode::document_invalid_state};
+};
+
+HRESULT CALLBACK ExportProgressCallback(HWND window, UINT message, WPARAM w_param,
+                                        LPARAM, LONG_PTR data) {
+    auto& run = *reinterpret_cast<ExportRun*>(data);
+    if (message == TDN_CREATED) {
+        SendMessageW(window, TDM_SET_PROGRESS_BAR_RANGE, 0, MAKELPARAM(0, 100));
+        run.worker = std::jthread([&run, window] {
+            const auto progress = [window](const exporting::ExportProgress& value) {
+                PostMessageW(window, TDM_SET_PROGRESS_BAR_POS, value.completed, 0);
+            };
+            switch (run.format) {
+            case exporting::ExportFormat::pdf: run.result = exporting::ExportPdf(run.document, run.target, run.cancellation.token(), progress); break;
+            case exporting::ExportFormat::docx: run.result = exporting::ExportDocx(run.document, run.target, run.cancellation.token(), progress); break;
+            case exporting::ExportFormat::txt: run.result = exporting::ExportTxt(run.document, run.target, run.cancellation.token(), progress); break;
+            case exporting::ExportFormat::html: run.result = exporting::ExportHtml(run.document, run.target, run.cancellation.token(), progress); break;
+            }
+            run.done = true;
+            PostMessageW(window, TDM_CLICK_BUTTON, IDCANCEL, 0);
+        });
+    } else if (message == TDN_BUTTON_CLICKED && w_param == IDCANCEL && !run.done) {
+        run.cancellation.cancel();
+        return S_FALSE;
+    }
+    return S_OK;
+}
 }
 
 Application::Application(HINSTANCE instance)
@@ -64,6 +106,7 @@ Application::Application(HINSTANCE instance)
           [this] { return SaveDocumentAs(); },
           [this] { return PrintDocument(); },
           [this] { return PageSetup(); },
+          [this] { return ExportDocumentDialog(); },
           [this](std::size_t index) { return OpenRecentFile(index); },
           [this] { return ClearRecentFiles(); },
       }, {
@@ -163,6 +206,39 @@ ErrorCode Application::PrintDocument() {
 ErrorCode Application::PageSetup() {
     if (platform::ShowPageSetupDialog(main_window_.handle(), page_setup_)) SaveSettings();
     return ErrorCode::ok;
+}
+
+ErrorCode Application::ExportDocumentDialog() {
+    const TASKDIALOG_BUTTON choices[]{{100, L"仅大纲 — PDF"}, {101, L"仅大纲 — Word (DOCX)"},
+        {102, L"仅大纲 — 纯文本 (TXT)"}, {110, L"全文 — PDF"},
+        {111, L"全文 — Word (DOCX)"}, {112, L"全文 — 纯文本 (TXT)"},
+        {113, L"全文 — 离线 HTML"}};
+    TASKDIALOGCONFIG options{sizeof(options)}; options.hwndParent=main_window_.handle();
+    options.dwFlags=TDF_USE_COMMAND_LINKS; options.pszWindowTitle=L"导出文档";
+    options.pszMainInstruction=L"先选择内容范围，再选择导出格式";
+    options.pszContent=L"仅大纲只包含 H1～H6；全文不重复插入目录。";
+    options.pButtons=choices;options.cButtons=static_cast<UINT>(std::size(choices));
+    const auto default_base=settings_.export_scope==services::ExportScopeSetting::outline?100:110;
+    const auto default_offset=settings_.export_format==services::ExportFormatSetting::pdf?0:settings_.export_format==services::ExportFormatSetting::docx?1:settings_.export_format==services::ExportFormatSetting::txt?2:3;
+    options.nDefaultButton=(default_base==100&&default_offset==3)?110:default_base+default_offset;options.dwCommonButtons=TDCBF_CANCEL_BUTTON;int choice{};
+    if(FAILED(TaskDialogIndirect(&options,&choice,nullptr,nullptr))||choice==IDCANCEL)return ErrorCode::ok;
+    const auto scope=choice<110?exporting::ExportScope::outline:exporting::ExportScope::full;
+    const auto format=(choice%10)==0?exporting::ExportFormat::pdf:(choice%10)==1?exporting::ExportFormat::docx:(choice%10)==2?exporting::ExportFormat::txt:exporting::ExportFormat::html;
+    settings_.export_scope=scope==exporting::ExportScope::outline?services::ExportScopeSetting::outline:services::ExportScopeSetting::full;
+    settings_.export_format=format==exporting::ExportFormat::pdf?services::ExportFormatSetting::pdf:format==exporting::ExportFormat::docx?services::ExportFormatSetting::docx:format==exporting::ExportFormat::txt?services::ExportFormatSetting::txt:services::ExportFormatSetting::html;SaveSettings();
+    const auto snapshot=session_.snapshot();const auto built=exporting::BuildExportDocument(snapshot,snapshot.source_revision,scope,format,
+        {main_window_.document_window().is_named()?main_window_.document_window().path():std::filesystem::path{}});
+    if(!built.is_ok())return built.error();
+    std::array<wchar_t,32768> path{};const auto stem=main_window_.document_window().is_named()?main_window_.document_window().path().stem().wstring():L"无标题";
+    const wchar_t* extension=format==exporting::ExportFormat::pdf?L"pdf":format==exporting::ExportFormat::docx?L"docx":format==exporting::ExportFormat::txt?L"txt":L"html";
+    const auto initial=stem+L"."+extension;wcsncpy_s(path.data(),path.size(),initial.c_str(),_TRUNCATE);
+    const wchar_t* filter=format==exporting::ExportFormat::pdf?L"PDF 文档 (*.pdf)\0*.pdf\0\0":format==exporting::ExportFormat::docx?L"Word 文档 (*.docx)\0*.docx\0\0":format==exporting::ExportFormat::txt?L"纯文本 (*.txt)\0*.txt\0\0":L"离线 HTML (*.html)\0*.html\0\0";
+    OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=main_window_.handle();dialog.lpstrFilter=filter;dialog.lpstrFile=path.data();dialog.nMaxFile=static_cast<DWORD>(path.size());dialog.lpstrDefExt=extension;dialog.Flags=OFN_PATHMUSTEXIST|OFN_OVERWRITEPROMPT|OFN_NOCHANGEDIR;
+    if(!GetSaveFileNameW(&dialog))return ErrorCode::ok;
+    ExportRun run{std::move(built).value(),format,path.data()};TASKDIALOGCONFIG progress{sizeof(progress)};progress.hwndParent=main_window_.handle();progress.dwFlags=TDF_SHOW_PROGRESS_BAR|TDF_CALLBACK_TIMER;progress.dwCommonButtons=TDCBF_CANCEL_BUTTON;progress.pszWindowTitle=L"导出文档";progress.pszMainInstruction=L"正在生成并验证导出文件…";progress.pfCallback=ExportProgressCallback;progress.lpCallbackData=reinterpret_cast<LONG_PTR>(&run);int ignored{};TaskDialogIndirect(&progress,&ignored,nullptr,nullptr);if(run.worker.joinable())run.worker.join();
+    if(run.result==ErrorCode::ok)MessageBoxW(main_window_.handle(),L"导出已完成。",L"马冬梅",MB_OK|MB_ICONINFORMATION);
+    else if(run.result==ErrorCode::export_cancelled)MessageBoxW(main_window_.handle(),L"导出已取消，原目标文件未被覆盖。",L"马冬梅",MB_OK|MB_ICONINFORMATION);
+    return run.result;
 }
 
 ui::MainWindow& Application::main_window() noexcept { return main_window_; }

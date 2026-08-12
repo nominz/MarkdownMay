@@ -38,6 +38,7 @@ private:
     [[nodiscard]] ErrorCode OpenDefaultApps();
     [[nodiscard]] ErrorCode PrintDocument();
     [[nodiscard]] ErrorCode PageSetup();
+    [[nodiscard]] ErrorCode ExportDocumentDialog();
     void LoadSettings();
     void SaveSettings();
     [[nodiscard]] std::filesystem::path ExecutablePath() const;

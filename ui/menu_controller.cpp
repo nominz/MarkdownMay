@@ -28,7 +28,7 @@ constexpr UINT Native(app::CommandId command) noexcept {
 
 bool IsKnown(std::uint16_t value) noexcept {
     return (value >= Native(app::CommandId::file_new) &&
-            value <= Native(app::CommandId::file_page_setup)) ||
+            value <= Native(app::CommandId::file_export)) ||
         (value >= Native(app::CommandId::edit_undo) &&
             value <= Native(app::CommandId::edit_replace)) ||
         (value >= Native(app::CommandId::format_bold) &&
@@ -86,6 +86,8 @@ bool MenuController::create(HWND window) {
     AddCommand(file, app::CommandId::file_save_as, L"另存为(&A)...\tCtrl+Shift+S");
     AddSeparator(file);
     AddPopup(file, recent_menu_, L"最近文件(&R)");
+    AddSeparator(file);
+    AddCommand(file, app::CommandId::file_export, L"导出文档(&E)...");
     AddSeparator(file);
     AddCommand(file, app::CommandId::file_print, L"打印(&P)...\tCtrl+P");
     AddCommand(file, app::CommandId::file_page_setup, L"页面设置(&U)...");

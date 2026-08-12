@@ -53,6 +53,8 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {static_cast<bool>(file_commands_.print_document), false};
     case CommandId::file_page_setup:
         return {static_cast<bool>(file_commands_.page_setup), false};
+    case CommandId::file_export:
+        return {static_cast<bool>(file_commands_.export_document), false};
     case CommandId::edit_find:
     case CommandId::edit_replace:
         return {true, false};
@@ -150,6 +152,9 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     case CommandId::file_page_setup:
         return file_commands_.page_setup
             ? file_commands_.page_setup() : ErrorCode::document_invalid_state;
+    case CommandId::file_export:
+        return file_commands_.export_document
+            ? file_commands_.export_document() : ErrorCode::document_invalid_state;
     case CommandId::file_exit:
         if (request_exit_) request_exit_();
         return ErrorCode::ok;

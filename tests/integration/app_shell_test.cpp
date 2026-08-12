@@ -47,6 +47,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     document::DocumentSession session("");
     ui::MainWindow window(session);
     bool exit_requested{};
+    bool export_requested{};
     app::CommandDispatcher dispatcher(window.document_window(),
         [&exit_requested] { exit_requested = true; }, {
             [&session] { return !session.is_dirty(); },
@@ -56,6 +57,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             [] { return ErrorCode::ok; },
             [] { return ErrorCode::ok; },
             [] { return ErrorCode::ok; },
+            [&export_requested] { export_requested = true; return ErrorCode::ok; },
         });
     window.set_command_callbacks(
         [&dispatcher](app::CommandId command) { return dispatcher.query(command); },
@@ -89,6 +91,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!window.toolbar() || !window.toolbar()->handle()) {
         DestroyWindow(window.handle()); CoUninitialize(); return 40;
     }
+    if (!dispatcher.query(app::CommandId::file_export).enabled ||
+        dispatcher.execute(app::CommandId::file_export) != ErrorCode::ok ||
+        !export_requested) { DestroyWindow(window.handle()); CoUninitialize(); return 58; }
     if (!window.status_bar().handle()) {
         DestroyWindow(window.handle()); CoUninitialize(); return 41;
     }
