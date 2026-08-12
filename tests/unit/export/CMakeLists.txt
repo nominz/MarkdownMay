@@ -3,6 +3,7 @@ add_executable(
     export_document_test.cpp
     export_task_test.cpp
     docx_writer_test.cpp
+    html_writer_test.cpp
     pdf_writer_test.cpp
     txt_writer_test.cpp
 )

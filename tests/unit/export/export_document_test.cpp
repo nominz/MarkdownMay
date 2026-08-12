@@ -7,6 +7,7 @@
 
 int RunExportTaskTests();
 int RunDocxWriterTests();
+int RunHtmlWriterTests();
 int RunPdfWriterTests();
 int RunTxtWriterTests();
 
@@ -84,5 +85,5 @@ int main() {
     if (resources.value().resources[2].state != ExportResourceState::missing) return 13;
 
     const auto task = RunExportTaskTests();
-    if(task!=0)return task;const auto txt=RunTxtWriterTests();if(txt!=0)return txt;const auto pdf=RunPdfWriterTests();return pdf==0?RunDocxWriterTests():pdf;
+    if(task!=0)return task;const auto txt=RunTxtWriterTests();if(txt!=0)return txt;const auto pdf=RunPdfWriterTests();if(pdf!=0)return pdf;const auto docx=RunDocxWriterTests();return docx==0?RunHtmlWriterTests():docx;
 }
