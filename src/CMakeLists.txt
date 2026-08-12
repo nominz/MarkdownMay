@@ -10,6 +10,7 @@ add_library(
     document/document_reconciler.cpp
     document/document_session.cpp
     export/export_document.cpp
+    export/docx_writer.cpp
     export/export_task.cpp
     export/pdf_writer.cpp
     export/txt_writer.cpp

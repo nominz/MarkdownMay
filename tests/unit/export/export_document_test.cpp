@@ -6,6 +6,7 @@
 #include <variant>
 
 int RunExportTaskTests();
+int RunDocxWriterTests();
 int RunPdfWriterTests();
 int RunTxtWriterTests();
 
@@ -83,5 +84,5 @@ int main() {
     if (resources.value().resources[2].state != ExportResourceState::missing) return 13;
 
     const auto task = RunExportTaskTests();
-    if(task!=0)return task;const auto txt=RunTxtWriterTests();return txt==0?RunPdfWriterTests():txt;
+    if(task!=0)return task;const auto txt=RunTxtWriterTests();if(txt!=0)return txt;const auto pdf=RunPdfWriterTests();return pdf==0?RunDocxWriterTests():pdf;
 }
