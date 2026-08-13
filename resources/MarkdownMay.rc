@@ -1,3 +1,5 @@
 #include "resource.h"
 
 IDI_MARKDOWNMAY ICON "icons/MarkdownMay.ico"
+IDI_MARKDOWN_DOCUMENT ICON "icons/MarkdownMay.documents.md.ico"
+IDI_TEXT_DOCUMENT ICON "icons/MarkdownMay.documents.md.ico"

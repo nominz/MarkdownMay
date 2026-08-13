@@ -27,6 +27,8 @@ public:
 
     [[nodiscard]] static std::wstring open_command(
         const std::filesystem::path& executable);
+    [[nodiscard]] static std::wstring icon_reference(
+        const std::filesystem::path& executable, int resource_id);
 
 private:
     HKEY current_user_{};

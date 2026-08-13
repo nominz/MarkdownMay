@@ -107,23 +107,30 @@ std::wstring FileAssociationRegistry::open_command(
     return L"\"" + normalized + L"\" \"%1\"";
 }
 
+std::wstring FileAssociationRegistry::icon_reference(
+    const std::filesystem::path& executable, int resource_id) {
+    const auto normalized = std::filesystem::absolute(executable).lexically_normal().wstring();
+    return L"\"" + normalized + L"\",-" + std::to_wstring(resource_id);
+}
+
 ErrorCode FileAssociationRegistry::register_application(
     const std::filesystem::path& executable) const {
     const auto normalized = std::filesystem::absolute(executable).lexically_normal();
     const auto exe = normalized.wstring();
-    const auto icon = L"\"" + exe + L"\",0";
+    const auto markdown_icon = icon_reference(normalized, 102);
+    const auto text_icon = icon_reference(normalized, 103);
     const auto command = open_command(normalized);
     const std::array<LONG, 15> results{
         SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown", nullptr,
             L"马冬梅 Markdown 文档"),
         SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\DefaultIcon",
-            nullptr, icon),
+            nullptr, markdown_icon),
         SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\shell\\open\\command",
             nullptr, command),
         SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text", nullptr,
             L"马冬梅纯文本文档"),
         SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\DefaultIcon",
-            nullptr, icon),
+            nullptr, text_icon),
         SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command",
             nullptr, command),
         SetNone(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kMarkdownProgId),
@@ -167,18 +174,19 @@ ErrorCode FileAssociationRegistry::unregister_application(
     const auto normalized = std::filesystem::absolute(executable).lexically_normal();
     const auto exe = normalized.wstring();
     const auto command = open_command(normalized);
-    const auto icon = L"\"" + exe + L"\",0";
+    const auto markdown_icon = icon_reference(normalized, 102);
+    const auto text_icon = icon_reference(normalized, 103);
     const std::array<LONG, 16> value_results{
         DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown",
             nullptr, L"马冬梅 Markdown 文档"),
         DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\DefaultIcon",
-            nullptr, icon),
+            nullptr, markdown_icon),
         DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\shell\\open\\command",
             nullptr, command),
         DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text",
             nullptr, L"马冬梅纯文本文档"),
         DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\DefaultIcon",
-            nullptr, icon),
+            nullptr, text_icon),
         DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command",
             nullptr, command),
         DeleteValueIfPresent(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kMarkdownProgId),

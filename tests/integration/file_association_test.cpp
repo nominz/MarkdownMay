@@ -68,6 +68,14 @@ int main() {
             L".txt") != L"MarkdownMay.Document.Text") {
         cleanup(); return 3;
     }
+    if (ReadString(root,
+            L"Software\\Classes\\MarkdownMay.Document.Markdown\\DefaultIcon", nullptr) !=
+            platform::FileAssociationRegistry::icon_reference(first, 102) ||
+        ReadString(root,
+            L"Software\\Classes\\MarkdownMay.Document.Text\\DefaultIcon", nullptr) !=
+            platform::FileAssociationRegistry::icon_reference(first, 103)) {
+        cleanup(); return 9;
+    }
     HKEY forbidden{};
     if (RegOpenKeyExW(root,
             L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.md\\UserChoice",

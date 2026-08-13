@@ -1,3 +1,5 @@
 #pragma once
 
 #define IDI_MARKDOWNMAY 101
+#define IDI_MARKDOWN_DOCUMENT 102
+#define IDI_TEXT_DOCUMENT 103
