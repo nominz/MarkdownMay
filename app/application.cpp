@@ -289,7 +289,7 @@ ErrorCode Application::OpenDocumentDialog() {
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = main_window_.handle();
-    dialog.lpstrFilter = L"Markdown 文档 (*.md;*.markdown)\0*.md;*.markdown\0所有文件 (*.*)\0*.*\0\0";
+    dialog.lpstrFilter = L"支持的文档 (*.md;*.markdown;*.txt)\0*.md;*.markdown;*.txt\0Markdown 文档 (*.md;*.markdown)\0*.md;*.markdown\0纯文本 (*.txt)\0*.txt\0所有文件 (*.*)\0*.*\0\0";
     dialog.lpstrFile = path.data();
     dialog.nMaxFile = static_cast<DWORD>(path.size());
     dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
@@ -325,15 +325,16 @@ ErrorCode Application::SaveDocumentAs() {
     if (!PrepareLineEndingForSave()) return ErrorCode::ok;
     std::array<wchar_t, 32768> path{};
     auto& document = main_window_.document_window();
-    const auto initial = document.is_named() ? document.path().wstring() : std::wstring(L"无标题.md");
+    const auto initial = document.is_named() ? document.path().wstring() :
+        std::wstring(session_.kind() == document::DocumentKind::plain_text ? L"无标题.txt" : L"无标题.md");
     wcsncpy_s(path.data(), path.size(), initial.c_str(), _TRUNCATE);
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = main_window_.handle();
-    dialog.lpstrFilter = L"Markdown 文档 (*.md;*.markdown)\0*.md;*.markdown\0所有文件 (*.*)\0*.*\0\0";
+    dialog.lpstrFilter = L"Markdown 文档 (*.md;*.markdown)\0*.md;*.markdown\0纯文本 (*.txt)\0*.txt\0所有文件 (*.*)\0*.*\0\0";
     dialog.lpstrFile = path.data();
     dialog.nMaxFile = static_cast<DWORD>(path.size());
-    dialog.lpstrDefExt = L"md";
+    dialog.lpstrDefExt = session_.kind() == document::DocumentKind::plain_text ? L"txt" : L"md";
     dialog.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameW(&dialog)) return ErrorCode::ok;
     const auto result = document.save_document_as(path.data());

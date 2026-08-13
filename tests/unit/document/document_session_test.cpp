@@ -95,6 +95,12 @@ int RunDocumentSessionTests() {
         {{{0, 0}, "前缀"}}};
     if (plain.commit(plain_edit) != ErrorCode::ok ||
         plain.snapshot().semantic || plain.can_export()) return 36;
+    if (plain.reload("# 仍是普通文字\n", DocumentKind::plain_text) != ErrorCode::ok ||
+        plain.snapshot().semantic || plain.can_export()) return 41;
+    if (plain.change_kind(DocumentKind::markdown) != ErrorCode::ok ||
+        plain.kind() != DocumentKind::markdown || !plain.can_export()) return 42;
+    if (plain.change_kind(DocumentKind::plain_text) != ErrorCode::ok ||
+        plain.snapshot().semantic || plain.can_export()) return 43;
 
     using markdownmay::services::SourcePositionMapper;
     const auto mapped = SourcePositionMapper::MapCaret(

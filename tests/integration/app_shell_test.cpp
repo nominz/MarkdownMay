@@ -425,6 +425,47 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CoUninitialize();
         return 16;
     }
+    const auto text_file = temporary.path / L"纯文本.txt";
+    const std::string text_source = "# 不是标题\n* 不是列表\n";
+    if (fileio::SaveTextFileAtomic({text_file, text_source,
+            fileio::TextEncoding::utf8_bom, fileio::LineEnding::crlf}) != ErrorCode::ok ||
+        window.document_window().open_document(text_file) != ErrorCode::ok ||
+        session.kind() != document::DocumentKind::plain_text ||
+        session.snapshot().semantic || session.can_export() ||
+        window.document_window().modes().mode() != editor::ViewMode::source ||
+        dispatcher.query(app::CommandId::view_render).enabled ||
+        dispatcher.query(app::CommandId::view_split).enabled ||
+        dispatcher.query(app::CommandId::view_outline).enabled ||
+        dispatcher.query(app::CommandId::format_bold).enabled ||
+        dispatcher.query(app::CommandId::file_export).enabled ||
+        dispatcher.query(app::CommandId::file_print).enabled ||
+        !dispatcher.query(app::CommandId::edit_find).enabled) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 71;
+    }
+    window.status_bar().refresh();
+    SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 0,
+        reinterpret_cast<LPARAM>(status));
+    if (std::wstring(status) != L"纯文本" ||
+        window.document_window().save_document() != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 72;
+    }
+    const auto text_reopened = fileio::LoadTextFile(text_file);
+    if (!text_reopened.is_ok() || text_reopened.value().source !=
+            fileio::NormalizeLineEndings(text_source, fileio::LineEnding::crlf) ||
+        text_reopened.value().encoding != fileio::TextEncoding::utf8_bom ||
+        text_reopened.value().line_ending != fileio::LineEnding::crlf) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 73;
+    }
+    const auto converted_markdown = temporary.path / L"纯文本转 Markdown.md";
+    if (window.document_window().save_document_as(converted_markdown) != ErrorCode::ok ||
+        session.kind() != document::DocumentKind::markdown || !session.can_export() ||
+        session.snapshot().source != fileio::NormalizeLineEndings(
+            text_source, fileio::LineEnding::crlf)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 74;
+    }
+    if (window.document_window().new_document() != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 75;
+    }
     const auto dropped = second.wstring();
     const auto drop_bytes = sizeof(DROPFILES) +
         (dropped.size() + 1) * sizeof(wchar_t);

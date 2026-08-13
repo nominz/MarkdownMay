@@ -103,15 +103,31 @@ ErrorCode DocumentSession::accept_parse_result(
 }
 
 ErrorCode DocumentSession::reload(std::string source) {
+    return reload(std::move(source), kind_);
+}
+
+ErrorCode DocumentSession::reload(std::string source, DocumentKind kind) {
     if (!fileio::IsValidUtf8(source)) return ErrorCode::file_encoding_invalid;
     const auto next_revision = source_revision_ + 1;
-    auto semantic = kind_ == DocumentKind::markdown
+    auto semantic = kind == DocumentKind::markdown
         ? markdown::ParseMarkdown(source, next_revision) : nullptr;
     source_ = std::move(source);
+    kind_ = kind;
     source_revision_ = next_revision;
     semantic_ = std::move(semantic);
     parsed_revision_ = semantic_ ? source_revision_ : 0;
     saved_revision_ = source_revision_;
+    Notify({0, source_revision_, parsed_revision_, EditOrigin::file_reload});
+    return ErrorCode::ok;
+}
+
+ErrorCode DocumentSession::change_kind(DocumentKind kind) {
+    if (kind == kind_) return ErrorCode::ok;
+    auto semantic = kind == DocumentKind::markdown
+        ? markdown::ParseMarkdown(source_, source_revision_) : nullptr;
+    kind_ = kind;
+    semantic_ = std::move(semantic);
+    parsed_revision_ = semantic_ ? source_revision_ : 0;
     Notify({0, source_revision_, parsed_revision_, EditOrigin::file_reload});
     return ErrorCode::ok;
 }

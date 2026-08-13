@@ -73,6 +73,8 @@ ErrorCode ViewModeController::create(HWND parent, const RECT& bounds) {
 }
 
 ErrorCode ViewModeController::switch_to(ViewMode target) {
+    if (session_.kind() == document::DocumentKind::plain_text &&
+        target != ViewMode::source) return ErrorCode::document_invalid_state;
     if (target == mode_) return ErrorCode::ok;
     SwitchingGuard switching(switching_mode_);
     auto selection = CaptureSelection();
@@ -198,8 +200,8 @@ ErrorCode ViewModeController::save(const std::filesystem::path& target,
     return session_.mark_saved(snapshot.source_revision);
 }
 
-ErrorCode ViewModeController::reload(std::string source) {
-    const auto result = session_.reload(std::move(source));
+ErrorCode ViewModeController::reload(std::string source, document::DocumentKind kind) {
+    const auto result = session_.reload(std::move(source), kind);
     if (result != ErrorCode::ok) return result;
     if (session_.can_export()) {
         render_.reset_to_start();
@@ -217,6 +219,17 @@ ErrorCode ViewModeController::reload(std::string source) {
     ShowWindow(split_.handle(), SW_SHOW);
     mode_ = ViewMode::source;
     return ErrorCode::ok;
+}
+
+ErrorCode ViewModeController::change_document_kind(document::DocumentKind kind) {
+    const auto synchronized = SynchronizeActive();
+    if (synchronized != ErrorCode::ok && synchronized != ErrorCode::markdown_parse_failed)
+        return synchronized;
+    return reload(session_.snapshot().source, kind);
+}
+
+bool ViewModeController::supports_markdown_commands() const noexcept {
+    return session_.kind() == document::DocumentKind::markdown;
 }
 
 void ViewModeController::set_document_path(std::filesystem::path path) {
@@ -379,6 +392,8 @@ void ViewModeController::RestoreSelection(TextSelection selection) {
 }
 
 ErrorCode ViewModeController::RefreshActive() {
+    if (session_.kind() == document::DocumentKind::plain_text &&
+        mode_ != ViewMode::source) mode_ = ViewMode::source;
     const auto selection = CaptureSelection();
     ErrorCode result{};
     if (mode_ == ViewMode::render) {

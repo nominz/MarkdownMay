@@ -41,6 +41,7 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {static_cast<bool>(appearance_commands_.set_preference), preference == expected};
     }
     const auto& modes = document_window_.modes();
+    const bool markdown = modes.supports_markdown_commands();
     switch (command) {
     case CommandId::file_new:
     case CommandId::file_open:
@@ -50,11 +51,11 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::file_save_as:
         return {static_cast<bool>(file_commands_.save_document_as), false};
     case CommandId::file_print:
-        return {static_cast<bool>(file_commands_.print_document), false};
+        return {markdown && static_cast<bool>(file_commands_.print_document), false};
     case CommandId::file_page_setup:
-        return {static_cast<bool>(file_commands_.page_setup), false};
+        return {markdown && static_cast<bool>(file_commands_.page_setup), false};
     case CommandId::file_export:
-        return {static_cast<bool>(file_commands_.export_document), false};
+        return {markdown && static_cast<bool>(file_commands_.export_document), false};
     case CommandId::edit_find:
     case CommandId::edit_replace:
         return {true, false};
@@ -63,20 +64,20 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::edit_redo:
         return {modes.can_redo(), false};
     case CommandId::format_bold:
-        return {modes.mode() == editor::ViewMode::render,
+        return {markdown && modes.mode() == editor::ViewMode::render,
             modes.inline_active(editor::InlineFormat::bold)};
     case CommandId::format_italic:
-        return {modes.mode() == editor::ViewMode::render,
+        return {markdown && modes.mode() == editor::ViewMode::render,
             modes.inline_active(editor::InlineFormat::italic)};
     case CommandId::format_strike:
-        return {modes.mode() == editor::ViewMode::render,
+        return {markdown && modes.mode() == editor::ViewMode::render,
             modes.inline_active(editor::InlineFormat::strike)};
     case CommandId::format_inline_code:
     case CommandId::format_quote:
     case CommandId::format_unordered_list:
     case CommandId::format_ordered_list:
     case CommandId::format_task_list:
-        return {modes.mode() == editor::ViewMode::render, false};
+        return {markdown && modes.mode() == editor::ViewMode::render, false};
     case CommandId::format_body:
     case CommandId::format_heading1:
     case CommandId::format_heading2:
@@ -86,17 +87,17 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::format_heading6: {
         const auto level = command == CommandId::format_body ? 0 :
             static_cast<std::uint8_t>(native - static_cast<std::uint16_t>(CommandId::format_heading1) + 1);
-        return {modes.mode() == editor::ViewMode::render,
+        return {markdown && modes.mode() == editor::ViewMode::render,
             modes.mode() == editor::ViewMode::render && modes.current_heading_level() == level};
     }
     case CommandId::view_render:
-        return {true, modes.mode() == editor::ViewMode::render};
+        return {markdown, modes.mode() == editor::ViewMode::render};
     case CommandId::view_source:
         return {true, modes.mode() == editor::ViewMode::source};
     case CommandId::view_split:
-        return {true, modes.mode() == editor::ViewMode::split};
+        return {markdown, modes.mode() == editor::ViewMode::split};
     case CommandId::view_outline:
-        return {true, document_window_.outline_visible()};
+        return {markdown, document_window_.outline_visible()};
     default:
         return {true, false};
     }

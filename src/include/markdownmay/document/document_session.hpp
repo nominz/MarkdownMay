@@ -62,6 +62,8 @@ public:
         std::uint64_t source_revision,
         std::shared_ptr<const Document> semantic);
     [[nodiscard]] ErrorCode reload(std::string source);
+    [[nodiscard]] ErrorCode reload(std::string source, DocumentKind kind);
+    [[nodiscard]] ErrorCode change_kind(DocumentKind kind);
     [[nodiscard]] ErrorCode mark_saved(std::uint64_t revision) noexcept;
     [[nodiscard]] bool can_export() const noexcept;
     [[nodiscard]] bool is_dirty() const noexcept;

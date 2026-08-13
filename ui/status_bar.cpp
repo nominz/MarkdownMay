@@ -84,9 +84,10 @@ void StatusBar::refresh() {
     const auto snapshot = session_.snapshot();
     const auto characters = CountCharacters(snapshot.source);
     const auto count = std::to_wstring(characters) + L" 字";
-    labels_ = {L"大纲", session_.is_dirty() ? L"未保存" : L"已保存",
+    labels_ = {snapshot.kind == document::DocumentKind::plain_text ? L"纯文本" : L"大纲",
+        session_.is_dirty() ? L"未保存" : L"已保存",
         EncodingName(encoding_), LineEndingName(line_ending_), count,
-        ModeName(modes_.mode())};
+        snapshot.kind == document::DocumentKind::plain_text ? L"纯文本" : ModeName(modes_.mode())};
     for (std::size_t index = 0; index < labels_.size(); ++index)
         SendMessageW(handle_, SB_SETTEXTW, index,
             reinterpret_cast<LPARAM>(labels_[index].c_str()));

@@ -35,7 +35,10 @@ public:
     [[nodiscard]] ErrorCode save(const std::filesystem::path& target,
         fileio::TextEncoding encoding, fileio::LineEnding line_ending,
         fileio::BeforeAtomicReplace before_replace = {});
-    [[nodiscard]] ErrorCode reload(std::string source);
+    [[nodiscard]] ErrorCode reload(std::string source,
+        document::DocumentKind kind = document::DocumentKind::markdown);
+    [[nodiscard]] ErrorCode change_document_kind(document::DocumentKind kind);
+    [[nodiscard]] bool supports_markdown_commands() const noexcept;
     void set_document_path(std::filesystem::path path);
     [[nodiscard]] bool can_undo() const noexcept;
     [[nodiscard]] bool can_redo() const noexcept;

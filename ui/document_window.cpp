@@ -4,7 +4,18 @@
 #include <commctrl.h>
 #include <windowsx.h>
 
+#include <algorithm>
+#include <cwctype>
+
 namespace markdownmay::ui {
+namespace {
+document::DocumentKind KindForPath(const std::filesystem::path& path) {
+    auto extension = path.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(), towlower);
+    return extension == L".txt" ? document::DocumentKind::plain_text
+                                : document::DocumentKind::markdown;
+}
+}
 
 DocumentWindow::DocumentWindow(document::DocumentSession& session)
     : modes_(session), find_replace_(modes_), outline_(session, modes_) {}
@@ -73,7 +84,7 @@ void DocumentWindow::toggle_find(bool replace_mode) {
 }
 
 ErrorCode DocumentWindow::new_document() {
-    const auto result = modes_.reload("");
+    const auto result = modes_.reload("", document::DocumentKind::markdown);
     if (result != ErrorCode::ok) return result;
     path_.clear();
     encoding_ = fileio::TextEncoding::utf8;
@@ -87,7 +98,7 @@ ErrorCode DocumentWindow::new_document() {
 ErrorCode DocumentWindow::open_document(const std::filesystem::path& path) {
     const auto loaded = fileio::LoadTextFile(path);
     if (!loaded.is_ok()) return loaded.error();
-    const auto result = modes_.reload(loaded.value().source);
+    const auto result = modes_.reload(loaded.value().source, KindForPath(path));
     if (result != ErrorCode::ok) return result;
     path_ = loaded.value().path;
     encoding_ = loaded.value().encoding;
@@ -115,6 +126,8 @@ ErrorCode DocumentWindow::save_document_as(const std::filesystem::path& path) {
     read_only_ = false;
     acknowledge_external_change();
     modes_.set_document_path(path_);
+    const auto kind_result = modes_.change_document_kind(KindForPath(path_));
+    if (kind_result != ErrorCode::ok) return kind_result;
     return ErrorCode::ok;
 }
 
