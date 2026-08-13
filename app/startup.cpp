@@ -44,17 +44,18 @@ int RunStartup(HINSTANCE instance, int show_command) {
         if (executable.empty()) return 4;
         const auto registered = association.register_application(executable);
         if (registered != ErrorCode::ok) {
-            MessageBoxW(nullptr, L"无法注册 Markdown 候选程序。",
+            MessageBoxW(nullptr, L"无法注册 Markdown 和 TXT 候选程序。",
                 L"马冬梅", MB_OK | MB_ICONERROR);
             return 4;
         }
         MessageBoxW(nullptr,
-            L"候选程序注册完成。接下来请在 Windows 设置中亲自选择默认应用。",
+            L"Markdown 和 TXT 候选程序注册完成；当前默认应用没有被更改。\n"
+            L"接下来请在 Windows 设置中亲自选择默认应用。",
             L"马冬梅", MB_OK | MB_ICONINFORMATION);
         return platform::OpenDefaultAppsSettings() == ErrorCode::ok ? 0 : 5;
     }
     if (options.value().unregister_file_types) {
-        const auto removed = association.unregister_application();
+        const auto removed = association.unregister_application(executable);
         MessageBoxW(nullptr, removed == ErrorCode::ok
             ? L"文件关联注册已撤销。" : L"无法撤销文件关联注册。",
             L"马冬梅", MB_OK | (removed == ErrorCode::ok ? MB_ICONINFORMATION : MB_ICONERROR));

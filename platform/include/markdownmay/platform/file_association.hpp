@@ -16,7 +16,8 @@ public:
     explicit FileAssociationRegistry(HKEY current_user = HKEY_CURRENT_USER) noexcept;
     [[nodiscard]] ErrorCode register_application(
         const std::filesystem::path& executable) const;
-    [[nodiscard]] ErrorCode unregister_application() const;
+    [[nodiscard]] ErrorCode unregister_application(
+        const std::filesystem::path& executable) const;
     [[nodiscard]] AssociationState state(
         const std::filesystem::path& executable) const;
     [[nodiscard]] bool repair_prompt_ignored(

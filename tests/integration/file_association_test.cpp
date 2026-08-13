@@ -55,10 +55,17 @@ int main() {
         cleanup(); return 2;
     }
     const auto command = ReadString(root,
-        L"Software\\Classes\\MarkdownMay.Document\\shell\\open\\command", nullptr);
+        L"Software\\Classes\\MarkdownMay.Document.Markdown\\shell\\open\\command", nullptr);
+    const auto text_command = ReadString(root,
+        L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command", nullptr);
     if (command != platform::FileAssociationRegistry::open_command(first) ||
+        text_command != platform::FileAssociationRegistry::open_command(first) ||
         ReadString(root, L"Software\\RegisteredApplications", L"Markdown May") !=
-            L"Software\\MarkdownMay\\Capabilities") {
+            L"Software\\MarkdownMay\\Capabilities" ||
+        ReadString(root, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
+            L".md") != L"MarkdownMay.Document.Markdown" ||
+        ReadString(root, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
+            L".txt") != L"MarkdownMay.Document.Text") {
         cleanup(); return 3;
     }
     HKEY forbidden{};
@@ -80,12 +87,19 @@ int main() {
         registry.repair_prompt_ignored(moved)) {
         cleanup(); return 6;
     }
-    if (registry.unregister_application() != ErrorCode::ok ||
-        registry.state(moved) != platform::AssociationState::not_registered ||
-        ReadString(root, L"Software\\Classes\\.md\\OpenWithProgids",
-            L"Another.Editor") != L"keep") {
-        cleanup(); return 7;
-    }
+    if (!SetString(root,
+            L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command",
+            nullptr, L"\"C:\\Other.exe\" \"%1\"") ||
+        !SetString(root, L"Software\\Classes\\MarkdownMay.Document.Markdown",
+            L"ForeignValue", L"keep")) { cleanup(); return 70; }
+    if (registry.unregister_application(moved) != ErrorCode::ok) { cleanup(); return 71; }
+    if (ReadString(root, L"Software\\Classes\\.md\\OpenWithProgids",
+            L"Another.Editor") != L"keep") { cleanup(); return 73; }
+    if (ReadString(root,
+            L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command",
+            nullptr) != L"\"C:\\Other.exe\" \"%1\"") { cleanup(); return 74; }
+    if (ReadString(root, L"Software\\Classes\\MarkdownMay.Document.Markdown",
+            L"ForeignValue") != L"keep") { cleanup(); return 75; }
     if (std::wstring(platform::DefaultAppsSettingsUri()) !=
         L"ms-settings:defaultapps?registeredAppUser=Markdown%20May") {
         cleanup(); return 8;

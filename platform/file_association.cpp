@@ -12,7 +12,9 @@
 
 namespace markdownmay::platform {
 namespace {
-constexpr wchar_t kProgId[] = L"MarkdownMay.Document";
+constexpr wchar_t kMarkdownProgId[] = L"MarkdownMay.Document.Markdown";
+constexpr wchar_t kTextProgId[] = L"MarkdownMay.Document.Text";
+constexpr wchar_t kLegacyProgId[] = L"MarkdownMay.Document";
 constexpr wchar_t kRegisteredName[] = L"Markdown May";
 constexpr wchar_t kCapabilities[] = L"Software\\MarkdownMay\\Capabilities";
 constexpr wchar_t kIgnoredRepair[] = L"Software\\MarkdownMay";
@@ -86,6 +88,14 @@ LONG DeleteValueIfPresent(HKEY root, const wchar_t* path, const wchar_t* name) {
     const auto deleted = RegDeleteValueW(key.get(), name);
     return deleted == ERROR_FILE_NOT_FOUND ? ERROR_SUCCESS : deleted;
 }
+
+LONG DeleteValueIfEqual(HKEY root, const wchar_t* path, const wchar_t* name,
+                        std::wstring_view expected) {
+    const auto current = ReadString(root, path, name);
+    if (!current || !Same(*current, expected)) return ERROR_SUCCESS;
+    return DeleteValueIfPresent(root, path, name);
+}
+
 }
 
 FileAssociationRegistry::FileAssociationRegistry(HKEY current_user) noexcept
@@ -103,22 +113,31 @@ ErrorCode FileAssociationRegistry::register_application(
     const auto exe = normalized.wstring();
     const auto icon = L"\"" + exe + L"\",0";
     const auto command = open_command(normalized);
-    const std::array<LONG, 10> results{
-        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document", nullptr,
+    const std::array<LONG, 15> results{
+        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown", nullptr,
             L"马冬梅 Markdown 文档"),
-        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document\\DefaultIcon",
+        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\DefaultIcon",
             nullptr, icon),
-        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document\\shell\\open\\command",
+        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\shell\\open\\command",
             nullptr, command),
-        SetNone(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kProgId),
-        SetNone(current_user_, L"Software\\Classes\\.markdown\\OpenWithProgids", kProgId),
+        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text", nullptr,
+            L"马冬梅纯文本文档"),
+        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\DefaultIcon",
+            nullptr, icon),
+        SetString(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command",
+            nullptr, command),
+        SetNone(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kMarkdownProgId),
+        SetNone(current_user_, L"Software\\Classes\\.markdown\\OpenWithProgids", kMarkdownProgId),
+        SetNone(current_user_, L"Software\\Classes\\.txt\\OpenWithProgids", kTextProgId),
         SetString(current_user_, kCapabilities, L"ApplicationName", kRegisteredName),
         SetString(current_user_, kCapabilities, L"ApplicationDescription",
-            L"轻量、免费、开源的 Markdown 编辑器"),
+            L"轻量、免费、开源的 Markdown 与纯文本编辑器"),
         SetString(current_user_, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
-            L".md", kProgId),
+            L".md", kMarkdownProgId),
         SetString(current_user_, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
-            L".markdown", kProgId),
+            L".markdown", kMarkdownProgId),
+        SetString(current_user_, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
+            L".txt", kTextProgId),
         SetString(current_user_, L"Software\\RegisteredApplications", kRegisteredName,
             kCapabilities),
     };
@@ -127,25 +146,63 @@ ErrorCode FileAssociationRegistry::register_application(
             return result == ERROR_ACCESS_DENIED ? ErrorCode::platform_registry_access_denied
                                                  : ErrorCode::platform_association_write_failed;
     }
+    const auto legacy_command = ReadString(current_user_,
+        L"Software\\Classes\\MarkdownMay.Document\\shell\\open\\command", nullptr);
+    if (legacy_command && Same(*legacy_command, command)) {
+        (void)DeleteValueIfPresent(current_user_,
+            L"Software\\Classes\\MarkdownMay.Document\\shell\\open\\command", nullptr);
+        (void)DeleteValueIfPresent(current_user_,
+            L"Software\\Classes\\.md\\OpenWithProgids", kLegacyProgId);
+        (void)DeleteValueIfPresent(current_user_,
+            L"Software\\Classes\\.markdown\\OpenWithProgids", kLegacyProgId);
+    }
     (void)DeleteValueIfPresent(current_user_, kIgnoredRepair,
         L"IgnoredAssociationRepairPath");
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     return ErrorCode::ok;
 }
 
-ErrorCode FileAssociationRegistry::unregister_application() const {
-    LONG first_error = RegDeleteTreeW(current_user_, L"Software\\Classes\\MarkdownMay.Document");
-    if (first_error == ERROR_FILE_NOT_FOUND) first_error = ERROR_SUCCESS;
-    const std::array<LONG, 3> value_results{
-        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kProgId),
-        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.markdown\\OpenWithProgids", kProgId),
-        DeleteValueIfPresent(current_user_, L"Software\\RegisteredApplications", kRegisteredName),
+ErrorCode FileAssociationRegistry::unregister_application(
+    const std::filesystem::path& executable) const {
+    const auto normalized = std::filesystem::absolute(executable).lexically_normal();
+    const auto exe = normalized.wstring();
+    const auto command = open_command(normalized);
+    const auto icon = L"\"" + exe + L"\",0";
+    const std::array<LONG, 16> value_results{
+        DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown",
+            nullptr, L"马冬梅 Markdown 文档"),
+        DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\DefaultIcon",
+            nullptr, icon),
+        DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Markdown\\shell\\open\\command",
+            nullptr, command),
+        DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text",
+            nullptr, L"马冬梅纯文本文档"),
+        DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\DefaultIcon",
+            nullptr, icon),
+        DeleteValueIfEqual(current_user_, L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command",
+            nullptr, command),
+        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kMarkdownProgId),
+        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.markdown\\OpenWithProgids", kMarkdownProgId),
+        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.txt\\OpenWithProgids", kTextProgId),
+        DeleteValueIfEqual(current_user_, L"Software\\RegisteredApplications", kRegisteredName,
+            kCapabilities),
+        DeleteValueIfEqual(current_user_, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
+            L".md", kMarkdownProgId),
+        DeleteValueIfEqual(current_user_, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
+            L".markdown", kMarkdownProgId),
+        DeleteValueIfEqual(current_user_, L"Software\\MarkdownMay\\Capabilities\\FileAssociations",
+            L".txt", kTextProgId),
+        DeleteValueIfEqual(current_user_,
+            L"Software\\Classes\\MarkdownMay.Document\\shell\\open\\command",
+            nullptr, command),
+        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.md\\OpenWithProgids",
+            kLegacyProgId),
+        DeleteValueIfPresent(current_user_, L"Software\\Classes\\.markdown\\OpenWithProgids",
+            kLegacyProgId),
     };
+    LONG first_error = ERROR_SUCCESS;
     for (const auto result : value_results)
         if (first_error == ERROR_SUCCESS && result != ERROR_SUCCESS) first_error = result;
-    const auto capabilities = RegDeleteTreeW(current_user_, kCapabilities);
-    if (first_error == ERROR_SUCCESS && capabilities != ERROR_SUCCESS &&
-        capabilities != ERROR_FILE_NOT_FOUND) first_error = capabilities;
     const auto ignored = DeleteValueIfPresent(current_user_, kIgnoredRepair,
         L"IgnoredAssociationRepairPath");
     if (first_error == ERROR_SUCCESS && ignored != ERROR_SUCCESS) first_error = ignored;
@@ -158,15 +215,20 @@ ErrorCode FileAssociationRegistry::unregister_application() const {
 AssociationState FileAssociationRegistry::state(
     const std::filesystem::path& executable) const {
     const auto command = ReadString(current_user_,
-        L"Software\\Classes\\MarkdownMay.Document\\shell\\open\\command", nullptr);
+        L"Software\\Classes\\MarkdownMay.Document.Markdown\\shell\\open\\command", nullptr);
+    const auto text_command = ReadString(current_user_,
+        L"Software\\Classes\\MarkdownMay.Document.Text\\shell\\open\\command", nullptr);
     const auto registered = ReadString(current_user_,
         L"Software\\RegisteredApplications", kRegisteredName);
-    const bool md = HasValue(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kProgId);
+    const bool md = HasValue(current_user_, L"Software\\Classes\\.md\\OpenWithProgids", kMarkdownProgId);
     const bool markdown = HasValue(current_user_,
-        L"Software\\Classes\\.markdown\\OpenWithProgids", kProgId);
-    if (!command && !registered && !md && !markdown) return AssociationState::not_registered;
-    if (!command || !registered || !md || !markdown ||
-        !Same(*command, open_command(executable)) || !Same(*registered, kCapabilities))
+        L"Software\\Classes\\.markdown\\OpenWithProgids", kMarkdownProgId);
+    const bool text = HasValue(current_user_, L"Software\\Classes\\.txt\\OpenWithProgids", kTextProgId);
+    if (!command && !text_command && !registered && !md && !markdown && !text)
+        return AssociationState::not_registered;
+    if (!command || !text_command || !registered || !md || !markdown || !text ||
+        !Same(*command, open_command(executable)) ||
+        !Same(*text_command, open_command(executable)) || !Same(*registered, kCapabilities))
         return AssociationState::needs_repair;
     return AssociationState::current;
 }
@@ -192,8 +254,10 @@ const wchar_t* DefaultAppsSettingsUri() noexcept {
 }
 
 ErrorCode OpenDefaultAppsSettings(HWND owner) {
-    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(owner, L"open",
+    auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(owner, L"open",
         DefaultAppsSettingsUri(), nullptr, nullptr, SW_SHOWNORMAL));
+    if (result <= 32) result = reinterpret_cast<INT_PTR>(ShellExecuteW(owner, L"open",
+        L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL));
     return result > 32 ? ErrorCode::ok : ErrorCode::platform_default_apps_ui_failed;
 }
 

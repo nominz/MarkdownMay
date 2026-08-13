@@ -439,16 +439,16 @@ ErrorCode Application::RegisterFileAssociations() {
     const auto result = file_association_.register_application(executable);
     if (result != ErrorCode::ok) return result;
     const auto choice = MessageBoxW(main_window_.handle(),
-        L"马冬梅已注册为 Markdown 候选程序。\n\n"
-        L"Windows 仍需要您亲自选择默认应用。现在打开系统设置吗？",
+        L"马冬梅已注册为 Markdown 和 TXT 的候选打开程序。\n\n"
+        L"这不会抢占当前默认应用。是否现在打开 Windows 设置，由您亲自选择默认应用？",
         L"文件关联注册完成", MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1);
     return choice == IDYES ? OpenDefaultApps() : ErrorCode::ok;
 }
 
 ErrorCode Application::UnregisterFileAssociations() {
-    const auto result = file_association_.unregister_application();
+    const auto result = file_association_.unregister_application(ExecutablePath());
     if (result == ErrorCode::ok)
-        MessageBoxW(main_window_.handle(), L"马冬梅的 Markdown 候选程序注册已撤销。",
+        MessageBoxW(main_window_.handle(), L"马冬梅的 Markdown 和 TXT 候选程序注册已撤销。",
             L"文件关联", MB_OK | MB_ICONINFORMATION);
     return result;
 }
