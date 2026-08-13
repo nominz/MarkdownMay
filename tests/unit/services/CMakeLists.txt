@@ -11,3 +11,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_core
 )
 add_test(NAME document_split_unit COMMAND MarkdownMayDocumentSplitUnit)
+
+add_executable(MarkdownMayDocumentCombineUnit document_combine_test.cpp)
+target_link_libraries(
+    MarkdownMayDocumentCombineUnit
+    PRIVATE markdownmay_compiler_options markdownmay_core
+)
+add_test(NAME document_combine_unit COMMAND MarkdownMayDocumentCombineUnit)

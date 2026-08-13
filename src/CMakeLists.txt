@@ -18,6 +18,7 @@ add_library(
     markdown/markdown_parser.cpp
     markdown/markdown_writer.cpp
     services/local_services.cpp
+    services/document_combine.cpp
     services/document_split.cpp
     services/source_position_mapper.cpp
 )
