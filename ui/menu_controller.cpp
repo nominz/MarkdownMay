@@ -131,6 +131,9 @@ bool MenuController::create(HWND window) {
     AddSeparator(tools);
     AddCommand(tools, app::CommandId::tools_default_apps,
         L"打开 Windows 默认应用设置(&D)...");
+    AddSeparator(tools);
+    AddCommand(tools, app::CommandId::tools_place_application,
+        L"安置马冬梅(&P)...");
     AddCommand(help, app::CommandId::help_about, L"关于马冬梅(&A)\tF1");
 
     const std::array top_definitions{
@@ -214,7 +217,8 @@ void MenuController::set_recent_files(std::vector<std::filesystem::path> files) 
 
 void MenuController::refresh() {
     if (!menu_ || !query_) return;
-    for (std::uint16_t value = 100; value <= 702; ++value) {
+    for (std::uint16_t value = 100;
+         value <= Native(app::CommandId::tools_settings); ++value) {
         if (!IsKnown(value)) continue;
         const auto state = query_(static_cast<app::CommandId>(value));
         EnableMenuItem(menu_, value, MF_BYCOMMAND |

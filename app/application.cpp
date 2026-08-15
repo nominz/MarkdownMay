@@ -6,12 +6,15 @@
 
 #include <commdlg.h>
 #include <commctrl.h>
+#include <shobjidl.h>
+#include <shlobj.h>
 
 #include <array>
 #include <cwchar>
 #include <string_view>
 #include <atomic>
 #include <thread>
+#include <optional>
 
 namespace markdownmay::app {
 namespace {
@@ -56,6 +59,189 @@ int ConfirmUnsavedChanges(HWND owner) {
         L"当前文档有尚未保存的修改。是否先保存？\n\n"
         L"选择“是”保存，选择“否”放弃修改，选择“取消”继续编辑。",
         L"马冬梅", MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
+}
+
+class PlacementDialog final {
+public:
+    std::optional<std::filesystem::path> show(HWND owner,
+                                              std::filesystem::path initial) {
+        owner_ = owner;
+        value_ = std::move(initial);
+        const wchar_t class_name[] = L"MarkdownMay.PlacementDialog";
+        WNDCLASSEXW type{sizeof(type)};
+        type.lpfnWndProc = WindowProc;
+        type.hInstance = GetModuleHandleW(nullptr);
+        type.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        type.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        type.lpszClassName = class_name;
+        RegisterClassExW(&type);
+        window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, class_name,
+            L"安置马冬梅", WS_CAPTION | WS_SYSMENU | WS_POPUP,
+            CW_USEDEFAULT, CW_USEDEFAULT, 600, 230, owner_, nullptr,
+            GetModuleHandleW(nullptr), this);
+        if (!window_) return std::nullopt;
+        CenterAndShow();
+        EnableWindow(owner_, FALSE);
+        MSG message{};
+        while (window_ && GetMessageW(&message, nullptr, 0, 0) > 0) {
+            if (!IsDialogMessageW(window_, &message)) {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+        EnableWindow(owner_, TRUE);
+        SetForegroundWindow(owner_);
+        return accepted_ ? std::optional(value_) : std::nullopt;
+    }
+
+private:
+    enum : int { edit_path = 1001, browse = 1002 };
+
+    static LRESULT CALLBACK WindowProc(HWND window, UINT message,
+                                       WPARAM w_param, LPARAM l_param) {
+        auto* self = reinterpret_cast<PlacementDialog*>(
+            GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (message == WM_NCCREATE) {
+            self = reinterpret_cast<PlacementDialog*>(
+                reinterpret_cast<CREATESTRUCTW*>(l_param)->lpCreateParams);
+            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+            self->window_ = window;
+        }
+        return self ? self->HandleMessage(message, w_param, l_param)
+                    : DefWindowProcW(window, message, w_param, l_param);
+    }
+
+    LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) {
+        if (message == WM_CREATE) {
+            const auto font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            auto make = [&](const wchar_t* type, const wchar_t* text, DWORD style,
+                            int id) {
+                const auto control = CreateWindowExW(wcscmp(type, L"EDIT") == 0
+                        ? WS_EX_CLIENTEDGE : 0,
+                    type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 0, 0,
+                    window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                    GetModuleHandleW(nullptr), nullptr);
+                SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                return control;
+            };
+            note_ = make(L"STATIC",
+                L"请选择马冬梅长期保存的位置。马冬梅程序仅约 2 MB，您可以放心将它保存在系统盘。",
+                SS_LEFT, 0);
+            label_ = make(L"STATIC", L"目标文件夹：", SS_LEFT, 0);
+            edit_ = make(L"EDIT", value_.c_str(), ES_AUTOHSCROLL | WS_TABSTOP, edit_path);
+            browse_ = make(L"BUTTON", L"浏览…", BS_PUSHBUTTON | WS_TABSTOP, browse);
+            ok_ = make(L"BUTTON", L"安置", BS_DEFPUSHBUTTON | WS_TABSTOP, IDOK);
+            cancel_ = make(L"BUTTON", L"取消", BS_PUSHBUTTON | WS_TABSTOP, IDCANCEL);
+            Layout();
+            SetFocus(edit_);
+            SendMessageW(edit_, EM_SETSEL, 0, -1);
+            return 0;
+        }
+        if (message == WM_COMMAND) {
+            const auto id = LOWORD(w_param);
+            if (id == browse) { Browse(); return 0; }
+            if (id == IDOK) { Accept(); return 0; }
+            if (id == IDCANCEL) { DestroyWindow(window_); return 0; }
+        }
+        if (message == WM_CLOSE) { DestroyWindow(window_); return 0; }
+        if (message == WM_DESTROY) { window_ = nullptr; return 0; }
+        return DefWindowProcW(window_, message, w_param, l_param);
+    }
+
+    void Layout() {
+        const int dpi = static_cast<int>(GetDpiForWindow(window_));
+        auto px = [dpi](int value) { return MulDiv(value, dpi, 96); };
+        SetWindowPos(note_, nullptr, px(20), px(18), px(540), px(42), SWP_NOZORDER);
+        SetWindowPos(label_, nullptr, px(20), px(78), px(90), px(24), SWP_NOZORDER);
+        SetWindowPos(edit_, nullptr, px(20), px(103), px(448), px(28), SWP_NOZORDER);
+        SetWindowPos(browse_, nullptr, px(478), px(103), px(82), px(28), SWP_NOZORDER);
+        SetWindowPos(ok_, nullptr, px(382), px(153), px(84), px(30), SWP_NOZORDER);
+        SetWindowPos(cancel_, nullptr, px(476), px(153), px(84), px(30), SWP_NOZORDER);
+    }
+
+    void CenterAndShow() {
+        RECT owner{};
+        GetWindowRect(owner_, &owner);
+        const int dpi = static_cast<int>(GetDpiForWindow(window_));
+        const int width = MulDiv(600, dpi, 96);
+        const int height = MulDiv(230, dpi, 96);
+        const int x = owner.left + ((owner.right - owner.left) - width) / 2;
+        const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
+        SetWindowPos(window_, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW);
+    }
+
+    void Browse() {
+        IFileDialog* dialog{};
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&dialog)))) return;
+        DWORD options{};
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
+            FOS_PATHMUSTEXIST);
+        std::array<wchar_t, 32768> current{};
+        GetWindowTextW(edit_, current.data(), static_cast<int>(current.size()));
+        IShellItem* initial{};
+        if (*current.data() && SUCCEEDED(SHCreateItemFromParsingName(
+                current.data(), nullptr, IID_PPV_ARGS(&initial)))) {
+            dialog->SetFolder(initial);
+            initial->Release();
+        }
+        if (SUCCEEDED(dialog->Show(window_))) {
+            IShellItem* selected{};
+            if (SUCCEEDED(dialog->GetResult(&selected))) {
+                PWSTR path{};
+                if (SUCCEEDED(selected->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                    SetWindowTextW(edit_, path);
+                    CoTaskMemFree(path);
+                }
+                selected->Release();
+            }
+        }
+        dialog->Release();
+    }
+
+    void Accept() {
+        std::array<wchar_t, 32768> path{};
+        GetWindowTextW(edit_, path.data(), static_cast<int>(path.size()));
+        if (!*path.data()) {
+            MessageBoxW(window_, L"请输入或浏览选择一个目标文件夹。",
+                L"安置马冬梅", MB_OK | MB_ICONWARNING);
+            return;
+        }
+        value_ = path.data();
+        accepted_ = true;
+        DestroyWindow(window_);
+    }
+
+    HWND owner_{};
+    HWND window_{};
+    HWND note_{};
+    HWND label_{};
+    HWND edit_{};
+    HWND browse_{};
+    HWND ok_{};
+    HWND cancel_{};
+    std::filesystem::path value_;
+    bool accepted_{};
+};
+
+std::wstring QuoteCommandLineArgument(std::wstring_view value) {
+    std::wstring result(1, L'"');
+    std::size_t slashes{};
+    for (const auto character : value) {
+        if (character == L'\\') { ++slashes; continue; }
+        if (character == L'"') {
+            result.append(slashes * 2 + 1, L'\\');
+            result.push_back(L'"');
+        } else {
+            result.append(slashes, L'\\');
+            result.push_back(character);
+        }
+        slashes = 0;
+    }
+    result.append(slashes * 2, L'\\');
+    result.push_back(L'"');
+    return result;
 }
 
 struct ExportRun final {
@@ -117,6 +303,7 @@ Application::Application(HINSTANCE instance)
           [this] { return RegisterFileAssociations(); },
           [this] { return UnregisterFileAssociations(); },
           [this] { return OpenDefaultApps(); },
+          [this] { return PlaceApplication(); },
       }, {
           [this] { return main_window_.theme_preference(); },
           [this](ui::ThemePreference value) {
@@ -135,6 +322,9 @@ Application::Application(HINSTANCE instance)
             if (result != ErrorCode::ok && main_window_.handle()) {
                 if (command >= CommandId::file_new && command <= CommandId::file_save_as)
                     ShowFileError(result);
+                else if (command == CommandId::tools_place_application) {
+                    // PlaceApplication already presents a specific diagnostic.
+                }
                 else
                     MessageBoxW(main_window_.handle(), L"当前操作无法完成，请检查文档内容后重试。",
                         L"马冬梅", MB_OK | MB_ICONWARNING);
@@ -264,6 +454,7 @@ bool Application::ConfirmDocumentReplacement() {
 }
 
 bool Application::ConfirmClose() {
+    if (placement_exit_requested_) return true;
     const auto was_processing = processing_open_request_;
     processing_open_request_ = true;
     const bool document_ready = ConfirmDocumentReplacement();
@@ -455,6 +646,76 @@ ErrorCode Application::UnregisterFileAssociations() {
 
 ErrorCode Application::OpenDefaultApps() {
     return platform::OpenDefaultAppsSettings(main_window_.handle());
+}
+
+ErrorCode Application::PlaceApplication() {
+    PlacementDialog dialog;
+    const auto folder = dialog.show(main_window_.handle(),
+        platform::DefaultPlacementFolder());
+    if (!folder) return ErrorCode::ok;
+    const auto inspected = placement_service_.inspect(ExecutablePath(), *folder);
+    if (!inspected.is_ok()) { ShowPlacementError(inspected.error()); return inspected.error(); }
+    const auto& plan = inspected.value();
+    if (plan.same_path) {
+        const auto repaired = file_association_.register_application(plan.source);
+        if (repaired == ErrorCode::ok)
+            MessageBoxW(main_window_.handle(),
+                L"马冬梅已经在这个位置，无需再次复制。候选文件关联已按当前位置修复。",
+                L"安置马冬梅", MB_OK | MB_ICONINFORMATION);
+        else ShowPlacementError(repaired);
+        return repaired;
+    }
+    bool replace = plan.target_exists && plan.same_content;
+    if (plan.target_exists && !plan.same_content) {
+        const auto text = L"目标文件夹中已经存在 MarkdownMay.exe。\n\n是否用当前版本替换它？\n原位置的程序不会被删除。";
+        if (MessageBoxW(main_window_.handle(), text, L"确认替换",
+                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+            return ErrorCode::ok;
+        replace = true;
+    }
+    if (!ConfirmDocumentReplacement()) return ErrorCode::ok;
+    const auto placed = placement_service_.place(plan, replace);
+    if (placed != ErrorCode::ok) { ShowPlacementError(placed); return placed; }
+
+    auto command = QuoteCommandLineArgument(plan.target.wstring()) +
+        L" --wait-for-process " + std::to_wstring(GetCurrentProcessId()) +
+        L" --repair-file-types";
+    const auto& document = main_window_.document_window();
+    if (document.is_named())
+        command += L" " + QuoteCommandLineArgument(document.path().wstring());
+    std::vector<wchar_t> mutable_command(command.begin(), command.end());
+    mutable_command.push_back(L'\0');
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(plan.target.c_str(), mutable_command.data(), nullptr, nullptr,
+            FALSE, 0, nullptr, plan.folder.c_str(), &startup, &process)) {
+        ShowPlacementError(ErrorCode::platform_placement_launch_failed);
+        return ErrorCode::platform_placement_launch_failed;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    placement_exit_requested_ = true;
+    PostMessageW(main_window_.handle(), WM_CLOSE, 0, 0);
+    return ErrorCode::ok;
+}
+
+void Application::ShowPlacementError(ErrorCode error) {
+    const wchar_t* message = L"无法安置马冬梅，请检查目标文件夹后重试。";
+    if (error == ErrorCode::platform_placement_invalid_target)
+        message = L"目标文件夹无效或无法访问，请选择其他位置。";
+    else if (error == ErrorCode::platform_placement_copy_failed)
+        message = L"复制或提交程序失败，旧位置的马冬梅仍在运行。";
+    else if (error == ErrorCode::platform_placement_verify_failed)
+        message = L"复制后的程序校验失败，未切换到新位置。";
+    else if (error == ErrorCode::platform_placement_target_changed)
+        message = L"目标程序在确认后发生变化，为避免覆盖已取消安置。";
+    else if (error == ErrorCode::platform_placement_launch_failed)
+        message = L"程序已经复制，但无法从新位置启动；当前马冬梅将继续运行。";
+    else if (error == ErrorCode::platform_registry_access_denied ||
+             error == ErrorCode::platform_association_write_failed)
+        message = L"无法按当前位置修复候选文件关联。";
+    MessageBoxW(main_window_.handle(), message, L"安置马冬梅",
+        MB_OK | MB_ICONERROR);
 }
 
 void Application::CheckExternalModification() {

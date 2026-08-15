@@ -114,6 +114,13 @@ target_link_libraries(
 )
 add_test(NAME file_association_integration COMMAND MarkdownMayFileAssociation)
 
+add_executable(MarkdownMayApplicationPlacement application_placement_test.cpp)
+target_link_libraries(
+    MarkdownMayApplicationPlacement
+    PRIVATE markdownmay_compiler_options markdownmay_platform
+)
+add_test(NAME application_placement_integration COMMAND MarkdownMayApplicationPlacement)
+
 add_executable(MarkdownMayThemeDpi theme_dpi_test.cpp)
 target_link_libraries(
     MarkdownMayThemeDpi

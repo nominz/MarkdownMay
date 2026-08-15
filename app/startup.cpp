@@ -20,6 +20,14 @@ std::filesystem::path ExecutablePath() {
     return length && length < buffer.size()
         ? std::filesystem::path(buffer.data()) : std::filesystem::path{};
 }
+
+bool WaitForProcessExit(std::uint32_t process_id) {
+    const auto process = OpenProcess(SYNCHRONIZE, FALSE, process_id);
+    if (!process) return GetLastError() == ERROR_INVALID_PARAMETER;
+    const auto wait = WaitForSingleObject(process, 30000);
+    CloseHandle(process);
+    return wait == WAIT_OBJECT_0;
+}
 }
 
 int RunStartup(HINSTANCE instance, int show_command) {
@@ -40,6 +48,12 @@ int RunStartup(HINSTANCE instance, int show_command) {
 
     const auto executable = ExecutablePath();
     platform::FileAssociationRegistry association;
+    if (options.value().wait_for_process &&
+        !WaitForProcessExit(*options.value().wait_for_process)) {
+        MessageBoxW(nullptr, L"等待旧位置的马冬梅退出超时，安置后的程序未启动。",
+            L"马冬梅", MB_OK | MB_ICONERROR);
+        return 7;
+    }
     if (options.value().register_file_types) {
         if (executable.empty()) return 4;
         const auto registered = association.register_application(executable);
@@ -60,6 +74,14 @@ int RunStartup(HINSTANCE instance, int show_command) {
             ? L"文件关联注册已撤销。" : L"无法撤销文件关联注册。",
             L"马冬梅", MB_OK | (removed == ErrorCode::ok ? MB_ICONINFORMATION : MB_ICONERROR));
         return removed == ErrorCode::ok ? 0 : 6;
+    }
+
+    if (options.value().repair_file_types) {
+        if (executable.empty() ||
+            association.register_application(executable) != ErrorCode::ok) {
+            MessageBoxW(nullptr, L"马冬梅已在新位置启动，但候选文件关联修复失败。",
+                L"马冬梅", MB_OK | MB_ICONWARNING);
+        }
     }
 
     platform::SingleInstance single_instance;

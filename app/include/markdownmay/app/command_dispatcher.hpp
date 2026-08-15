@@ -29,6 +29,7 @@ public:
         std::function<ErrorCode()> register_application;
         std::function<ErrorCode()> unregister_application;
         std::function<ErrorCode()> open_default_apps;
+        std::function<ErrorCode()> place_application;
     };
     struct AppearanceCommands final {
         std::function<ui::ThemePreference()> preference;

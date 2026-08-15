@@ -5,6 +5,7 @@
 #include "markdownmay/ui/main_window.hpp"
 #include "markdownmay/services/local_services.hpp"
 #include "markdownmay/platform/file_association.hpp"
+#include "markdownmay/platform/application_placement.hpp"
 #include "markdownmay/platform/printing.hpp"
 
 #include <windows.h>
@@ -36,6 +37,7 @@ private:
     [[nodiscard]] ErrorCode RegisterFileAssociations();
     [[nodiscard]] ErrorCode UnregisterFileAssociations();
     [[nodiscard]] ErrorCode OpenDefaultApps();
+    [[nodiscard]] ErrorCode PlaceApplication();
     [[nodiscard]] ErrorCode PrintDocument();
     [[nodiscard]] ErrorCode PageSetup();
     [[nodiscard]] ErrorCode ExportDocumentDialog();
@@ -49,6 +51,7 @@ private:
     [[nodiscard]] ErrorCode OpenPath(const std::filesystem::path& path);
     [[nodiscard]] bool PrepareLineEndingForSave();
     void ShowFileError(ErrorCode error);
+    void ShowPlacementError(ErrorCode error);
 
     HINSTANCE instance_{};
     document::DocumentSession session_{""};
@@ -65,7 +68,9 @@ private:
     bool activate_requested_{};
     std::deque<std::filesystem::path> pending_paths_;
     bool processing_open_request_{};
+    bool placement_exit_requested_{};
     platform::FileAssociationRegistry file_association_;
+    platform::ApplicationPlacementService placement_service_;
 };
 
 }  // namespace markdownmay::app

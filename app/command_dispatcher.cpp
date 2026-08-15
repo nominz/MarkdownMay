@@ -31,6 +31,8 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
             association_commands_.can_unregister(), false};
     if (command == CommandId::tools_default_apps)
         return {static_cast<bool>(association_commands_.open_default_apps), false};
+    if (command == CommandId::tools_place_application)
+        return {static_cast<bool>(association_commands_.place_application), false};
     if (command == CommandId::tools_settings) return {false, false};
     if (command >= CommandId::view_theme_system && command <= CommandId::view_theme_dark) {
         const auto preference = appearance_commands_.preference
@@ -126,6 +128,10 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     if (command == CommandId::tools_default_apps)
         return association_commands_.open_default_apps
             ? association_commands_.open_default_apps()
+            : ErrorCode::document_invalid_state;
+    if (command == CommandId::tools_place_application)
+        return association_commands_.place_application
+            ? association_commands_.place_application()
             : ErrorCode::document_invalid_state;
     if (command >= CommandId::view_theme_system && command <= CommandId::view_theme_dark) {
         const auto preference = command == CommandId::view_theme_light

@@ -25,6 +25,19 @@ int main() {
     const std::array<std::wstring_view, 3> mixed_operation{
         L"MarkdownMay.exe", L"--register", L"document.md"};
     if (app::ParseCommandLine(mixed_operation).is_ok()) return 10;
+    const std::array<std::wstring_view, 5> placement{
+        L"MarkdownMay.exe", L"--wait-for-process", L"1234",
+        L"--repair-file-types", L"document.md"};
+    const auto placement_parsed = app::ParseCommandLine(placement);
+    if (!placement_parsed.is_ok() || !placement_parsed.value().repair_file_types ||
+        placement_parsed.value().wait_for_process != std::uint32_t{1234} ||
+        placement_parsed.value().paths.size() != 1) return 11;
+    const std::array<std::wstring_view, 3> bad_pid{
+        L"MarkdownMay.exe", L"--wait-for-process", L"12x"};
+    if (app::ParseCommandLine(bad_pid).is_ok()) return 12;
+    const std::array<std::wstring_view, 2> repair_without_wait{
+        L"MarkdownMay.exe", L"--repair-file-types"};
+    if (app::ParseCommandLine(repair_without_wait).is_ok()) return 13;
 
     const std::array<std::filesystem::path, 2> paths{
         std::filesystem::path(L"C:\\财务 文档\\预算😀.md"),

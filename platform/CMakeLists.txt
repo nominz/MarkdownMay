@@ -1,3 +1,3 @@
-add_library(markdownmay_platform STATIC single_instance.cpp file_association.cpp printing.cpp)
+add_library(markdownmay_platform STATIC single_instance.cpp file_association.cpp printing.cpp application_placement.cpp)
 target_include_directories(markdownmay_platform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_link_libraries(markdownmay_platform PUBLIC markdownmay_core PRIVATE markdownmay_compiler_options advapi32 comdlg32 gdi32 shell32)
+target_link_libraries(markdownmay_platform PUBLIC markdownmay_core PRIVATE markdownmay_compiler_options advapi32 comdlg32 gdi32 ole32 shell32)
