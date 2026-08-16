@@ -97,6 +97,38 @@ LONG Utf16Length(std::string_view text, std::uint64_t utf8_end) {
     return static_cast<LONG>(ToWide(prefix).size());
 }
 
+std::vector<LONG> BuildUtf16Positions(std::string_view text) {
+    std::vector<LONG> positions(text.size() + 1U);
+    LONG utf16{};
+    for (std::size_t index = 0; index < text.size();) {
+        positions[index] = utf16;
+        const auto first = static_cast<unsigned char>(text[index]);
+        if (first == '\r' && index + 1U < text.size() && text[index + 1U] == '\n') {
+            positions[index + 1U] = utf16 + 1;
+            utf16 += 1;
+            index += 2U;
+            positions[index] = utf16;
+            continue;
+        }
+        std::size_t bytes = 1U;
+        LONG units = 1;
+        if ((first & 0xf8U) == 0xf0U && index + 3U < text.size()) {
+            bytes = 4U; units = 2;
+        } else if ((first & 0xf0U) == 0xe0U && index + 2U < text.size()) {
+            bytes = 3U;
+        } else if ((first & 0xe0U) == 0xc0U && index + 1U < text.size()) {
+            bytes = 2U;
+        }
+        for (std::size_t byte = 1U; byte < bytes; ++byte)
+            positions[index + byte] = utf16;
+        index += bytes;
+        utf16 += units;
+        positions[index] = utf16;
+    }
+    positions.back() = utf16;
+    return positions;
+}
+
 std::size_t PrefixUtf8Size(HWND handle, LONG position, fileio::LineEnding target) {
     if (position <= 0) return 0;
     std::wstring buffer(static_cast<std::size_t>(position) * 2U + 2U, L'\0');
@@ -151,12 +183,36 @@ bool HasSameFormattingStructure(const RichProjection& left,
     return true;
 }
 
-void ApplySpan(HWND handle, const RichProjection& projection, const ProjectionSpan& span,
-        COLORREF text_color, COLORREF background_color, bool insert_image) {
+class RichEditFreeze final {
+public:
+    explicit RichEditFreeze(HWND handle) {
+        Microsoft::WRL::ComPtr<IRichEditOle> rich_ole;
+        if (SendMessageW(handle, EM_GETOLEINTERFACE, 0,
+                reinterpret_cast<LPARAM>(rich_ole.GetAddressOf())) &&
+            SUCCEEDED(rich_ole.As(&document_))) {
+            static_cast<void>(document_->Freeze(&count_));
+        }
+    }
+    ~RichEditFreeze() {
+        if (document_) static_cast<void>(document_->Unfreeze(&count_));
+    }
+    RichEditFreeze(const RichEditFreeze&) = delete;
+    RichEditFreeze& operator=(const RichEditFreeze&) = delete;
+
+private:
+    Microsoft::WRL::ComPtr<ITextDocument2> document_;
+    long count_{};
+};
+
+void ApplySpan(HWND handle, const ProjectionSpan& span,
+        std::span<const LONG> utf16_positions, COLORREF text_color,
+        COLORREF background_color, bool insert_image) {
     const bool dark = GetRValue(background_color) + GetGValue(background_color) +
         GetBValue(background_color) < 384;
-    const auto begin = Utf16Length(projection.text, span.begin);
-    const auto end = Utf16Length(projection.text, span.end);
+    const auto begin = utf16_positions[(std::min)(
+        static_cast<std::size_t>(span.begin), utf16_positions.size() - 1U)];
+    const auto end = utf16_positions[(std::min)(
+        static_cast<std::size_t>(span.end), utf16_positions.size() - 1U)];
     SendMessageW(handle, EM_SETSEL, static_cast<WPARAM>(begin), static_cast<LPARAM>(end));
     CHARFORMAT2W format{};
     format.cbSize = sizeof(format);
@@ -314,7 +370,9 @@ ErrorCode RichEditHost::project() {
     POINT scroll{};
     SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
     SendMessageW(handle_, WM_SETREDRAW, FALSE, 0);
+    RichEditFreeze freeze(handle_);
     projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source, document_path_);
+    const auto utf16_positions = BuildUtf16Positions(projection_.text);
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
     const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
@@ -323,8 +381,11 @@ ErrorCode RichEditHost::project() {
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
     }
-    for (const auto& span : projection_.spans)
-        ApplySpan(handle_, projection_, span, text_color_, background_color_, true);
+    for (const auto& span : projection_.spans) {
+        if (span.kind == document::NodeKind::image)
+            ApplySpan(handle_, span, utf16_positions,
+                text_color_, background_color_, true);
+    }
     apply_appearance(text_color_, background_color_, dpi_);
     const auto length = static_cast<LONG>(rich_text.size());
     selection.cpMin = (std::min)(selection.cpMin, length);
@@ -342,6 +403,7 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     if (!handle_) return;
     const auto was_projecting = projecting_;
     projecting_ = true;
+    RichEditFreeze freeze(handle_);
     SendMessageW(handle_, EM_SETBKGNDCOLOR, 0, background_color_);
     CHARRANGE selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
@@ -362,8 +424,10 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     SendMessageW(handle_, EM_SETSEL, 0, -1);
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&base));
+    const auto utf16_positions = BuildUtf16Positions(projection_.text);
     for (const auto& span : projection_.spans)
-        ApplySpan(handle_, projection_, span, text_color_, background_color_, false);
+        ApplySpan(handle_, span, utf16_positions,
+            text_color_, background_color_, false);
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = was_projecting;
     InvalidateRect(handle_, nullptr, TRUE);

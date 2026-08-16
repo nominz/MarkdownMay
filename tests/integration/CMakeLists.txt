@@ -93,6 +93,14 @@ target_link_libraries(
 )
 add_test(NAME save_reopen_integration COMMAND MarkdownMaySaveReopen)
 
+add_executable(MarkdownMayLargeDocumentProjection WIN32 large_document_projection_test.cpp)
+target_include_directories(MarkdownMayLargeDocumentProjection PRIVATE "${PROJECT_SOURCE_DIR}/app/include")
+target_link_libraries(
+    MarkdownMayLargeDocumentProjection
+    PRIVATE markdownmay_compiler_options markdownmay_ui scintilla_vendor user32
+)
+add_test(NAME large_document_projection_integration COMMAND MarkdownMayLargeDocumentProjection)
+
 add_executable(MarkdownMayAppShell WIN32 app_shell_test.cpp)
 target_link_libraries(
     MarkdownMayAppShell
