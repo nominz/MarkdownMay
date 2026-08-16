@@ -9,10 +9,12 @@ namespace markdownmay::app {
 CommandDispatcher::CommandDispatcher(ui::DocumentWindow& document_window,
                                      std::function<void()> request_exit,
                                      FileCommands file_commands,
+                                     DocumentCommands document_commands,
                                      AssociationCommands association_commands,
                                      AppearanceCommands appearance_commands)
     : document_window_(document_window), request_exit_(std::move(request_exit)),
       file_commands_(std::move(file_commands)),
+      document_commands_(std::move(document_commands)),
       association_commands_(std::move(association_commands)),
       appearance_commands_(std::move(appearance_commands)) {}
 
@@ -61,6 +63,10 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::edit_find:
     case CommandId::edit_replace:
         return {true, false};
+    case CommandId::edit_insert_document:
+        return {document_commands_.can_insert && document_commands_.can_insert(), false};
+    case CommandId::edit_split_document:
+        return {document_commands_.can_split && document_commands_.can_split(), false};
     case CommandId::edit_undo:
         return {modes.can_undo(), false};
     case CommandId::edit_redo:
@@ -177,6 +183,12 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     case CommandId::edit_replace:
         document_window_.show_find(true);
         return ErrorCode::ok;
+    case CommandId::edit_insert_document:
+        return document_commands_.insert_document
+            ? document_commands_.insert_document() : ErrorCode::document_invalid_state;
+    case CommandId::edit_split_document:
+        return document_commands_.split_document
+            ? document_commands_.split_document() : ErrorCode::document_invalid_state;
     case CommandId::format_bold: return modes.execute(editor::EditorCommand::bold);
     case CommandId::format_italic: return modes.execute(editor::EditorCommand::italic);
     case CommandId::format_strike: return modes.execute(editor::EditorCommand::strike);

@@ -48,6 +48,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ui::MainWindow window(session);
     bool exit_requested{};
     bool export_requested{};
+    bool insert_requested{};
+    bool split_requested{};
     app::CommandDispatcher dispatcher(window.document_window(),
         [&exit_requested] { exit_requested = true; }, {
             [&session] { return !session.is_dirty(); },
@@ -58,6 +60,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             [] { return ErrorCode::ok; },
             [] { return ErrorCode::ok; },
             [&export_requested] { export_requested = true; return ErrorCode::ok; },
+        }, {
+            [] { return true; },
+            [] { return true; },
+            [&insert_requested] { insert_requested = true; return ErrorCode::ok; },
+            [&split_requested] { split_requested = true; return ErrorCode::ok; },
         });
     window.set_command_callbacks(
         [&dispatcher](app::CommandId command) { return dispatcher.query(command); },
@@ -257,11 +264,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         !dispatcher.query(app::CommandId::file_print).enabled ||
         !dispatcher.query(app::CommandId::edit_find).enabled ||
         !dispatcher.query(app::CommandId::edit_replace).enabled ||
+        !dispatcher.query(app::CommandId::edit_insert_document).enabled ||
+        !dispatcher.query(app::CommandId::edit_split_document).enabled ||
         !dispatcher.query(app::CommandId::view_render).checked) {
         DestroyWindow(window.handle());
         CoUninitialize();
         return 4;
     }
+    if (dispatcher.execute(app::CommandId::edit_insert_document) != ErrorCode::ok ||
+        dispatcher.execute(app::CommandId::edit_split_document) != ErrorCode::ok ||
+        !insert_requested || !split_requested) return 76;
     if (!SendMessageW(window.toolbar()->handle(), TB_ISBUTTONENABLED,
             static_cast<WPARAM>(app::CommandId::edit_find), 0) ||
         SendMessageW(window.toolbar()->handle(), TB_ISBUTTONENABLED,

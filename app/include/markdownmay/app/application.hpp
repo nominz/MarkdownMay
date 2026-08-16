@@ -41,6 +41,8 @@ private:
     [[nodiscard]] ErrorCode PrintDocument();
     [[nodiscard]] ErrorCode PageSetup();
     [[nodiscard]] ErrorCode ExportDocumentDialog();
+    [[nodiscard]] ErrorCode InsertDocumentDialog();
+    [[nodiscard]] ErrorCode SplitDocumentDialog();
     void LoadSettings();
     void SaveSettings();
     [[nodiscard]] std::filesystem::path ExecutablePath() const;
@@ -71,6 +73,7 @@ private:
     bool placement_exit_requested_{};
     platform::FileAssociationRegistry file_association_;
     platform::ApplicationPlacementService placement_service_;
+    std::uint64_t next_service_transaction_{1000000};
 };
 
 }  // namespace markdownmay::app

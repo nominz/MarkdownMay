@@ -30,7 +30,7 @@ bool IsKnown(std::uint16_t value) noexcept {
     return (value >= Native(app::CommandId::file_new) &&
             value <= Native(app::CommandId::file_export)) ||
         (value >= Native(app::CommandId::edit_undo) &&
-            value <= Native(app::CommandId::edit_replace)) ||
+            value <= Native(app::CommandId::edit_split_document)) ||
         (value >= Native(app::CommandId::format_bold) &&
             value <= Native(app::CommandId::format_task_list)) ||
         (value >= Native(app::CommandId::view_render) &&
@@ -101,6 +101,9 @@ bool MenuController::create(HWND window) {
     AddCommand(edit, app::CommandId::edit_copy, L"复制(&C)\tCtrl+C");
     AddCommand(edit, app::CommandId::edit_paste, L"粘贴(&P)\tCtrl+V");
     AddCommand(edit, app::CommandId::edit_select_all, L"全选(&A)\tCtrl+A");
+    AddSeparator(edit);
+    AddCommand(edit, app::CommandId::edit_insert_document, L"在光标处插入文档(&I)...");
+    AddCommand(edit, app::CommandId::edit_split_document, L"从光标处切分文档(&D)...");
     AddSeparator(edit);
     AddCommand(edit, app::CommandId::edit_find, L"查找(&F)...\tCtrl+F");
     AddCommand(edit, app::CommandId::edit_replace, L"替换(&H)...\tCtrl+H");

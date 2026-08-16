@@ -232,6 +232,17 @@ bool ViewModeController::supports_markdown_commands() const noexcept {
     return session_.kind() == document::DocumentKind::markdown;
 }
 
+Result<TextSelection> ViewModeController::synchronized_source_selection() {
+    const auto synchronized = SynchronizeActive();
+    if (synchronized != ErrorCode::ok && synchronized != ErrorCode::markdown_parse_failed)
+        return Result<TextSelection>::failure(synchronized);
+    return Result<TextSelection>::success(CaptureSelection());
+}
+
+ErrorCode ViewModeController::refresh_after_session_edit() {
+    return RefreshActive();
+}
+
 void ViewModeController::set_document_path(std::filesystem::path path) {
     render_.set_document_path(path);
     split_.render_view().set_document_path(std::move(path));

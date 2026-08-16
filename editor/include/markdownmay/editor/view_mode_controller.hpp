@@ -52,6 +52,8 @@ public:
         std::string_view replacement, bool case_sensitive, bool wildcards);
     [[nodiscard]] Result<std::size_t> replace_all_text(std::string_view query,
         std::string_view replacement, bool case_sensitive, bool wildcards);
+    [[nodiscard]] Result<TextSelection> synchronized_source_selection();
+    [[nodiscard]] ErrorCode refresh_after_session_edit();
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;

@@ -31,6 +31,12 @@ public:
         std::function<ErrorCode()> open_default_apps;
         std::function<ErrorCode()> place_application;
     };
+    struct DocumentCommands final {
+        std::function<bool()> can_insert;
+        std::function<bool()> can_split;
+        std::function<ErrorCode()> insert_document;
+        std::function<ErrorCode()> split_document;
+    };
     struct AppearanceCommands final {
         std::function<ui::ThemePreference()> preference;
         std::function<void(ui::ThemePreference)> set_preference;
@@ -39,6 +45,7 @@ public:
     CommandDispatcher(ui::DocumentWindow& document_window,
                       std::function<void()> request_exit,
                       FileCommands file_commands = {},
+                      DocumentCommands document_commands = {},
                       AssociationCommands association_commands = {},
                       AppearanceCommands appearance_commands = {});
     [[nodiscard]] CommandState query(CommandId command) const noexcept;
@@ -48,6 +55,7 @@ private:
     ui::DocumentWindow& document_window_;
     std::function<void()> request_exit_;
     FileCommands file_commands_;
+    DocumentCommands document_commands_;
     AssociationCommands association_commands_;
     AppearanceCommands appearance_commands_;
 };

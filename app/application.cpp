@@ -1,4 +1,7 @@
 #include "markdownmay/app/application.hpp"
+#include "markdownmay/services/document_combine.hpp"
+#include "markdownmay/services/document_split.hpp"
+#include "markdownmay/services/source_position_mapper.hpp"
 #include "markdownmay/export/docx_writer.hpp"
 #include "markdownmay/export/html_writer.hpp"
 #include "markdownmay/export/pdf_writer.hpp"
@@ -296,6 +299,11 @@ Application::Application(HINSTANCE instance)
           [this](std::size_t index) { return OpenRecentFile(index); },
           [this] { return ClearRecentFiles(); },
       }, {
+          [] { return true; },
+          [this] { return main_window_.document_window().is_named(); },
+          [this] { return InsertDocumentDialog(); },
+          [this] { return SplitDocumentDialog(); },
+      }, {
           [this] { return file_association_.state(ExecutablePath()) !=
               platform::AssociationState::current; },
           [this] { return file_association_.state(ExecutablePath()) !=
@@ -324,6 +332,10 @@ Application::Application(HINSTANCE instance)
                     ShowFileError(result);
                 else if (command == CommandId::tools_place_application) {
                     // PlaceApplication already presents a specific diagnostic.
+                }
+                else if (command == CommandId::edit_insert_document ||
+                         command == CommandId::edit_split_document) {
+                    // The document operation already presents a specific diagnostic.
                 }
                 else
                     MessageBoxW(main_window_.handle(), L"当前操作无法完成，请检查文档内容后重试。",
@@ -429,6 +441,146 @@ ErrorCode Application::ExportDocumentDialog() {
     if(run.result==ErrorCode::ok)MessageBoxW(main_window_.handle(),L"导出已完成。",L"马冬梅",MB_OK|MB_ICONINFORMATION);
     else if(run.result==ErrorCode::export_cancelled)MessageBoxW(main_window_.handle(),L"导出已取消，原目标文件未被覆盖。",L"马冬梅",MB_OK|MB_ICONINFORMATION);
     return run.result;
+}
+
+ErrorCode Application::InsertDocumentDialog() {
+    auto& document = main_window_.document_window();
+    auto& modes = document.modes();
+    const auto selection = modes.synchronized_source_selection();
+    if (!selection.is_ok()) return selection.error();
+    const auto snapshot = session_.snapshot();
+    const auto position = services::SourcePositionMapper::MapCaret(snapshot,
+        snapshot.source_revision, selection.value().anchor, selection.value().caret);
+    if (!position.is_ok()) {
+        MessageBoxW(main_window_.handle(), L"请先取消文本选择，将光标放在要插入的位置。",
+            L"插入文档", MB_OK | MB_ICONINFORMATION);
+        return position.error();
+    }
+    std::array<wchar_t, 32768> path{};
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = main_window_.handle();
+    dialog.lpstrFilter = L"支持的文档 (*.md;*.markdown;*.txt)\0*.md;*.markdown;*.txt\0Markdown 文档 (*.md;*.markdown)\0*.md;*.markdown\0纯文本 (*.txt)\0*.txt\0\0";
+    dialog.lpstrFile = path.data();
+    dialog.nMaxFile = static_cast<DWORD>(path.size());
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY |
+                   OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameW(&dialog)) return ErrorCode::ok;
+    const auto plan = services::DocumentCombineService::Prepare({snapshot,
+        document.is_named() ? document.path() : std::filesystem::path{}, path.data(),
+        position.value().utf8_byte});
+    if (!plan.is_ok()) {
+        MessageBoxW(main_window_.handle(),
+            plan.error() == ErrorCode::insert_target_unsaved
+                ? L"要插入的 Markdown 包含本地资源，请先保存当前文档，以确定资源目录。"
+                : L"无法读取或插入该文档，请确认文件是可读的 MD、MARKDOWN 或 TXT 文档。",
+            L"插入文档", MB_OK | MB_ICONWARNING);
+        return plan.error();
+    }
+    const auto committed = services::DocumentCombineService::Commit(
+        session_, plan.value(), next_service_transaction_++);
+    if (!committed.is_ok()) {
+        MessageBoxW(main_window_.handle(), L"插入未完成，当前文档和资源文件已尽可能保持原状。",
+            L"插入文档", MB_OK | MB_ICONWARNING);
+        return committed.error();
+    }
+    const auto refreshed = modes.refresh_after_session_edit();
+    main_window_.refresh_document_chrome();
+    if (refreshed != ErrorCode::ok) return refreshed;
+    MessageBoxW(main_window_.handle(), L"文档已插入到当前光标位置。",
+        L"插入文档", MB_OK | MB_ICONINFORMATION);
+    return ErrorCode::ok;
+}
+
+ErrorCode Application::SplitDocumentDialog() {
+    auto& document = main_window_.document_window();
+    if (!document.is_named()) {
+        MessageBoxW(main_window_.handle(), L"请先保存当前文档，再进行切分。",
+            L"切分文档", MB_OK | MB_ICONINFORMATION);
+        return ErrorCode::document_invalid_state;
+    }
+    auto& modes = document.modes();
+    const auto selection = modes.synchronized_source_selection();
+    if (!selection.is_ok()) return selection.error();
+    const auto snapshot = session_.snapshot();
+    const auto position = services::SourcePositionMapper::MapCaret(snapshot,
+        snapshot.source_revision, selection.value().anchor, selection.value().caret);
+    if (!position.is_ok()) {
+        MessageBoxW(main_window_.handle(), L"请先取消文本选择，将光标放在要切分的位置。",
+            L"切分文档", MB_OK | MB_ICONINFORMATION);
+        return position.error();
+    }
+    auto split_line_ending = document.line_ending();
+    if (split_line_ending == fileio::LineEnding::mixed) {
+        const auto choice = MessageBoxW(main_window_.handle(),
+            L"当前文档同时包含 Windows 和 Unix 换行。\n\n选择“是”使两个结果使用 CRLF，选择“否”使用 LF。\n当前文档不会被修改。",
+            L"选择切分结果的换行方式", MB_YESNOCANCEL | MB_ICONQUESTION |
+            (PreferredMixedEnding(snapshot.source) == fileio::LineEnding::crlf
+                ? MB_DEFBUTTON1 : MB_DEFBUTTON2));
+        if (choice == IDCANCEL) return ErrorCode::ok;
+        split_line_ending = choice == IDYES ? fileio::LineEnding::crlf
+                                             : fileio::LineEnding::lf;
+    }
+    const auto extension = document.path().extension().wstring();
+    const auto folder = document.path().parent_path();
+    const auto stem = document.path().stem().wstring();
+    auto choose_target = [&](const wchar_t* suffix,
+                             const std::filesystem::path& other = {})
+        -> std::filesystem::path {
+        std::array<wchar_t, 32768> path{};
+        const auto initial = (folder / (stem + suffix + extension)).wstring();
+        wcsncpy_s(path.data(), path.size(), initial.c_str(), _TRUNCATE);
+        const wchar_t* filter = session_.kind() == document::DocumentKind::plain_text
+            ? L"纯文本 (*.txt)\0*.txt\0\0"
+            : extension == L".markdown" || extension == L".MARKDOWN"
+                ? L"Markdown 文档 (*.markdown)\0*.markdown\0\0"
+                : L"Markdown 文档 (*.md)\0*.md\0\0";
+        OPENFILENAMEW dialog{};
+        dialog.lStructSize = sizeof(dialog); dialog.hwndOwner = main_window_.handle();
+        dialog.lpstrFilter = filter; dialog.lpstrFile = path.data();
+        dialog.nMaxFile = static_cast<DWORD>(path.size());
+        dialog.lpstrDefExt = extension.c_str() + 1;
+        dialog.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        if (!GetSaveFileNameW(&dialog)) return {};
+        const std::filesystem::path selected(path.data());
+        std::error_code ignored;
+        if (std::filesystem::exists(selected, ignored) ||
+            (!other.empty() && _wcsicmp(selected.c_str(), other.c_str()) == 0)) {
+            MessageBoxW(main_window_.handle(), L"切分目标必须是两个不同且尚不存在的新文件。",
+                L"切分文档", MB_OK | MB_ICONWARNING);
+            return {};
+        }
+        return selected;
+    };
+    const auto first = choose_target(L"_前半部分");
+    if (first.empty()) return ErrorCode::ok;
+    const auto second = choose_target(L"_后半部分", first);
+    if (second.empty()) return ErrorCode::ok;
+    const auto plan = services::DocumentSplitService::Prepare({snapshot, document.path(),
+        first, second, position.value().utf8_byte, document.encoding(),
+        split_line_ending});
+    if (!plan.is_ok()) {
+        MessageBoxW(main_window_.handle(), L"切分目标必须与当前文档扩展名相同，且两个目标都尚未存在。",
+            L"切分文档", MB_OK | MB_ICONWARNING);
+        return plan.error();
+    }
+    bool confirmed = false;
+    if (plan.value().requires_confirmation()) {
+        confirmed = MessageBoxW(main_window_.handle(),
+            L"切分后的某一部分可能不是完整的 Markdown 结构，是否仍要继续？",
+            L"切分文档", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
+        if (!confirmed) return ErrorCode::ok;
+    }
+    const auto committed = services::DocumentSplitService::Commit(plan.value(), confirmed);
+    if (committed != ErrorCode::ok) {
+        MessageBoxW(main_window_.handle(), L"切分未完成，两个目标文件已尽可能回滚。",
+            L"切分文档", MB_OK | MB_ICONWARNING);
+        return committed;
+    }
+    const auto message = L"切分已完成：\n" + first.wstring() + L"\n" + second.wstring();
+    MessageBoxW(main_window_.handle(), message.c_str(), L"切分文档",
+        MB_OK | MB_ICONINFORMATION);
+    return ErrorCode::ok;
 }
 
 ui::MainWindow& Application::main_window() noexcept { return main_window_; }

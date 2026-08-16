@@ -21,6 +21,8 @@ enum class CommandId : std::uint16_t {
     edit_select_all,
     edit_find,
     edit_replace,
+    edit_insert_document,
+    edit_split_document,
     format_bold = 300,
     format_italic,
     format_strike,
