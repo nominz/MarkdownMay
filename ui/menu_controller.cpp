@@ -200,8 +200,12 @@ bool MenuController::dispatch(std::uint16_t native_id) {
 
 void MenuController::set_recent_files(std::vector<std::filesystem::path> files) {
     if (!recent_menu_) return;
-    while (GetMenuItemCount(recent_menu_) > 0)
-        DeleteMenu(recent_menu_, 0, MF_BYPOSITION);
+    while (GetMenuItemCount(recent_menu_) > 0) {
+        // An active popup can temporarily reject mutation.  Never spin if the
+        // native menu could not remove the item; the deferred caller will try
+        // again after the popup command has returned to the message loop.
+        if (!DeleteMenu(recent_menu_, 0, MF_BYPOSITION)) return;
+    }
     if (files.empty()) {
         AppendMenuW(recent_menu_, MF_OWNERDRAW | MF_GRAYED, 0,
             KeepLabel(L"（没有最近文件）"));

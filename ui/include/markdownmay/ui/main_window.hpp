@@ -59,6 +59,8 @@ private:
     std::function<bool()> close_callback_;
     std::function<void()> activate_callback_;
     std::function<void()> open_request_callback_;
+    std::vector<std::filesystem::path> pending_recent_files_;
+    bool recent_files_refresh_pending_{};
     std::size_t pending_open_count_{};
     ThemePreference theme_preference_{ThemePreference::follow_system};
     ThemeKind theme_kind_{ThemeKind::light};

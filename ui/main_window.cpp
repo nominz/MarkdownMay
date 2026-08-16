@@ -15,6 +15,7 @@ constexpr wchar_t kMainWindowClass[] = L"MarkdownMay.MainWindow";
 constexpr wchar_t kApplicationTitle[] = L"马冬梅 - Markdown May";
 constexpr UINT kOpenRequestsMessage = WM_APP + 17;
 constexpr UINT kRefreshChromeMessage = WM_APP + 18;
+constexpr UINT kRefreshRecentFilesMessage = WM_APP + 19;
 
 bool RegisterMainWindowClass(HINSTANCE instance) {
     static std::once_flag once;
@@ -123,7 +124,16 @@ HACCEL MainWindow::accelerator() const noexcept {
     return menu_controller_ ? menu_controller_->accelerator() : nullptr;
 }
 void MainWindow::set_recent_files(std::vector<std::filesystem::path> files) {
-    if (menu_controller_) menu_controller_->set_recent_files(std::move(files));
+    pending_recent_files_ = std::move(files);
+    if (!handle_) {
+        if (menu_controller_)
+            menu_controller_->set_recent_files(std::move(pending_recent_files_));
+        return;
+    }
+    if (!recent_files_refresh_pending_) {
+        recent_files_refresh_pending_ = true;
+        PostMessageW(handle_, kRefreshRecentFilesMessage, 0, 0);
+    }
 }
 void MainWindow::set_pending_open_count(std::size_t count) {
     pending_open_count_ = count;
@@ -151,6 +161,12 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
         switch (message) {
         case kOpenRequestsMessage:
             if (self->open_request_callback_) self->open_request_callback_();
+            return 0;
+        case kRefreshRecentFilesMessage:
+            self->recent_files_refresh_pending_ = false;
+            if (self->menu_controller_)
+                self->menu_controller_->set_recent_files(
+                    std::move(self->pending_recent_files_));
             return 0;
         case kRefreshChromeMessage:
             if (self->toolbar_) self->toolbar_->refresh();
