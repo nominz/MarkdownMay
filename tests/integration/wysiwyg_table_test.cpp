@@ -59,11 +59,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     std::wstring visible(static_cast<std::size_t>(GetWindowTextLengthW(host.handle())) + 1, L'\0');
     GetWindowTextW(host.handle(), visible.data(), static_cast<int>(visible.size()));
     if (visible.find(L'|') != std::wstring::npos || visible.find(L'\t') == std::wstring::npos ||
-        visible.find(L'┌') == std::wstring::npos || visible.find(L'┬') == std::wstring::npos ||
-        visible.find(L'├') == std::wstring::npos || visible.find(L'┼') == std::wstring::npos ||
-        visible.find(L'└') == std::wstring::npos || visible.find(L'┴') == std::wstring::npos ||
-        visible.find(L'│') == std::wstring::npos ||
+        visible.find(L'┌') != std::wstring::npos || visible.find(L'│') != std::wstring::npos ||
         visible.find(L"数据") == std::wstring::npos) return 8;
+    const auto screen = GetDC(host.handle());
+    const auto memory = CreateCompatibleDC(screen);
+    const auto bitmap = CreateCompatibleBitmap(screen, 760, 560);
+    const auto old_bitmap = SelectObject(memory, bitmap);
+    RECT canvas{0, 0, 760, 560};
+    FillRect(memory, &canvas, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    host.draw_table_grid(memory);
+    int longest{};
+    for (int y = 0; y < 560; ++y) {
+        int run{};
+        for (int x = 0; x < 760; ++x) {
+            if (GetPixel(memory, x, y) != RGB(255, 255, 255)) {
+                run++;
+                longest = (std::max)(longest, run);
+            } else run = 0;
+        }
+    }
+    SelectObject(memory, old_bitmap);
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(host.handle(), screen);
+    if (longest < 100) return 81;
     table = Table(*session.snapshot().semantic->root());
     if (!table || host.remove_table(table->id) != ErrorCode::ok ||
         !session.snapshot().source.empty()) return 9;

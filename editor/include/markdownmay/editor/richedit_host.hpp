@@ -94,6 +94,7 @@ public:
     [[nodiscard]] ErrorCode redo();
     [[nodiscard]] HWND handle() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
+    void draw_table_grid(HDC dc) const;
 
 private:
     document::DocumentSession& session_;

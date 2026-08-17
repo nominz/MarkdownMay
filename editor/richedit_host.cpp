@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <regex>
 #include <string>
 
@@ -44,6 +45,16 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         }
     }
     const auto result = DefSubclassProc(window, message, w_param, l_param);
+    auto* self = reinterpret_cast<RichEditHost*>(reference);
+    if (self && message == WM_PAINT) {
+        const auto dc = GetDC(window);
+        if (dc) {
+            self->draw_table_grid(dc);
+            ReleaseDC(window, dc);
+        }
+    } else if (self && message == WM_PRINTCLIENT) {
+        self->draw_table_grid(reinterpret_cast<HDC>(w_param));
+    }
     if (message == WM_SIZE) {
         RECT formatting{};
         GetClientRect(window, &formatting);
@@ -433,6 +444,81 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = was_projecting;
     InvalidateRect(handle_, nullptr, TRUE);
+}
+
+void RichEditHost::draw_table_grid(HDC dc) const {
+    if (!handle_ || !dc || projection_.spans.empty()) return;
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    TEXTMETRICW metrics{};
+    GetTextMetricsW(dc, &metrics);
+    const auto padding = MulDiv(5, static_cast<int>(dpi_), 96);
+    const auto line_color = GetRValue(background_color_) < 128
+        ? RGB(112, 112, 116) : RGB(176, 176, 176);
+    const auto pen = CreatePen(PS_SOLID, (std::max)(1, MulDiv(1,
+        static_cast<int>(dpi_), 96)), line_color);
+    const auto old_pen = SelectObject(dc, pen);
+    RECT client{};
+    GetClientRect(handle_, &client);
+
+    for (const auto& table : projection_.spans) {
+        if (table.kind != document::NodeKind::table) continue;
+        std::uint32_t rows{}, columns{};
+        for (const auto& cell : projection_.spans) {
+            if (cell.kind != document::NodeKind::table_cell ||
+                cell.begin < table.begin || cell.end > table.end) continue;
+            rows = (std::max)(rows, cell.table_row + 1);
+            columns = (std::max)(columns, cell.table_column + 1);
+        }
+        if (!rows || !columns) continue;
+        std::vector<int> verticals(columns + 1, INT_MIN);
+        std::vector<int> tops(rows, INT_MAX);
+        std::vector<int> bottoms(rows, INT_MIN);
+        for (const auto& cell : projection_.spans) {
+            if (cell.kind != document::NodeKind::table_cell ||
+                cell.begin < table.begin || cell.end > table.end ||
+                cell.begin >= utf16.size() || cell.end >= utf16.size()) continue;
+            POINT begin{}, end{};
+            SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
+                utf16[static_cast<std::size_t>(cell.begin)]);
+            SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
+                utf16[static_cast<std::size_t>(cell.end)]);
+            const auto column = static_cast<std::size_t>(cell.table_column);
+            const auto row = static_cast<std::size_t>(cell.table_row);
+            const auto left = static_cast<int>(begin.x) - padding;
+            verticals[column] = verticals[column] == INT_MIN
+                ? left : (std::min)(verticals[column], left);
+            verticals[columns] = (std::max)(verticals[columns],
+                static_cast<int>(end.x) + padding);
+            tops[row] = (std::min)(tops[row], static_cast<int>(begin.y) - padding / 2);
+            bottoms[row] = (std::max)(bottoms[row],
+                static_cast<int>(begin.y + metrics.tmHeight) + padding / 2);
+        }
+        for (std::size_t column = 1; column < columns; ++column) {
+            if (verticals[column] == INT_MIN)
+                verticals[column] = verticals[column - 1] + MulDiv(96,
+                    static_cast<int>(dpi_), 96);
+        }
+        if (verticals[0] == INT_MIN || verticals[columns] == INT_MIN) continue;
+        for (std::size_t column = 1; column <= columns; ++column)
+            verticals[column] = (std::max)(verticals[column], verticals[column - 1] + padding * 2);
+        const auto top = tops.front();
+        const auto bottom = bottoms.back();
+        if (top == INT_MAX || bottom == INT_MIN || bottom < client.top || top > client.bottom)
+            continue;
+        for (const auto x : verticals) {
+            MoveToEx(dc, x, top, nullptr);
+            LineTo(dc, x, bottom);
+        }
+        MoveToEx(dc, verticals.front(), top, nullptr);
+        LineTo(dc, verticals.back(), top);
+        for (const auto row_bottom : bottoms) {
+            if (row_bottom == INT_MIN) continue;
+            MoveToEx(dc, verticals.front(), row_bottom, nullptr);
+            LineTo(dc, verticals.back(), row_bottom);
+        }
+    }
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
 }
 
 ErrorCode RichEditHost::show_status_message(std::wstring_view message) {
