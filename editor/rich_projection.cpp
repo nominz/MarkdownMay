@@ -232,17 +232,37 @@ void Block(const document::Node& node, RichProjection& output,
             first = false;
         }
     } else if (node.kind == document::NodeKind::table) {
+        std::size_t column_count{};
+        for (const auto& section : node.children)
+            for (const auto& row : section->children)
+                if (row->kind == document::NodeKind::table_row)
+                    column_count = (std::max)(column_count, row->children.size());
+        const auto grid_line = [column_count](std::string_view left,
+                std::string_view middle, std::string_view right) {
+            std::string line(left);
+            for (std::size_t column = 0; column < column_count; ++column) {
+                line += "────────";
+                line += column + 1 < column_count ? "\t" + std::string(middle)
+                                                   : std::string(right);
+            }
+            return line;
+        };
+        AppendSynthetic(output, grid_line("┌", "┬", "┐") + "\n",
+            node.source.begin, node.source.begin);
         std::uint32_t row_index{};
         bool first_row = true;
         for (const auto& section : node.children) {
             for (const auto& row : section->children) {
                 if (row->kind != document::NodeKind::table_row) continue;
-                if (!first_row) AppendSynthetic(output, "\n", row->source.begin, row->source.begin);
+                if (!first_row) AppendSynthetic(output,
+                    "\n" + grid_line("├", "┼", "┤") + "\n",
+                    row->source.begin, row->source.begin);
+                AppendSynthetic(output, "│ ", row->source.begin, row->source.begin);
                 std::uint32_t column_index{};
                 for (const auto& cell : row->children) {
                     if (cell->kind != document::NodeKind::table_cell) continue;
                     if (column_index > 0)
-                        AppendSynthetic(output, "\t", cell->source.begin, cell->source.begin);
+                        AppendSynthetic(output, "\t│ ", cell->source.begin, cell->source.begin);
                     const auto cell_begin = static_cast<std::uint64_t>(output.text.size());
                     for (const auto& child : cell->children)
                         Inline(*child, output, source, document_path);
@@ -252,10 +272,13 @@ void Block(const document::Node& node, RichProjection& output,
                         row_index, column_index});
                     ++column_index;
                 }
+                AppendSynthetic(output, "\t│", row->source.end, row->source.end);
                 ++row_index;
                 first_row = false;
             }
         }
+        AppendSynthetic(output, "\n" + grid_line("└", "┴", "┘"),
+            node.source.end, node.source.end);
     }
     const auto end = static_cast<std::uint64_t>(output.text.size());
     if (node.kind == document::NodeKind::heading ||

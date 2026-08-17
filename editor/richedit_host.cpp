@@ -304,7 +304,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
-            ? PFM_TABSTOPS | PFM_BORDER : PFM_STARTINDENT;
+            ? PFM_TABSTOPS : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote) paragraph.dxStartIndent = 360;
         else if (span.kind == document::NodeKind::list_item)
             paragraph.dxStartIndent = 360 + static_cast<LONG>(span.list_depth) * 360;
@@ -312,11 +312,6 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             paragraph.cTabCount = 8;
             for (LONG index = 0; index < paragraph.cTabCount; ++index)
                 paragraph.rgxTabs[index] = (index + 1) * 1440;
-            // RichEdit stores one four-bit style nibble per edge.  0x1111 is
-            // a solid border on all four sides; 0x000f only addressed one edge.
-            paragraph.wBorders = 0x1111;
-            paragraph.wBorderWidth = 10;
-            paragraph.wBorderSpace = 20;
         } else paragraph.wAlignment = PFA_CENTER;
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));
