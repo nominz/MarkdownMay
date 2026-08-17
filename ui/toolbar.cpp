@@ -1,5 +1,7 @@
 #include "markdownmay/ui/toolbar.hpp"
 
+#include <dwmapi.h>
+
 #include <commctrl.h>
 #include <uxtheme.h>
 
@@ -9,6 +11,19 @@
 
 namespace markdownmay::ui {
 namespace {
+void CALLBACK RoundHeadingMenu(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG,
+                               DWORD, DWORD) {
+    if (!window) return;
+    constexpr DWM_WINDOW_CORNER_PREFERENCE preference = DWMWCP_ROUND;
+    static_cast<void>(DwmSetWindowAttribute(window,
+        DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference)));
+    RECT bounds{};
+    if (!GetWindowRect(window, &bounds)) return;
+    const auto radius = MulDiv(10, static_cast<int>(GetDpiForWindow(window)), 96);
+    const auto region = CreateRoundRectRgn(0, 0, bounds.right - bounds.left + 1,
+        bounds.bottom - bounds.top + 1, radius, radius);
+    if (region && !SetWindowRgn(window, region, TRUE)) DeleteObject(region);
+}
 constexpr int kHeadingComboWidth = 112;
 constexpr UINT kHeadingMenuFirst = 9200;
 constexpr int Native(app::CommandId command) noexcept {
@@ -256,8 +271,12 @@ bool Toolbar::handle_control(std::uint16_t identifier,
     SendMessageW(handle_, TB_GETRECT, Native(app::CommandId::format_body),
         reinterpret_cast<LPARAM>(&bounds));
     MapWindowPoints(handle_, HWND_DESKTOP, reinterpret_cast<POINT*>(&bounds), 2);
+    const auto popup_hook = SetWinEventHook(EVENT_SYSTEM_MENUPOPUPSTART,
+        EVENT_SYSTEM_MENUPOPUPSTART, nullptr, RoundHeadingMenu,
+        GetCurrentProcessId(), 0, WINEVENT_OUTOFCONTEXT);
     const auto selected = TrackPopupMenuEx(menu, TPM_LEFTALIGN | TPM_TOPALIGN |
         TPM_RETURNCMD, bounds.left, bounds.bottom, GetParent(handle_), nullptr);
+    if (popup_hook) UnhookWinEvent(popup_hook);
     DestroyMenu(menu);
     if (selected >= kHeadingMenuFirst && selected < kHeadingMenuFirst + labels.size()) {
         const auto level = selected - kHeadingMenuFirst;
@@ -285,9 +304,16 @@ bool Toolbar::draw_heading_menu(const DRAWITEMSTRUCT& item) const {
     const bool dark = IsDark(background_color_);
     const auto fill_color = selected
         ? (dark ? RGB(62, 62, 65) : RGB(235, 235, 235)) : background_color_;
-    const auto fill = CreateSolidBrush(fill_color);
-    FillRect(item.hDC, &item.rcItem, fill);
-    DeleteObject(fill);
+    const auto surface = CreateSolidBrush(background_color_);
+    FillRect(item.hDC, &item.rcItem, surface);
+    DeleteObject(surface);
+    if (selected) {
+        RECT highlight = item.rcItem;
+        InflateRect(&highlight, -MulDiv(3, dpi_, 96), -MulDiv(2, dpi_, 96));
+        const auto fill = CreateSolidBrush(fill_color);
+        FillRounded(item.hDC, highlight, MulDiv(7, dpi_, 96), fill);
+        DeleteObject(fill);
+    }
     const auto old_font = SelectObject(item.hDC, font_);
     SetBkMode(item.hDC, TRANSPARENT);
     SetTextColor(item.hDC, text_color_);

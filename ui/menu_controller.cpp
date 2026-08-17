@@ -150,14 +150,14 @@ bool MenuController::create(HWND window) {
         std::pair{insert, L"插入(&I)"}, std::pair{format, L"格式(&O)"}, std::pair{view, L"视图(&V)"},
         std::pair{tools, L"工具(&T)"}, std::pair{help, L"帮助(&H)"}};
     bar_ = CreateWindowExW(0, L"STATIC", nullptr,
-        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | SS_OWNERDRAW,
         0, 0, 0, height_, window_, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!bar_) return false;
     for (std::size_t index = 0; index < top_definitions.size(); ++index) {
         AddPopup(menu_, top_definitions[index].first, top_definitions[index].second);
         const auto* label = KeepLabel(top_definitions[index].second);
         const auto button = CreateWindowExW(0, L"BUTTON", label,
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_FLAT,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | BS_OWNERDRAW | BS_FLAT,
             0, 0, 0, height_, window_,
             reinterpret_cast<HMENU>(static_cast<UINT_PTR>(9000 + index)),
             GetModuleHandleW(nullptr), nullptr);

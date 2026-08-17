@@ -231,7 +231,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DestroyWindow(window.handle()); CoUninitialize(); return 38;
     }
     if ((GetWindowLongPtrW(window.menu_controller()->handle(), GWL_STYLE) &
-            WS_VISIBLE) == 0) {
+            (WS_VISIBLE | WS_CLIPSIBLINGS)) != (WS_VISIBLE | WS_CLIPSIBLINGS) ||
+        (GetWindowLongPtrW(first_menu_button, GWL_STYLE) & WS_CLIPSIBLINGS) == 0) {
         DestroyWindow(window.handle()); CoUninitialize(); return 77;
     }
     RECT menu_bar_bounds{};
