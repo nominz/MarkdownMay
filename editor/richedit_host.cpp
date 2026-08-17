@@ -312,7 +312,9 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             paragraph.cTabCount = 8;
             for (LONG index = 0; index < paragraph.cTabCount; ++index)
                 paragraph.rgxTabs[index] = (index + 1) * 1440;
-            paragraph.wBorders = 0x0f;
+            // RichEdit stores one four-bit style nibble per edge.  0x1111 is
+            // a solid border on all four sides; 0x000f only addressed one edge.
+            paragraph.wBorders = 0x1111;
             paragraph.wBorderWidth = 10;
             paragraph.wBorderSpace = 20;
         } else paragraph.wAlignment = PFA_CENTER;

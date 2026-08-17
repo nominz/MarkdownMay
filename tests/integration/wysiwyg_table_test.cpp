@@ -60,6 +60,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     GetWindowTextW(host.handle(), visible.data(), static_cast<int>(visible.size()));
     if (visible.find(L'|') != std::wstring::npos || visible.find(L'\t') == std::wstring::npos ||
         visible.find(L"数据") == std::wstring::npos) return 8;
+    SendMessageW(host.handle(), EM_SETSEL, 0, 0);
+    PARAFORMAT2 border{};
+    border.cbSize = sizeof(border);
+    border.dwMask = PFM_BORDER;
+    SendMessageW(host.handle(), EM_GETPARAFORMAT, 0, reinterpret_cast<LPARAM>(&border));
+    if ((border.dwMask & PFM_BORDER) == 0 || border.wBorders != 0x1111 ||
+        border.wBorderWidth == 0) return 81;
     table = Table(*session.snapshot().semantic->root());
     if (!table || host.remove_table(table->id) != ErrorCode::ok ||
         !session.snapshot().source.empty()) return 9;

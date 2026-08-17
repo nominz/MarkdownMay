@@ -5,7 +5,7 @@ target_include_directories(markdownmay_app_shell PUBLIC "${CMAKE_CURRENT_SOURCE_
 target_link_libraries(
     markdownmay_app_shell
     PUBLIC markdownmay_ui markdownmay_platform
-    PRIVATE markdownmay_compiler_options comdlg32 ole32 shell32 user32
+    PRIVATE markdownmay_compiler_options comdlg32 gdiplus ole32 shell32 user32
 )
 
 add_executable(MarkdownMay WIN32

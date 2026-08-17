@@ -212,8 +212,6 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                     *reinterpret_cast<MEASUREITEMSTRUCT*>(l_param))) return TRUE;
             break;
         case WM_DRAWITEM:
-            if (self->toolbar_ && self->toolbar_->draw_combo(
-                    *reinterpret_cast<DRAWITEMSTRUCT*>(l_param))) return TRUE;
             if (self->menu_controller_ &&
                 self->menu_controller_->draw(
                     *reinterpret_cast<DRAWITEMSTRUCT*>(l_param))) return TRUE;

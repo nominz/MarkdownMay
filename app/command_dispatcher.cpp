@@ -3,27 +3,64 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <objidl.h>
+#include <propidl.h>
+#include <gdiplus.h>
 #include "resource.h"
 
+#include <cstring>
 #include <utility>
 
 namespace markdownmay::app {
 namespace {
+void DrawPortrait(const DRAWITEMSTRUCT& draw) {
+    const auto resource = FindResourceW(GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(IDR_ABOUT_PORTRAIT_PNG), RT_RCDATA);
+    const auto loaded = resource ? LoadResource(GetModuleHandleW(nullptr), resource) : nullptr;
+    const auto bytes = loaded ? LockResource(loaded) : nullptr;
+    const auto size = resource ? SizeofResource(GetModuleHandleW(nullptr), resource) : 0;
+    if (!bytes || !size) return;
+    const auto memory = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (!memory) return;
+    auto* target = GlobalLock(memory);
+    if (!target) { GlobalFree(memory); return; }
+    std::memcpy(target, bytes, size);
+    GlobalUnlock(memory);
+    IStream* stream{};
+    if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream))) {
+        GlobalFree(memory); return;
+    }
+    Gdiplus::GdiplusStartupInput input;
+    ULONG_PTR token{};
+    if (Gdiplus::GdiplusStartup(&token, &input, nullptr) == Gdiplus::Ok) {
+        {
+            Gdiplus::Bitmap portrait(stream, FALSE);
+            Gdiplus::Graphics graphics(draw.hDC);
+            graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            graphics.DrawImage(&portrait, Gdiplus::Rect(draw.rcItem.left, draw.rcItem.top,
+                draw.rcItem.right - draw.rcItem.left, draw.rcItem.bottom - draw.rcItem.top));
+        }
+        Gdiplus::GdiplusShutdown(token);
+    }
+    stream->Release();
+}
+
 INT_PTR CALLBACK AboutProcedure(HWND dialog, UINT message, WPARAM w_param, LPARAM l_param) {
     if (message == WM_INITDIALOG) {
         const auto portrait = GetDlgItem(dialog, IDC_ABOUT_PORTRAIT);
         SetWindowLongPtrW(portrait, GWL_STYLE,
-            GetWindowLongPtrW(portrait, GWL_STYLE) | SS_BITMAP);
-        const auto bitmap = LoadBitmapW(GetModuleHandleW(nullptr),
-            MAKEINTRESOURCEW(IDB_ABOUT_PORTRAIT));
-        SendDlgItemMessageW(dialog, IDC_ABOUT_PORTRAIT, STM_SETIMAGE,
-            IMAGE_BITMAP, reinterpret_cast<LPARAM>(bitmap));
+            GetWindowLongPtrW(portrait, GWL_STYLE) | SS_OWNERDRAW);
         SetDlgItemTextW(dialog, IDC_ABOUT_LINKS,
             L"<a href=\"https://github.com/nominz/MarkdownMay\">GitHub：nominz/MarkdownMay</a>\r\n"
             L"<a href=\"https://gitee.com/nominz73/MarkdownMay\">Gitee：nominz73/MarkdownMay</a>");
         return TRUE;
     }
-    if (message == WM_COMMAND && LOWORD(w_param) == IDOK) {
+    if (message == WM_DRAWITEM && w_param == IDC_ABOUT_PORTRAIT) {
+        DrawPortrait(*reinterpret_cast<const DRAWITEMSTRUCT*>(l_param));
+        return TRUE;
+    }
+    if (message == WM_CLOSE || (message == WM_COMMAND &&
+        (LOWORD(w_param) == IDOK || LOWORD(w_param) == IDCANCEL))) {
         EndDialog(dialog, IDOK);
         return TRUE;
     }

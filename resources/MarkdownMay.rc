@@ -5,7 +5,7 @@
 IDI_MARKDOWNMAY ICON "icons/MarkdownMay.ico"
 IDI_MARKDOWN_DOCUMENT ICON "icons/MarkdownMay.documents.md.ico"
 IDI_TEXT_DOCUMENT ICON "icons/MarkdownMay.documents.md.ico"
-IDB_ABOUT_PORTRAIT BITMAP "about_portrait.bmp"
+IDR_ABOUT_PORTRAIT_PNG RCDATA "../asset/半身_450×450_去背景.png"
 
 IDD_ABOUT DIALOG 0, 0, 330, 185
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU

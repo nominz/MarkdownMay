@@ -127,14 +127,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DestroyWindow(window.handle()); CoUninitialize(); return 55;
     }
     static_cast<void>(window.document_window().new_document());
-    const auto heading_combo = GetDlgItem(window.toolbar()->handle(), 9100);
-    std::array<wchar_t, 32> heading_label{};
-    if (!heading_combo || SendMessageW(heading_combo, CB_GETCOUNT, 0, 0) != 7 ||
-        SendMessageW(heading_combo, CB_GETLBTEXT, 1,
-            reinterpret_cast<LPARAM>(heading_label.data())) < 0 ||
-        std::wstring_view(heading_label.data()) != L"一级标题" ||
-        (GetWindowLongPtrW(heading_combo, GWL_STYLE) & CBS_DROPDOWNLIST) == 0 ||
-        (GetWindowLongPtrW(heading_combo, GWL_STYLE) & CBS_OWNERDRAWFIXED) == 0) {
+    TBBUTTONINFO heading_button{sizeof(heading_button), TBIF_SIZE | TBIF_STATE};
+    if (SendMessageW(window.toolbar()->handle(), TB_GETBUTTONINFOW,
+            static_cast<WPARAM>(app::CommandId::format_body),
+            reinterpret_cast<LPARAM>(&heading_button)) < 0 ||
+        heading_button.cx < 80 || (heading_button.fsState & TBSTATE_ENABLED) == 0) {
         DestroyWindow(window.handle()); CoUninitialize(); return 38;
     }
     ShowWindow(window.handle(), SW_SHOWNOACTIVATE);
@@ -143,13 +140,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     const auto tooltip_window = reinterpret_cast<HWND>(
         SendMessageW(window.toolbar()->handle(), TB_GETTOOLTIPS, 0, 0));
-    if (!IsWindowVisible(heading_combo)) return 46;
-    if (GetWindow(heading_combo, GW_HWNDPREV) != nullptr) return 49;
     if (window.document_window().modes().reload("") != ErrorCode::ok) return 51;
     const auto empty_render = window.document_window().modes().render_view().handle();
-    SendMessageW(heading_combo, CB_SETCURSEL, 1, 0);
-    SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(9100, CBN_SELCHANGE),
-        reinterpret_cast<LPARAM>(heading_combo));
+    if (dispatcher.execute(app::CommandId::format_heading1) != ErrorCode::ok) return 52;
     if (session.snapshot().source != "# " || GetFocus() != empty_render) return 52;
     const auto heading_selection =
         window.document_window().modes().render_view().source_selection();
@@ -163,9 +156,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (window.document_window().modes().reload("段落\n") != ErrorCode::ok)
         return 42;
     SendMessageW(window.document_window().modes().render_view().handle(), EM_SETSEL, 1, 1);
-    SendMessageW(heading_combo, CB_SETCURSEL, 1, 0);
-    SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(9100, CBN_SELCHANGE),
-        reinterpret_cast<LPARAM>(heading_combo));
+    if (dispatcher.execute(app::CommandId::format_heading1) != ErrorCode::ok) return 43;
     if (session.snapshot().source != "# 段落\n") return 43;
 
     if (window.document_window().modes().reload("深色正文\n") != ErrorCode::ok) return 47;
