@@ -250,7 +250,7 @@ bool Toolbar::handle_control(std::uint16_t identifier,
     constexpr std::array labels{L"正文", L"一级标题", L"二级标题", L"三级标题",
         L"四级标题", L"五级标题", L"六级标题"};
     for (std::size_t index = 0; index < labels.size(); ++index)
-        AppendMenuW(menu, MF_STRING | (index == heading_level_ ? MF_CHECKED : 0),
+        AppendMenuW(menu, MF_OWNERDRAW | (index == heading_level_ ? MF_CHECKED : 0),
             kHeadingMenuFirst + static_cast<UINT>(index), labels[index]);
     RECT bounds{};
     SendMessageW(handle_, TB_GETRECT, Native(app::CommandId::format_body),
@@ -266,6 +266,44 @@ bool Toolbar::handle_control(std::uint16_t identifier,
                 app::CommandId::format_heading1) + level - 1));
     }
     refresh();
+    return true;
+}
+
+bool Toolbar::measure_heading_menu(MEASUREITEMSTRUCT& item) const {
+    if (item.CtlType != ODT_MENU || item.itemID < kHeadingMenuFirst ||
+        item.itemID >= kHeadingMenuFirst + 7) return false;
+    item.itemWidth = MulDiv(122, static_cast<int>(dpi_), 96);
+    item.itemHeight = MulDiv(32, static_cast<int>(dpi_), 96);
+    return true;
+}
+
+bool Toolbar::draw_heading_menu(const DRAWITEMSTRUCT& item) const {
+    if (item.CtlType != ODT_MENU || item.itemID < kHeadingMenuFirst ||
+        item.itemID >= kHeadingMenuFirst + 7) return false;
+    const bool selected = (item.itemState & ODS_SELECTED) != 0;
+    const bool checked = (item.itemState & ODS_CHECKED) != 0;
+    const bool dark = IsDark(background_color_);
+    const auto fill_color = selected
+        ? (dark ? RGB(62, 62, 65) : RGB(235, 235, 235)) : background_color_;
+    const auto fill = CreateSolidBrush(fill_color);
+    FillRect(item.hDC, &item.rcItem, fill);
+    DeleteObject(fill);
+    const auto old_font = SelectObject(item.hDC, font_);
+    SetBkMode(item.hDC, TRANSPARENT);
+    SetTextColor(item.hDC, text_color_);
+    if (checked) {
+        RECT check = item.rcItem;
+        check.left += MulDiv(9, dpi_, 96);
+        check.right = check.left + MulDiv(12, dpi_, 96);
+        DrawTextW(item.hDC, L"✓", -1, &check,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+    RECT text = item.rcItem;
+    text.left += MulDiv(30, dpi_, 96);
+    text.right -= MulDiv(12, dpi_, 96);
+    DrawTextW(item.hDC, reinterpret_cast<const wchar_t*>(item.itemData), -1,
+        &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(item.hDC, old_font);
     return true;
 }
 

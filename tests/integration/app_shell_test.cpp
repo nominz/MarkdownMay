@@ -230,6 +230,27 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         std::wstring(first_menu_text).find(L"文件") == std::wstring::npos) {
         DestroyWindow(window.handle()); CoUninitialize(); return 38;
     }
+    if ((GetWindowLongPtrW(window.menu_controller()->handle(), GWL_STYLE) &
+            WS_VISIBLE) == 0) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 77;
+    }
+    RECT menu_bar_bounds{};
+    GetClientRect(window.menu_controller()->handle(), &menu_bar_bounds);
+    RECT main_client{};
+    GetClientRect(window.handle(), &main_client);
+    if (menu_bar_bounds.right != main_client.right) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 78;
+    }
+    MEASUREITEMSTRUCT heading_measure{};
+    heading_measure.CtlType = ODT_MENU;
+    heading_measure.itemID = 9200;
+    heading_measure.itemData = reinterpret_cast<ULONG_PTR>(L"正文");
+    SendMessageW(window.handle(), WM_MEASUREITEM, 0,
+        reinterpret_cast<LPARAM>(&heading_measure));
+    if (heading_measure.itemHeight < static_cast<UINT>(
+            MulDiv(32, static_cast<int>(window.dpi()), 96))) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 79;
+    }
     MEASUREITEMSTRUCT popup_measure{};
     popup_measure.CtlType = ODT_MENU;
     popup_measure.itemData = reinterpret_cast<ULONG_PTR>(L"新建(&N)\tCtrl+N");
@@ -332,7 +353,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         return 8;
     }
     if (dispatcher.query(app::CommandId::view_outline).checked ||
-        dispatcher.execute(app::CommandId::view_outline) != ErrorCode::ok ||
+        !window.menu_controller()->dispatch(static_cast<std::uint16_t>(
+            app::CommandId::view_outline)) ||
         window.document_window().outline_visible()) {
         DestroyWindow(window.handle());
         CoUninitialize();

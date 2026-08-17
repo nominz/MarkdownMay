@@ -84,9 +84,16 @@ MenuController* MainWindow::menu_controller() noexcept { return menu_controller_
 StatusBar& MainWindow::status_bar() noexcept { return status_bar_; }
 void MainWindow::set_command_callbacks(MenuController::Query query,
                                        MenuController::Execute execute) {
-    toolbar_ = std::make_unique<Toolbar>(query, execute);
+    auto execute_and_refresh = [this, execute = std::move(execute)](
+            app::CommandId command) {
+        execute(command);
+        if (toolbar_) toolbar_->refresh();
+        status_bar_.refresh();
+        if (menu_controller_) menu_controller_->refresh();
+    };
+    toolbar_ = std::make_unique<Toolbar>(query, execute_and_refresh);
     menu_controller_ = std::make_unique<MenuController>(
-        std::move(query), std::move(execute));
+        std::move(query), std::move(execute_and_refresh));
 }
 void MainWindow::set_drop_callback(
     std::function<void(const std::filesystem::path&)> callback) {
@@ -208,10 +215,14 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
             if (self->menu_controller_) self->menu_controller_->refresh();
             return 0;
         case WM_MEASUREITEM:
+            if (self->toolbar_ && self->toolbar_->measure_heading_menu(
+                    *reinterpret_cast<MEASUREITEMSTRUCT*>(l_param))) return TRUE;
             if (self->menu_controller_ && self->menu_controller_->measure(
                     *reinterpret_cast<MEASUREITEMSTRUCT*>(l_param))) return TRUE;
             break;
         case WM_DRAWITEM:
+            if (self->toolbar_ && self->toolbar_->draw_heading_menu(
+                    *reinterpret_cast<DRAWITEMSTRUCT*>(l_param))) return TRUE;
             if (self->menu_controller_ &&
                 self->menu_controller_->draw(
                     *reinterpret_cast<DRAWITEMSTRUCT*>(l_param))) return TRUE;

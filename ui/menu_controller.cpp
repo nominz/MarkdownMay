@@ -149,7 +149,8 @@ bool MenuController::create(HWND window) {
         std::pair{file, L"文件(&F)"}, std::pair{edit, L"编辑(&E)"},
         std::pair{insert, L"插入(&I)"}, std::pair{format, L"格式(&O)"}, std::pair{view, L"视图(&V)"},
         std::pair{tools, L"工具(&T)"}, std::pair{help, L"帮助(&H)"}};
-    bar_ = CreateWindowExW(0, L"STATIC", nullptr, WS_CHILD,
+    bar_ = CreateWindowExW(0, L"STATIC", nullptr,
+        WS_CHILD | WS_VISIBLE | SS_OWNERDRAW,
         0, 0, 0, height_, window_, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!bar_) return false;
     for (std::size_t index = 0; index < top_definitions.size(); ++index) {
@@ -288,6 +289,12 @@ void MenuController::apply_appearance(COLORREF text, COLORREF surface, UINT dpi)
 }
 
 bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
+    if (item.CtlType == ODT_STATIC && item.hwndItem == bar_) {
+        const auto surface = CreateSolidBrush(surface_color_);
+        FillRect(item.hDC, &item.rcItem, surface);
+        DeleteObject(surface);
+        return true;
+    }
     if (item.CtlType == ODT_MENU) {
         const bool selected = (item.itemState & ODS_SELECTED) != 0;
         const bool disabled = (item.itemState & (ODS_DISABLED | ODS_GRAYED)) != 0;

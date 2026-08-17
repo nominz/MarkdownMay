@@ -25,6 +25,8 @@ public:
     [[nodiscard]] int height() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
     [[nodiscard]] LRESULT custom_draw(NMTBCUSTOMDRAW& draw);
+    [[nodiscard]] bool measure_heading_menu(MEASUREITEMSTRUCT& item) const;
+    [[nodiscard]] bool draw_heading_menu(const DRAWITEMSTRUCT& item) const;
     [[nodiscard]] static const wchar_t* tooltip(std::uint16_t command) noexcept;
 
 private:
