@@ -17,7 +17,8 @@
 namespace markdownmay::editor {
 
 enum class EditorCommand : std::uint8_t {
-    bold, italic, strike, inline_code, quote, unordered_list, ordered_list, task_list
+    bold, italic, strike, inline_code, quote, unordered_list, ordered_list, task_list,
+    clear_format
 };
 
 class RichEditHost final {
@@ -86,6 +87,7 @@ public:
     [[nodiscard]] ErrorCode cut();
     [[nodiscard]] ErrorCode select_all();
     [[nodiscard]] ErrorCode execute(EditorCommand command);
+    [[nodiscard]] ErrorCode clear_paragraph_formatting();
     [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
     [[nodiscard]] std::uint8_t heading_level();
     [[nodiscard]] ErrorCode undo();

@@ -10,6 +10,8 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <array>
+#include <regex>
 #include <string>
 
 namespace markdownmay::editor {
@@ -302,7 +304,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
-            ? PFM_TABSTOPS : PFM_STARTINDENT;
+            ? PFM_TABSTOPS | PFM_BORDER : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote) paragraph.dxStartIndent = 360;
         else if (span.kind == document::NodeKind::list_item)
             paragraph.dxStartIndent = 360 + static_cast<LONG>(span.list_depth) * 360;
@@ -310,6 +312,9 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             paragraph.cTabCount = 8;
             for (LONG index = 0; index < paragraph.cTabCount; ++index)
                 paragraph.rgxTabs[index] = (index + 1) * 1440;
+            paragraph.wBorders = 0x0f;
+            paragraph.wBorderWidth = 10;
+            paragraph.wBorderSpace = 20;
         } else paragraph.wAlignment = PFA_CENTER;
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));
@@ -970,8 +975,48 @@ ErrorCode RichEditHost::execute(EditorCommand command) {
         case EditorCommand::unordered_list: return toggle_unordered_list();
         case EditorCommand::ordered_list: return toggle_ordered_list();
         case EditorCommand::task_list: return toggle_task_list();
+        case EditorCommand::clear_format: return clear_paragraph_formatting();
     }
     return ErrorCode::editor_unmapped_rich_edit_change;
+}
+
+ErrorCode RichEditHost::clear_paragraph_formatting() {
+    auto mapped = MapControlSelection(handle_, projection_, editor_);
+    if (mapped != ErrorCode::ok) return mapped;
+    const auto snapshot = session_.snapshot();
+    auto selection = editor_.selection();
+    auto begin = static_cast<std::size_t>((std::min)(selection.anchor, selection.caret));
+    auto end = static_cast<std::size_t>((std::max)(selection.anchor, selection.caret));
+    begin = begin == 0 ? 0 : snapshot.source.rfind('\n', begin - 1) + 1;
+    const auto line_end = snapshot.source.find('\n', end);
+    end = line_end == std::string::npos ? snapshot.source.size() : line_end;
+    std::string text = snapshot.source.substr(begin, end - begin);
+
+    // HTML/XML tags are visually unmistakable; strip every complete tag token,
+    // independently of whether a matching closing tag exists.
+    text = std::regex_replace(text, std::regex(R"(<[^>\r\n]+>)"), "");
+    // Block markers apply to the paragraph, one line at a time.
+    text = std::regex_replace(text,
+        std::regex(R"((^|\n)[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-+*][ \t]+|\d+[.)][ \t]+))"), "$1");
+    text = std::regex_replace(text,
+        std::regex(R"((^|\n)[ \t]{0,3}\[[ xX]\][ \t]+)"), "$1");
+    // Inline Markdown is removed only when both delimiters exist.
+    const std::array<std::regex, 7> closed{{
+        std::regex(R"(!\[([^\]]*)\]\([^\r\n)]*\))"),
+        std::regex(R"(\[([^\]]+)\]\([^\r\n)]*\))"),
+        std::regex(R"(\*\*([^\r\n]+?)\*\*)"),
+        std::regex(R"(__([^\r\n]+?)__)"),
+        std::regex(R"(~~([^\r\n]+?)~~)"),
+        std::regex(R"(`([^\r\n`]+)`)"),
+        std::regex(R"(\*([^\r\n*]+)\*|_([^\r\n_]+)_)")}};
+    text = std::regex_replace(text, closed[0], "$1");
+    text = std::regex_replace(text, closed[1], "$1");
+    for (std::size_t index = 2; index < 6; ++index)
+        text = std::regex_replace(text, closed[index], "$1");
+    text = std::regex_replace(text, closed[6], "$1$2");
+    const auto next = static_cast<std::uint64_t>(begin + text.size());
+    const auto result = editor_.replace_source_range(begin, end, std::move(text), {next, next});
+    return result == ErrorCode::ok ? project() : result;
 }
 
 bool RichEditHost::inline_active(InlineFormat format) const noexcept {

@@ -72,6 +72,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (host.toggle_inline(markdownmay::editor::InlineFormat::strike) !=
             markdownmay::ErrorCode::ok ||
         session.snapshot().source != "粗体 和 [链接](local.md)") return 18;
+    if (session.reload("# **粗体** 和 **孤立 <b>标签</b>") != markdownmay::ErrorCode::ok ||
+        host.project() != markdownmay::ErrorCode::ok) return 19;
+    SendMessageW(host.handle(), EM_SETSEL, 1, 1);
+    if (host.execute(markdownmay::editor::EditorCommand::clear_format) !=
+            markdownmay::ErrorCode::ok ||
+        session.snapshot().source != "粗体 和 **孤立 标签") return 20;
     DestroyWindow(parent);
     return 0;
 }

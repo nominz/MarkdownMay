@@ -1,10 +1,43 @@
 #include "markdownmay/app/command_dispatcher.hpp"
 
 #include <windows.h>
+#include <commctrl.h>
+#include <shellapi.h>
+#include "resource.h"
 
 #include <utility>
 
 namespace markdownmay::app {
+namespace {
+INT_PTR CALLBACK AboutProcedure(HWND dialog, UINT message, WPARAM w_param, LPARAM l_param) {
+    if (message == WM_INITDIALOG) {
+        const auto portrait = GetDlgItem(dialog, IDC_ABOUT_PORTRAIT);
+        SetWindowLongPtrW(portrait, GWL_STYLE,
+            GetWindowLongPtrW(portrait, GWL_STYLE) | SS_BITMAP);
+        const auto bitmap = LoadBitmapW(GetModuleHandleW(nullptr),
+            MAKEINTRESOURCEW(IDB_ABOUT_PORTRAIT));
+        SendDlgItemMessageW(dialog, IDC_ABOUT_PORTRAIT, STM_SETIMAGE,
+            IMAGE_BITMAP, reinterpret_cast<LPARAM>(bitmap));
+        SetDlgItemTextW(dialog, IDC_ABOUT_LINKS,
+            L"<a href=\"https://github.com/nominz/MarkdownMay\">GitHub：nominz/MarkdownMay</a>\r\n"
+            L"<a href=\"https://gitee.com/nominz73/MarkdownMay\">Gitee：nominz73/MarkdownMay</a>");
+        return TRUE;
+    }
+    if (message == WM_COMMAND && LOWORD(w_param) == IDOK) {
+        EndDialog(dialog, IDOK);
+        return TRUE;
+    }
+    if (message == WM_NOTIFY) {
+        const auto* link = reinterpret_cast<const NMLINK*>(l_param);
+        if (link && link->hdr.idFrom == IDC_ABOUT_LINKS &&
+            (link->hdr.code == NM_CLICK || link->hdr.code == NM_RETURN)) {
+            ShellExecuteW(dialog, L"open", link->item.szUrl, nullptr, nullptr, SW_SHOWNORMAL);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+}
 
 CommandDispatcher::CommandDispatcher(ui::DocumentWindow& document_window,
                                      std::function<void()> request_exit,
@@ -67,6 +100,9 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {document_commands_.can_insert && document_commands_.can_insert(), false};
     case CommandId::edit_split_document:
         return {document_commands_.can_split && document_commands_.can_split(), false};
+    case CommandId::insert_table:
+    case CommandId::insert_link:
+        return {markdown && modes.mode() == editor::ViewMode::render, false};
     case CommandId::edit_undo:
         return {modes.can_undo(), false};
     case CommandId::edit_redo:
@@ -85,6 +121,7 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::format_unordered_list:
     case CommandId::format_ordered_list:
     case CommandId::format_task_list:
+    case CommandId::format_clear:
         return {markdown && modes.mode() == editor::ViewMode::render, false};
     case CommandId::format_body:
     case CommandId::format_heading1:
@@ -189,6 +226,10 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
     case CommandId::edit_split_document:
         return document_commands_.split_document
             ? document_commands_.split_document() : ErrorCode::document_invalid_state;
+    case CommandId::insert_table:
+        return modes.render_view().insert_table(3, 3);
+    case CommandId::insert_link:
+        return modes.render_view().set_link("https://");
     case CommandId::format_bold: return modes.execute(editor::EditorCommand::bold);
     case CommandId::format_italic: return modes.execute(editor::EditorCommand::italic);
     case CommandId::format_strike: return modes.execute(editor::EditorCommand::strike);
@@ -201,6 +242,8 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
         return modes.execute(editor::EditorCommand::ordered_list);
     case CommandId::format_task_list:
         return modes.execute(editor::EditorCommand::task_list);
+    case CommandId::format_clear:
+        return modes.execute(editor::EditorCommand::clear_format);
     case CommandId::format_body:
     case CommandId::format_heading1:
     case CommandId::format_heading2:
@@ -224,9 +267,8 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
         document_window_.toggle_outline();
         return ErrorCode::ok;
     case CommandId::help_about:
-        MessageBoxW(document_window_.handle(),
-            L"马冬梅（Markdown May）\n轻量、免费、开源的 Markdown 编辑器",
-            L"关于马冬梅", MB_OK | MB_ICONINFORMATION);
+        DialogBoxW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_ABOUT),
+            document_window_.handle(), AboutProcedure);
         return ErrorCode::ok;
     default:
         return ErrorCode::document_invalid_state;

@@ -30,9 +30,9 @@ bool IsKnown(std::uint16_t value) noexcept {
     return (value >= Native(app::CommandId::file_new) &&
             value <= Native(app::CommandId::file_export)) ||
         (value >= Native(app::CommandId::edit_undo) &&
-            value <= Native(app::CommandId::edit_split_document)) ||
+            value <= Native(app::CommandId::insert_link)) ||
         (value >= Native(app::CommandId::format_bold) &&
-            value <= Native(app::CommandId::format_task_list)) ||
+            value <= Native(app::CommandId::format_clear)) ||
         (value >= Native(app::CommandId::view_render) &&
             value <= Native(app::CommandId::view_theme_dark)) ||
         (value >= Native(app::CommandId::tools_register_association) &&
@@ -73,11 +73,12 @@ bool MenuController::create(HWND window) {
     const auto file = CreatePopupMenu();
     const auto edit = CreatePopupMenu();
     const auto format = CreatePopupMenu();
+    const auto insert = CreatePopupMenu();
     const auto view = CreatePopupMenu();
     const auto tools = CreatePopupMenu();
     const auto help = CreatePopupMenu();
     recent_menu_ = CreatePopupMenu();
-    if (!menu_ || !file || !edit || !format || !view || !tools || !help || !recent_menu_)
+    if (!menu_ || !file || !edit || !insert || !format || !view || !tools || !help || !recent_menu_)
         return false;
 
     AddCommand(file, app::CommandId::file_new, L"新建(&N)\tCtrl+N");
@@ -101,10 +102,6 @@ bool MenuController::create(HWND window) {
     AddCommand(edit, app::CommandId::edit_copy, L"复制(&C)\tCtrl+C");
     AddCommand(edit, app::CommandId::edit_paste, L"粘贴(&P)\tCtrl+V");
     AddCommand(edit, app::CommandId::edit_select_all, L"全选(&A)\tCtrl+A");
-    AddSeparator(edit);
-    AddCommand(edit, app::CommandId::edit_insert_document, L"在光标处插入文档(&I)...");
-    AddCommand(edit, app::CommandId::edit_split_document, L"从光标处切分文档(&D)...");
-    AddSeparator(edit);
     AddCommand(edit, app::CommandId::edit_find, L"查找(&F)...\tCtrl+F");
     AddCommand(edit, app::CommandId::edit_replace, L"替换(&H)...\tCtrl+H");
 
@@ -117,6 +114,14 @@ bool MenuController::create(HWND window) {
     AddCommand(format, app::CommandId::format_unordered_list, L"无序列表(&U)");
     AddCommand(format, app::CommandId::format_ordered_list, L"有序列表(&O)");
     AddCommand(format, app::CommandId::format_task_list, L"任务列表(&T)");
+    AddSeparator(format);
+    AddCommand(format, app::CommandId::format_clear, L"清除段落格式(&L)\tCtrl+\\");
+
+    AddCommand(insert, app::CommandId::edit_insert_document, L"在光标处插入文档(&D)...");
+    AddCommand(insert, app::CommandId::edit_split_document, L"从光标处切分文档(&S)...");
+    AddSeparator(insert);
+    AddCommand(insert, app::CommandId::insert_table, L"插入表格(&T)");
+    AddCommand(insert, app::CommandId::insert_link, L"插入链接(&L)");
 
     AddCommand(view, app::CommandId::view_render, L"渲染模式(&R)\tCtrl+1");
     AddCommand(view, app::CommandId::view_source, L"源码模式(&S)\tCtrl+2");
@@ -141,7 +146,7 @@ bool MenuController::create(HWND window) {
 
     const std::array top_definitions{
         std::pair{file, L"文件(&F)"}, std::pair{edit, L"编辑(&E)"},
-        std::pair{format, L"格式(&O)"}, std::pair{view, L"视图(&V)"},
+        std::pair{insert, L"插入(&I)"}, std::pair{format, L"格式(&O)"}, std::pair{view, L"视图(&V)"},
         std::pair{tools, L"工具(&T)"}, std::pair{help, L"帮助(&H)"}};
     bar_ = CreateWindowExW(0, L"STATIC", nullptr, WS_CHILD,
         0, 0, 0, height_, window_, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -158,7 +163,7 @@ bool MenuController::create(HWND window) {
         top_items_.push_back({button, top_definitions[index].first, label, 0});
     }
 
-    const std::array<ACCEL, 21> keys{{
+    const std::array<ACCEL, 22> keys{{
         {FVIRTKEY | FCONTROL, 'N', static_cast<WORD>(app::CommandId::file_new)},
         {FVIRTKEY | FCONTROL, 'O', static_cast<WORD>(app::CommandId::file_open)},
         {FVIRTKEY | FCONTROL, 'S', static_cast<WORD>(app::CommandId::file_save)},
@@ -174,6 +179,7 @@ bool MenuController::create(HWND window) {
         {FVIRTKEY | FCONTROL, 'H', static_cast<WORD>(app::CommandId::edit_replace)},
         {FVIRTKEY | FCONTROL, 'B', static_cast<WORD>(app::CommandId::format_bold)},
         {FVIRTKEY | FCONTROL, 'I', static_cast<WORD>(app::CommandId::format_italic)},
+        {FVIRTKEY | FCONTROL, VK_OEM_5, static_cast<WORD>(app::CommandId::format_clear)},
         {FVIRTKEY | FCONTROL | FALT, '1', static_cast<WORD>(app::CommandId::format_heading1)},
         {FVIRTKEY | FCONTROL | FALT, '2', static_cast<WORD>(app::CommandId::format_heading2)},
         {FVIRTKEY | FCONTROL, '1', static_cast<WORD>(app::CommandId::view_render)},
@@ -309,10 +315,21 @@ bool MenuController::draw(const DRAWITEMSTRUCT& item) const {
         const auto old = SelectObject(item.hDC, font);
         SetBkMode(item.hDC, TRANSPARENT);
         SetTextColor(item.hDC, disabled ? GetSysColor(COLOR_GRAYTEXT) : text_color_);
+        const auto* label = reinterpret_cast<const wchar_t*>(item.itemData);
+        const auto* tab = wcschr(label, L'\t');
         RECT text = item.rcItem;
         text.left += MulDiv(16, dpi_, 96); text.right -= MulDiv(16, dpi_, 96);
-        DrawTextW(item.hDC, reinterpret_cast<const wchar_t*>(item.itemData), -1, &text,
-            DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_EXPANDTABS);
+        if (tab) {
+            RECT left = text;
+            DrawTextW(item.hDC, label, static_cast<int>(tab - label), &left,
+                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+            RECT right = text;
+            DrawTextW(item.hDC, tab + 1, -1, &right,
+                DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
+        } else {
+            DrawTextW(item.hDC, label, -1, &text,
+                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX);
+        }
         SelectObject(item.hDC, old); DeleteObject(font);
         return true;
     }
@@ -374,7 +391,8 @@ bool MenuController::measure(MEASUREITEMSTRUCT& item) const {
     const auto* label = reinterpret_cast<const wchar_t*>(item.itemData);
     GetTextExtentPoint32W(dc, label, static_cast<int>(wcslen(label)), &size);
     SelectObject(dc, old); DeleteObject(font); ReleaseDC(window_, dc);
-    item.itemWidth = size.cx + MulDiv(48, dpi_, 96);
+    item.itemWidth = static_cast<UINT>((std::max)(static_cast<int>(size.cx) +
+        MulDiv(48, dpi_, 96), MulDiv(260, dpi_, 96)));
     item.itemHeight = MulDiv(33, dpi_, 96);
     return true;
 }
@@ -388,7 +406,7 @@ bool MenuController::handle_control(std::uint16_t native_id, HWND control) {
 }
 
 bool MenuController::handle_syschar(wchar_t character) {
-    constexpr std::array mnemonics{L'F', L'E', L'O', L'V', L'T', L'H'};
+    constexpr std::array mnemonics{L'F', L'E', L'I', L'O', L'V', L'T', L'H'};
     character = static_cast<wchar_t>(towupper(character));
     const auto found = std::find(mnemonics.begin(), mnemonics.end(), character);
     if (found == mnemonics.end()) return false;
@@ -431,12 +449,18 @@ LRESULT CALLBACK MenuController::MenuMessageFilter(int code, WPARAM w_param,
                                                     LPARAM l_param) {
     if (code == MSGF_MENU && active_menu_controller) {
         const auto* message = reinterpret_cast<const MSG*>(l_param);
-        if (message && message->message == WM_MOUSEMOVE) {
+        if (message && (message->message == WM_MOUSEMOVE ||
+                        message->message == WM_LBUTTONDOWN)) {
             POINT cursor{};
             if (GetCursorPos(&cursor)) {
                 const auto target = active_menu_controller->TopItemAt(cursor);
-                if (target != kNoPopup &&
-                    target != active_menu_controller->active_popup_) {
+                if (target != kNoPopup && message->message == WM_LBUTTONDOWN &&
+                    target == active_menu_controller->active_popup_) {
+                    active_menu_controller->pending_popup_ = kNoPopup;
+                    EndMenu();
+                    return 1;
+                }
+                if (target != kNoPopup && target != active_menu_controller->active_popup_) {
                     active_menu_controller->pending_popup_ = target;
                     EndMenu();
                     return 1;

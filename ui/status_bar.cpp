@@ -59,7 +59,7 @@ bool StatusBar::create(HWND parent) {
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
     static_cast<void>(InitCommonControlsEx(&controls));
     handle_ = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr,
-        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP | CCS_NODIVIDER,
         0, 0, 0, 0, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!handle_) return false;
     if (!SetWindowSubclass(handle_, SubclassProcedure, 1,
@@ -73,7 +73,7 @@ bool StatusBar::create(HWND parent) {
 
 void StatusBar::resize(int width, int client_height) {
     if (!handle_) return;
-    const std::array<int, 6> parts{90, 230, 340, 430, width - 150, -1};
+    const std::array<int, 6> parts{90, 220, 390, 540, width - 150, -1};
     SendMessageW(handle_, SB_SETPARTS, parts.size(),
         reinterpret_cast<LPARAM>(parts.data()));
     MoveWindow(handle_, 0, client_height - height_, width, height_, TRUE);
@@ -86,7 +86,8 @@ void StatusBar::refresh() {
     const auto count = std::to_wstring(characters) + L" 字";
     labels_ = {snapshot.kind == document::DocumentKind::plain_text ? L"纯文本" : L"大纲",
         session_.is_dirty() ? L"未保存" : L"已保存",
-        EncodingName(encoding_), LineEndingName(line_ending_), count,
+        std::wstring(L"编码方式：") + EncodingName(encoding_),
+        std::wstring(L"换行方式：") + LineEndingName(line_ending_), count,
         snapshot.kind == document::DocumentKind::plain_text ? L"纯文本" : ModeName(modes_.mode())};
     for (std::size_t index = 0; index < labels_.size(); ++index)
         SendMessageW(handle_, SB_SETTEXTW, index,
@@ -168,7 +169,8 @@ void StatusBar::Paint(HDC dc) {
     SetBkMode(dc, TRANSPARENT);
     const auto padding = MulDiv(12, dpi_, 96);
     const auto separator_inset = MulDiv(6, dpi_, 96);
-    const auto separator_pen = CreatePen(PS_SOLID, 1, RGB(224, 224, 224));
+    const auto separator_pen = CreatePen(PS_SOLID, 1,
+        GetRValue(background_color_) < 128 ? RGB(72, 72, 74) : RGB(224, 224, 224));
     const auto old_pen = SelectObject(dc, separator_pen);
     for (std::size_t index = 0; index < labels_.size(); ++index) {
         SetTextColor(dc, index == 0 && outline_visible_ && !outline_visible_()

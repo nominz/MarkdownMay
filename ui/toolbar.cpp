@@ -10,7 +10,7 @@
 namespace markdownmay::ui {
 namespace {
 constexpr int kHeadingComboId = 9100;
-constexpr int kHeadingComboWidth = 132;
+constexpr int kHeadingComboWidth = 112;
 constexpr int Native(app::CommandId command) noexcept {
     return static_cast<int>(command);
 }
@@ -31,6 +31,8 @@ constexpr const wchar_t* Icon(app::CommandId command) noexcept {
     case app::CommandId::format_unordered_list: return L"";
     case app::CommandId::format_ordered_list: return L"";
     case app::CommandId::format_task_list: return L"\xE739";
+    case app::CommandId::format_clear: return L"\xE74D";
+    case app::CommandId::insert_table: return L"\xE80A";
     case app::CommandId::view_render: return L"\xE7C3";
     case app::CommandId::view_source: return L"\xE943";
     case app::CommandId::view_split: return L"\xE952";
@@ -87,6 +89,42 @@ void DrawListIcon(HDC dc, RECT rect, COLORREF color, bool ordered, UINT dpi) {
     SelectObject(dc, old_pen);
     DeleteObject(pen);
 }
+
+void DrawAssetIcon(HDC dc, RECT rect, COLORREF color, app::CommandId command, UINT dpi) {
+    const auto stroke = (std::max)(1, MulDiv(2, dpi, 96));
+    const auto pen = CreatePen(PS_SOLID, stroke, color);
+    const auto old_pen = SelectObject(dc, pen);
+    const auto old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    InflateRect(&rect, -MulDiv(7, dpi, 96), -MulDiv(7, dpi, 96));
+    if (command == app::CommandId::view_split) {
+        RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, 3, 3);
+        const auto middle = (rect.left + rect.right) / 2;
+        MoveToEx(dc, middle, rect.top, nullptr); LineTo(dc, middle, rect.bottom);
+    } else if (command == app::CommandId::view_source) {
+        Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+        const auto y = rect.top + (rect.bottom - rect.top) / 3;
+        MoveToEx(dc, rect.left, y, nullptr); LineTo(dc, rect.right, y);
+        MoveToEx(dc, rect.left + 4, y + 5, nullptr); LineTo(dc, rect.left + 8, y + 9);
+        LineTo(dc, rect.left + 4, y + 13);
+        MoveToEx(dc, rect.right - 4, y + 5, nullptr); LineTo(dc, rect.right - 8, y + 9);
+        LineTo(dc, rect.right - 4, y + 13);
+    } else if (command == app::CommandId::format_quote) {
+        const auto brush = CreateSolidBrush(color); SelectObject(dc, brush);
+        RoundRect(dc, rect.left, rect.top + 6, (rect.left + rect.right) / 2 - 1,
+            rect.bottom - 2, 3, 3);
+        RoundRect(dc, (rect.left + rect.right) / 2 + 2, rect.top + 6,
+            rect.right, rect.bottom - 2, 3, 3);
+        SelectObject(dc, old_brush); DeleteObject(brush);
+    } else if (command == app::CommandId::format_task_list) {
+        Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+        MoveToEx(dc, rect.left + 3, rect.top + 6, nullptr);
+        LineTo(dc, rect.left + 6, rect.top + 9); LineTo(dc, rect.left + 11, rect.top + 3);
+        MoveToEx(dc, rect.left + 13, rect.top + 7, nullptr); LineTo(dc, rect.right - 2, rect.top + 7);
+        Ellipse(dc, rect.left + 4, rect.top + 13, rect.left + 10, rect.top + 19);
+        MoveToEx(dc, rect.left + 13, rect.top + 16, nullptr); LineTo(dc, rect.right - 2, rect.top + 16);
+    }
+    SelectObject(dc, old_brush); SelectObject(dc, old_pen); DeleteObject(pen);
+}
 }
 
 Toolbar::Toolbar(Query query, Execute execute)
@@ -113,7 +151,7 @@ bool Toolbar::create(HWND parent) {
     if (tooltip) SetWindowLongPtrW(tooltip, GWL_STYLE,
         GetWindowLongPtrW(tooltip, GWL_STYLE) | TTS_ALWAYSTIP | TTS_NOPREFIX);
 
-    constexpr std::array<ButtonDefinition, 13> definitions{{
+    constexpr std::array<ButtonDefinition, 15> definitions{{
         {app::CommandId::format_bold, Icon(app::CommandId::format_bold), BTNS_BUTTON},
         {app::CommandId::format_italic, Icon(app::CommandId::format_italic), BTNS_BUTTON},
         {app::CommandId::format_strike, Icon(app::CommandId::format_strike), BTNS_BUTTON},
@@ -122,6 +160,8 @@ bool Toolbar::create(HWND parent) {
         {app::CommandId::format_unordered_list, Icon(app::CommandId::format_unordered_list), BTNS_BUTTON},
         {app::CommandId::format_ordered_list, Icon(app::CommandId::format_ordered_list), BTNS_BUTTON},
         {app::CommandId::format_task_list, Icon(app::CommandId::format_task_list), BTNS_BUTTON},
+        {app::CommandId::format_clear, Icon(app::CommandId::format_clear), BTNS_BUTTON},
+        {app::CommandId::insert_table, Icon(app::CommandId::insert_table), BTNS_BUTTON},
         {app::CommandId::view_render, Icon(app::CommandId::view_render), BTNS_CHECKGROUP},
         {app::CommandId::view_source, Icon(app::CommandId::view_source), BTNS_CHECKGROUP},
         {app::CommandId::view_split, Icon(app::CommandId::view_split), BTNS_CHECKGROUP},
@@ -134,7 +174,7 @@ bool Toolbar::create(HWND parent) {
     buttons[output].fsStyle = BTNS_SEP;
     ++output;
     for (std::size_t index = 0; index < definitions.size(); ++index) {
-        if (index == 4 || index == 8 || index == 11 || index == 12) {
+        if (index == 4 || index == 10 || index == 13 || index == 14) {
             buttons[output].fsStyle = BTNS_SEP;
             buttons[output].iBitmap = index == 12 ? MulDiv(120, dpi_, 96) : MulDiv(8, dpi_, 96);
             ++output;
@@ -166,7 +206,7 @@ bool Toolbar::create(HWND parent) {
     SendMessageW(heading_combo_, CB_SETDROPPEDWIDTH, MulDiv(180, dpi_, 96), 0);
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
     SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
-        MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
+        MAKELPARAM(MulDiv(32, dpi_, 96), MulDiv(30, dpi_, 96)));
     RECT bounds{};
     GetWindowRect(handle_, &bounds);
     height_ = bounds.bottom - bounds.top;
@@ -194,6 +234,7 @@ void Toolbar::refresh() {
         app::CommandId::format_strike, app::CommandId::format_inline_code,
         app::CommandId::format_quote, app::CommandId::format_unordered_list,
         app::CommandId::format_ordered_list, app::CommandId::format_task_list,
+        app::CommandId::format_clear, app::CommandId::insert_table,
         app::CommandId::view_render, app::CommandId::view_source,
         app::CommandId::view_split, app::CommandId::edit_find,
         app::CommandId::tools_settings};
@@ -254,7 +295,7 @@ void Toolbar::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
         InvalidateRect(heading_combo_, nullptr, TRUE);
     }
     SendMessageW(handle_, TB_SETBUTTONSIZE, 0,
-        MAKELPARAM(MulDiv(34, dpi_, 96), MulDiv(32, dpi_, 96)));
+        MAKELPARAM(MulDiv(32, dpi_, 96), MulDiv(30, dpi_, 96)));
     SendMessageW(handle_, TB_AUTOSIZE, 0, 0);
     InvalidateRect(handle_, nullptr, TRUE);
 }
@@ -290,6 +331,13 @@ LRESULT Toolbar::custom_draw(NMTBCUSTOMDRAW& draw) {
         DrawListIcon(draw.nmcd.hdc, rect,
             disabled ? (dark ? RGB(115, 115, 115) : RGB(150, 150, 150)) : text_color_,
             command == app::CommandId::format_ordered_list, dpi_);
+    } else if (command == app::CommandId::format_quote ||
+               command == app::CommandId::format_task_list ||
+               command == app::CommandId::view_source ||
+               command == app::CommandId::view_split) {
+        DrawAssetIcon(draw.nmcd.hdc, rect,
+            disabled ? (dark ? RGB(115, 115, 115) : RGB(150, 150, 150)) : text_color_,
+            command, dpi_);
     } else {
         DrawTextW(draw.nmcd.hdc, Icon(command), -1, &rect,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -353,6 +401,8 @@ const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {
     case app::CommandId::format_unordered_list: return L"无序列表";
     case app::CommandId::format_ordered_list: return L"有序列表";
     case app::CommandId::format_task_list: return L"任务列表";
+    case app::CommandId::format_clear: return L"清除当前段落格式（Ctrl+\\）";
+    case app::CommandId::insert_table: return L"插入 3×3 表格";
     case app::CommandId::view_render: return L"切换到渲染模式（Ctrl+1）";
     case app::CommandId::view_source: return L"切换到源码模式（Ctrl+2）";
     case app::CommandId::view_split: return L"切换到对照模式（Ctrl+3）";

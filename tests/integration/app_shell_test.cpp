@@ -381,7 +381,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         fileio::LineEnding::lf);
     SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 2,
         reinterpret_cast<LPARAM>(status));
-    if (std::wstring(status) != L"UTF-16 LE") {
+    if (std::wstring(status) != L"编码方式：UTF-16 LE") {
         DestroyWindow(window.handle());
         CoUninitialize();
         return 12;
