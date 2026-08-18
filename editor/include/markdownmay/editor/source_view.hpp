@@ -2,6 +2,7 @@
 
 #include "markdownmay/editor/source_sync.hpp"
 #include "markdownmay/editor/paragraph_editor.hpp"
+#include "markdownmay/editor/heading_fold_controller.hpp"
 
 #include <windows.h>
 
@@ -41,6 +42,9 @@ public:
     [[nodiscard]] ErrorCode select_all();
     void set_synchronized_callback(std::function<void(ErrorCode)> callback);
     void set_scroll_callback(std::function<void(std::uint64_t, std::uint64_t)> callback);
+    void set_heading_folds(HeadingFoldController* folds);
+    void apply_heading_folds();
+    [[nodiscard]] bool toggle_heading_fold_at_caret();
     static LRESULT CALLBACK HostProcedure(HWND window, UINT message,
                                            WPARAM w_param, LPARAM l_param);
 
@@ -64,6 +68,7 @@ private:
     COLORREF background_color_{RGB(255, 255, 255)};
     COLORREF accent_color_{RGB(28, 80, 150)};
     UINT dpi_{96};
+    HeadingFoldController* folds_{};
 };
 
 }  // namespace markdownmay::editor

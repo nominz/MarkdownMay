@@ -6,6 +6,7 @@
 #include <richole.h>
 #include <tom.h>
 #include <commctrl.h>
+#include <windowsx.h>
 #include <shlwapi.h>
 #include <wrl/client.h>
 
@@ -20,6 +21,14 @@ namespace {
 
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
+    auto* self = reinterpret_cast<RichEditHost*>(reference);
+    if (message == WM_KEYDOWN && w_param == VK_OEM_4 &&
+        (GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0 && self &&
+        self->toggle_heading_fold_at_caret()) return 0;
+    if (message == WM_LBUTTONDOWN && self &&
+        self->handle_heading_fold_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
+        return 0;
     if (message == WM_CHAR && w_param == L'-') {
         CHARRANGE selected{};
         SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
@@ -31,7 +40,6 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
             TEXTRANGEW range{{line_begin, selected.cpMin}, markers};
             SendMessageW(window, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&range));
             if (markers[0] == L'-' && markers[1] == L'-') {
-                auto* self = reinterpret_cast<RichEditHost*>(reference);
                 if (self && self->complete_thematic_break() == ErrorCode::ok) return 0;
             }
         }
@@ -45,21 +53,25 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         }
     }
     const auto result = DefSubclassProc(window, message, w_param, l_param);
-    auto* self = reinterpret_cast<RichEditHost*>(reference);
     if (self && message == WM_PAINT) {
         const auto dc = GetDC(window);
         if (dc) {
             self->draw_table_grid(dc);
+            self->draw_heading_folds(dc);
             ReleaseDC(window, dc);
         }
     } else if (self && message == WM_PRINTCLIENT) {
         self->draw_table_grid(reinterpret_cast<HDC>(w_param));
+        self->draw_heading_folds(reinterpret_cast<HDC>(w_param));
     }
     if (message == WM_SIZE) {
         RECT formatting{};
         GetClientRect(window, &formatting);
         const auto inset = MulDiv(8, static_cast<int>(GetDpiForWindow(window)), 96);
-        InflateRect(&formatting, -inset, -inset);
+        formatting.left += MulDiv(24, static_cast<int>(GetDpiForWindow(window)), 96);
+        formatting.top += inset;
+        formatting.right -= inset;
+        formatting.bottom -= inset;
         SendMessageW(window, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
     }
     return result;
@@ -400,6 +412,7 @@ ErrorCode RichEditHost::project() {
                 text_color_, background_color_, true);
     }
     apply_appearance(text_color_, background_color_, dpi_);
+    apply_heading_folds();
     const auto length = static_cast<LONG>(rich_text.size());
     selection.cpMin = (std::min)(selection.cpMin, length);
     selection.cpMax = (std::min)(selection.cpMax, length);
@@ -441,9 +454,121 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     for (const auto& span : projection_.spans)
         ApplySpan(handle_, span, utf16_positions,
             text_color_, background_color_, false);
+    apply_heading_folds();
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = was_projecting;
     InvalidateRect(handle_, nullptr, TRUE);
+}
+
+void RichEditHost::set_heading_folds(HeadingFoldController* folds) {
+    folds_ = folds;
+    apply_heading_folds();
+}
+
+void RichEditHost::apply_heading_folds() {
+    if (!handle_) return;
+    CHARRANGE selection{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    CHARFORMAT2W format{};
+    format.cbSize = sizeof(format);
+    format.dwMask = CFM_HIDDEN;
+    format.dwEffects = 0;
+    SendMessageW(handle_, EM_SETSEL, 0, -1);
+    SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&format));
+    if (folds_ && folds_->revision() == session_.snapshot().source_revision) {
+        const auto utf16 = BuildUtf16Positions(projection_.text);
+        for (const auto& item : folds_->items()) {
+            if (!item.collapsed) continue;
+            const auto begin_it = std::lower_bound(projection_.source_offsets.begin(),
+                projection_.source_offsets.end(), item.body_range.begin);
+            const auto end_it = std::lower_bound(projection_.source_offsets.begin(),
+                projection_.source_offsets.end(), item.body_range.end);
+            const auto begin = static_cast<std::size_t>(
+                begin_it - projection_.source_offsets.begin());
+            const auto end = static_cast<std::size_t>(
+                end_it - projection_.source_offsets.begin());
+            if (begin >= end || begin >= utf16.size() || end >= utf16.size()) continue;
+            CHARRANGE range{utf16[begin], utf16[end]};
+            SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
+            format.dwEffects = CFE_HIDDEN;
+            SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
+                reinterpret_cast<LPARAM>(&format));
+        }
+    }
+    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    InvalidateRect(handle_, nullptr, TRUE);
+}
+
+void RichEditHost::draw_heading_folds(HDC dc) const {
+    if (!handle_ || !dc || !folds_) return;
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto size = (std::max)(6, MulDiv(8, static_cast<int>(dpi_), 96));
+    const auto color = GetRValue(background_color_) < 128
+        ? RGB(220, 220, 220) : RGB(70, 70, 70);
+    const auto brush = CreateSolidBrush(color);
+    const auto old_brush = SelectObject(dc, brush);
+    const auto old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+    for (const auto& item : folds_->items()) {
+        const auto hidden_by_parent = std::any_of(folds_->items().begin(),
+            folds_->items().end(), [&item](const auto& parent) {
+                return parent.collapsed && parent.node_id != item.node_id &&
+                    item.heading_range.begin >= parent.body_range.begin &&
+                    item.heading_range.begin < parent.body_range.end;
+            });
+        if (hidden_by_parent) continue;
+        const auto position = std::lower_bound(projection_.source_offsets.begin(),
+            projection_.source_offsets.end(), item.heading_range.begin);
+        const auto index = static_cast<std::size_t>(position - projection_.source_offsets.begin());
+        if (index >= utf16.size()) continue;
+        POINT text{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&text), utf16[index]);
+        const auto x = MulDiv(10, static_cast<int>(dpi_), 96);
+        const auto y = text.y + size / 2;
+        POINT triangle[3]{};
+        if (item.collapsed) {
+            triangle[0] = {x, y - size / 2};
+            triangle[1] = {x, y + size / 2};
+            triangle[2] = {x + size, y};
+        } else {
+            triangle[0] = {x - size / 2, y - size / 3};
+            triangle[1] = {x + size / 2, y - size / 3};
+            triangle[2] = {x, y + size / 2};
+        }
+        Polygon(dc, triangle, 3);
+    }
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    DeleteObject(brush);
+}
+
+bool RichEditHost::handle_heading_fold_click(POINT point) {
+    if (!handle_ || !folds_ || point.x > MulDiv(24, static_cast<int>(dpi_), 96)) return false;
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto tolerance = MulDiv(10, static_cast<int>(dpi_), 96);
+    for (const auto& item : folds_->items()) {
+        const auto hidden_by_parent = std::any_of(folds_->items().begin(),
+            folds_->items().end(), [&item](const auto& parent) {
+                return parent.collapsed && parent.node_id != item.node_id &&
+                    item.heading_range.begin >= parent.body_range.begin &&
+                    item.heading_range.begin < parent.body_range.end;
+            });
+        if (hidden_by_parent) continue;
+        const auto position = std::lower_bound(projection_.source_offsets.begin(),
+            projection_.source_offsets.end(), item.heading_range.begin);
+        const auto index = static_cast<std::size_t>(position - projection_.source_offsets.begin());
+        if (index >= utf16.size()) continue;
+        POINT text{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&text), utf16[index]);
+        if (point.y >= text.y - tolerance / 2 && point.y <= text.y + tolerance * 2)
+            return folds_->toggle(item.node_id);
+    }
+    return false;
+}
+
+bool RichEditHost::toggle_heading_fold_at_caret() {
+    if (!folds_) return false;
+    const auto selection = source_selection();
+    return selection.is_ok() && folds_->toggle_at(selection.value().caret);
 }
 
 void RichEditHost::draw_table_grid(HDC dc) const {
@@ -694,6 +819,7 @@ ErrorCode RichEditHost::synchronize_change() {
         if (next_projection.text == after &&
             HasSameFormattingStructure(projection_, next_projection)) {
             projection_ = std::move(next_projection);
+            apply_heading_folds();
             return ErrorCode::ok;
         }
     }

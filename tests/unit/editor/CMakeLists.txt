@@ -64,3 +64,10 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME source_sync_unit COMMAND MarkdownMaySourceSyncUnit)
+
+add_executable(MarkdownMayHeadingFoldUnit heading_fold_controller_test.cpp)
+target_link_libraries(
+    MarkdownMayHeadingFoldUnit
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME heading_fold_controller_unit COMMAND MarkdownMayHeadingFoldUnit)

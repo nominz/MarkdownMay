@@ -3,6 +3,7 @@
 #include "markdownmay/editor/richedit_host.hpp"
 #include "markdownmay/editor/find_replace_controller.hpp"
 #include "markdownmay/editor/split_view.hpp"
+#include "markdownmay/editor/heading_fold_controller.hpp"
 #include "markdownmay/fileio/file_service.hpp"
 
 #include <windows.h>
@@ -46,6 +47,7 @@ public:
     [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
     [[nodiscard]] std::uint8_t current_heading_level() const;
     [[nodiscard]] ErrorCode navigate_to_source(std::uint64_t offset);
+    [[nodiscard]] bool toggle_heading_fold_at(std::uint64_t heading_source_offset);
     [[nodiscard]] Result<TextSelection> find_text(std::string_view query,
         bool forward, bool case_sensitive, bool wildcards, bool wrap = true);
     [[nodiscard]] ErrorCode replace_current_text(std::string_view query,
@@ -73,10 +75,12 @@ private:
     [[nodiscard]] ErrorCode ApplyHistory(std::string source,
                                           document::EditOrigin origin);
     [[nodiscard]] ErrorCode SynchronizeActive();
+    void ApplyHeadingFolds();
 
     document::DocumentSession& session_;
     ParagraphEditor search_editor_;
     FindReplaceController find_replace_;
+    HeadingFoldController heading_folds_;
     RichEditHost render_;
     SplitView split_;
     HWND host_{};

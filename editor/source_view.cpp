@@ -1,6 +1,7 @@
 #include "markdownmay/editor/source_view.hpp"
 
 #include <Scintilla.h>
+#include <commctrl.h>
 
 #include <algorithm>
 #include <mutex>
@@ -14,6 +15,9 @@ constexpr UINT_PTR kSynchronizeTimer = 1;
 constexpr UINT kDebounceMilliseconds = 150;
 constexpr UINT kMaximumLatencyMilliseconds = 500;
 constexpr int kErrorIndicator = 8;
+constexpr int kFoldMargin = 2;
+constexpr int kExpandedMarker = 24;
+constexpr int kCollapsedMarker = 25;
 
 LRESULT SendEditor(HWND editor, unsigned int message,
                    WPARAM w_param = 0, LPARAM l_param = 0) {
@@ -38,11 +42,22 @@ bool RegisterSourceClasses() {
     return available;
 }
 
+LRESULT CALLBACK SourceEditorSubclass(HWND window, UINT message, WPARAM w_param,
+                                      LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
+    auto* self = reinterpret_cast<SourceView*>(reference);
+    if (message == WM_KEYDOWN && w_param == VK_OEM_4 &&
+        (GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0 && self &&
+        self->toggle_heading_fold_at_caret()) return 0;
+    return DefSubclassProc(window, message, w_param, l_param);
+}
+
 }  // namespace
 
 SourceView::SourceView(document::DocumentSession& session) : session_(session), sync_(session) {}
 
 SourceView::~SourceView() {
+    if (editor_ && IsWindow(editor_)) RemoveWindowSubclass(editor_, SourceEditorSubclass, 1);
     if (host_ && IsWindow(host_)) DestroyWindow(host_);
 }
 
@@ -63,6 +78,9 @@ ErrorCode SourceView::create(HWND parent, const RECT& bounds) {
         return ErrorCode::editor_source_control_failed;
     }
     Configure();
+    if (!SetWindowSubclass(editor_, SourceEditorSubclass, 1,
+            reinterpret_cast<DWORD_PTR>(this)))
+        return ErrorCode::editor_source_control_failed;
     return project();
 }
 
@@ -76,6 +94,7 @@ ErrorCode SourceView::project() {
     projecting_ = false;
     ApplyStyles();
     ApplyDiagnostics();
+    apply_heading_folds();
     return ErrorCode::ok;
 }
 
@@ -182,6 +201,10 @@ void SourceView::set_scroll_callback(
     std::function<void(std::uint64_t, std::uint64_t)> callback) {
     scroll_callback_ = std::move(callback);
 }
+void SourceView::set_heading_folds(HeadingFoldController* folds) {
+    folds_ = folds;
+    apply_heading_folds();
+}
 
 LRESULT CALLBACK SourceView::HostProcedure(HWND window, UINT message,
                                             WPARAM w_param, LPARAM l_param) {
@@ -207,6 +230,17 @@ LRESULT CALLBACK SourceView::HostProcedure(HWND window, UINT message,
             (notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) != 0) {
             self->ScheduleSynchronize();
         } else if (notification && notification->nmhdr.hwndFrom == self->editor_ &&
+            notification->nmhdr.code == SCN_MARGINCLICK &&
+            notification->margin == kFoldMargin && self->folds_) {
+            const auto position = static_cast<std::uint64_t>(notification->position);
+            const auto found = std::find_if(self->folds_->items().begin(),
+                self->folds_->items().end(), [position](const auto& item) {
+                    return position >= item.heading_range.begin &&
+                        position <= item.heading_range.end;
+                });
+            if (found != self->folds_->items().end())
+                static_cast<void>(self->folds_->toggle(found->node_id));
+        } else if (notification && notification->nmhdr.hwndFrom == self->editor_ &&
             notification->nmhdr.code == SCN_UPDATEUI && self->scroll_callback_ &&
             (notification->updated & SC_UPDATE_V_SCROLL) != 0) {
             self->scroll_callback_(
@@ -227,6 +261,17 @@ void SourceView::Configure() {
     SendEditor(editor_, SCI_SETCODEPAGE, SC_CP_UTF8);
     SendEditor(editor_, SCI_SETWRAPMODE, SC_WRAP_WORD);
     SendEditor(editor_, SCI_SETMARGINWIDTHN, 0, 48);
+    SendEditor(editor_, SCI_SETMARGINTYPEN, kFoldMargin, SC_MARGIN_SYMBOL);
+    SendEditor(editor_, SCI_SETMARGINMASKN, kFoldMargin,
+        (1 << kExpandedMarker) | (1 << kCollapsedMarker));
+    SendEditor(editor_, SCI_SETMARGINSENSITIVEN, kFoldMargin, TRUE);
+    SendEditor(editor_, SCI_SETMARGINWIDTHN, kFoldMargin, 18);
+    SendEditor(editor_, SCI_MARKERDEFINE, kExpandedMarker, SC_MARK_ARROWDOWN);
+    SendEditor(editor_, SCI_MARKERDEFINE, kCollapsedMarker, SC_MARK_ARROW);
+    SendEditor(editor_, SCI_MARKERSETFORE, kExpandedMarker, background_color_);
+    SendEditor(editor_, SCI_MARKERSETBACK, kExpandedMarker, accent_color_);
+    SendEditor(editor_, SCI_MARKERSETFORE, kCollapsedMarker, background_color_);
+    SendEditor(editor_, SCI_MARKERSETBACK, kCollapsedMarker, accent_color_);
     SendEditor(editor_, SCI_STYLESETFONT, STYLE_DEFAULT,
         reinterpret_cast<LPARAM>("Microsoft YaHei UI"));
     SendEditor(editor_, SCI_STYLESETSIZE, STYLE_DEFAULT, 11);
@@ -261,9 +306,43 @@ void SourceView::apply_appearance(COLORREF text, COLORREF background,
     SendEditor(editor_, SCI_STYLESETFORE, 3, text_color_);
     SendEditor(editor_, SCI_STYLESETITALIC, 3, TRUE);
     SendEditor(editor_, SCI_STYLESETFORE, 4, accent_color_);
+    SendEditor(editor_, SCI_MARKERSETFORE, kExpandedMarker, background_color_);
+    SendEditor(editor_, SCI_MARKERSETBACK, kExpandedMarker, accent_color_);
+    SendEditor(editor_, SCI_MARKERSETFORE, kCollapsedMarker, background_color_);
+    SendEditor(editor_, SCI_MARKERSETBACK, kCollapsedMarker, accent_color_);
     ApplyStyles();
     SendEditor(editor_, SCI_SETCARETFORE, text_color_);
     InvalidateRect(editor_, nullptr, TRUE);
+}
+
+void SourceView::apply_heading_folds() {
+    if (!editor_) return;
+    const auto line_count = static_cast<int>(SendEditor(editor_, SCI_GETLINECOUNT));
+    if (line_count > 0) SendEditor(editor_, SCI_SHOWLINES, 0, line_count - 1);
+    SendEditor(editor_, SCI_MARKERDELETEALL, kExpandedMarker);
+    SendEditor(editor_, SCI_MARKERDELETEALL, kCollapsedMarker);
+    if (!folds_) return;
+    const auto source_length = static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETLENGTH));
+    for (const auto& item : folds_->items()) {
+        if (item.heading_range.begin > source_length) continue;
+        const auto heading_line = static_cast<int>(SendEditor(editor_, SCI_LINEFROMPOSITION,
+            static_cast<WPARAM>(item.heading_range.begin)));
+        SendEditor(editor_, SCI_MARKERADD, heading_line,
+            item.collapsed ? kCollapsedMarker : kExpandedMarker);
+        if (!item.collapsed || item.body_range.end <= item.body_range.begin) continue;
+        auto first = heading_line + 1;
+        auto end_position = (std::min)(item.body_range.end, source_length);
+        auto last = static_cast<int>(SendEditor(editor_, SCI_LINEFROMPOSITION,
+            static_cast<WPARAM>(end_position)));
+        if (end_position < source_length) --last;
+        if (first <= last) SendEditor(editor_, SCI_HIDELINES, first, last);
+    }
+}
+
+bool SourceView::toggle_heading_fold_at_caret() {
+    if (!editor_ || !folds_) return false;
+    const auto caret = static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETCURRENTPOS));
+    return folds_->toggle_at(caret);
 }
 
 void SourceView::ApplyStyles() {

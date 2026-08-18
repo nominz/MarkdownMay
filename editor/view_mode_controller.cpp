@@ -41,8 +41,12 @@ bool RegisterModeClass() {
 
 ViewModeController::ViewModeController(document::DocumentSession& session)
     : session_(session), search_editor_(session), find_replace_(session, search_editor_),
-      render_(session), split_(session),
+      heading_folds_(session), render_(session), split_(session),
       observed_source_(session.snapshot().source) {
+    render_.set_heading_folds(&heading_folds_);
+    split_.source_view().set_heading_folds(&heading_folds_);
+    split_.render_view().set_heading_folds(&heading_folds_);
+    heading_folds_.set_changed_callback([this] { ApplyHeadingFolds(); });
     const std::weak_ptr<int> lifetime(lifetime_);
     session_.subscribe([this, lifetime](const document::DocumentEvent& event) {
         if (!lifetime.expired()) ObserveChange(event);
@@ -259,6 +263,7 @@ std::uint8_t ViewModeController::current_heading_level() const {
         ? const_cast<RichEditHost&>(render_).heading_level() : 0;
 }
 ErrorCode ViewModeController::navigate_to_source(std::uint64_t offset) {
+    static_cast<void>(heading_folds_.expand_to_reveal(offset));
     const TextSelection selection{offset, offset};
     const auto result = mode_ == ViewMode::render
         ? render_.select_source_range(selection)
@@ -266,6 +271,9 @@ ErrorCode ViewModeController::navigate_to_source(std::uint64_t offset) {
     if (result == ErrorCode::ok) SetFocus(mode_ == ViewMode::render
         ? render_.handle() : split_.source_view().handle());
     return result;
+}
+bool ViewModeController::toggle_heading_fold_at(std::uint64_t heading_source_offset) {
+    return heading_folds_.toggle_at(heading_source_offset);
 }
 Result<TextSelection> ViewModeController::find_text(std::string_view query,
         bool forward, bool case_sensitive, bool wildcards, bool wrap) {
@@ -371,6 +379,7 @@ void ViewModeController::Layout(int width, int height) {
 void ViewModeController::ObserveChange(const document::DocumentEvent& event) {
     const auto current = session_.snapshot().source;
     if (event.origin == document::EditOrigin::file_reload) {
+        heading_folds_.reset();
         undo_.clear();
         redo_.clear();
         observed_source_ = current;
@@ -397,6 +406,8 @@ void ViewModeController::RestoreSelection(TextSelection selection) {
     const auto size = static_cast<std::uint64_t>(session_.snapshot().source.size());
     selection.anchor = (std::min)(selection.anchor, size);
     selection.caret = (std::min)(selection.caret, size);
+    static_cast<void>(heading_folds_.expand_to_reveal(selection.anchor));
+    static_cast<void>(heading_folds_.expand_to_reveal(selection.caret));
     if (mode_ == ViewMode::render)
         static_cast<void>(render_.select_source_range(selection));
     else static_cast<void>(split_.source_view().select_source_range(selection));
@@ -434,6 +445,12 @@ ErrorCode ViewModeController::SynchronizeActive() {
     return mode_ == ViewMode::render
         ? render_.synchronize_change()
         : split_.source_view().synchronize_now();
+}
+
+void ViewModeController::ApplyHeadingFolds() {
+    render_.apply_heading_folds();
+    split_.source_view().apply_heading_folds();
+    split_.render_view().apply_heading_folds();
 }
 
 }  // namespace markdownmay::editor

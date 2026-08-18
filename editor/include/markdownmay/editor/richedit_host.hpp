@@ -9,6 +9,7 @@
 #include "markdownmay/editor/clipboard_controller.hpp"
 #include "markdownmay/editor/find_replace_controller.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
+#include "markdownmay/editor/heading_fold_controller.hpp"
 
 #include <windows.h>
 
@@ -95,6 +96,11 @@ public:
     [[nodiscard]] HWND handle() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
     void draw_table_grid(HDC dc) const;
+    void set_heading_folds(HeadingFoldController* folds);
+    void apply_heading_folds();
+    void draw_heading_folds(HDC dc) const;
+    [[nodiscard]] bool handle_heading_fold_click(POINT point);
+    [[nodiscard]] bool toggle_heading_fold_at_caret();
 
 private:
     document::DocumentSession& session_;
@@ -114,6 +120,7 @@ private:
     COLORREF text_color_{RGB(32, 32, 32)};
     COLORREF background_color_{RGB(255, 255, 255)};
     UINT dpi_{96};
+    HeadingFoldController* folds_{};
 };
 
 }  // namespace markdownmay::editor

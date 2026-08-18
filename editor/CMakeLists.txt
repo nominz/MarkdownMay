@@ -2,6 +2,7 @@ add_library(markdownmay_editor STATIC
     block_formatter.cpp
     clipboard_controller.cpp
     find_replace_controller.cpp
+    heading_fold_controller.cpp
     image_controller.cpp
     image_object.cpp
     inline_formatter.cpp

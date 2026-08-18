@@ -86,6 +86,13 @@ target_link_libraries(
 )
 add_test(NAME view_modes_integration COMMAND MarkdownMayViewModes)
 
+add_executable(MarkdownMayHeadingFold WIN32 heading_fold_test.cpp)
+target_link_libraries(
+    MarkdownMayHeadingFold
+    PRIVATE markdownmay_compiler_options markdownmay_editor scintilla_vendor user32
+)
+add_test(NAME heading_fold_integration COMMAND MarkdownMayHeadingFold)
+
 add_executable(MarkdownMaySaveReopen WIN32 save_reopen_test.cpp)
 target_link_libraries(
     MarkdownMaySaveReopen
