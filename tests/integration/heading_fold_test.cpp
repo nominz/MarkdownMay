@@ -24,6 +24,11 @@ bool HiddenAt(HWND window, LONG position) {
     SendMessageW(window, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&saved));
     return (format.dwMask & CFM_HIDDEN) != 0 && (format.dwEffects & CFE_HIDDEN) != 0;
 }
+POINT PointAt(HWND window, LONG position) {
+    POINT point{};
+    SendMessageW(window, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&point), position);
+    return point;
+}
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
@@ -36,8 +41,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!parent || modes.create(parent, bounds) != ErrorCode::ok) return 1;
     const auto rendered = ReadWide(modes.render_view().handle());
     const auto body = static_cast<LONG>(rendered.find(L"intro"));
+    const auto first_break = static_cast<LONG>(rendered.find(L'\r'));
+    const auto next_heading = static_cast<LONG>(rendered.rfind(L'C'));
     if (body < 0 || !modes.toggle_heading_fold_at(0) || !HiddenAt(modes.render_view().handle(), body))
         return 2;
+    if (first_break < 0 || next_heading < 0 ||
+        HiddenAt(modes.render_view().handle(), first_break) ||
+        PointAt(modes.render_view().handle(), next_heading).y <=
+            PointAt(modes.render_view().handle(), 0).y) return 12;
     if (session.is_dirty() || session.snapshot().source_revision != 1) return 3;
     if (modes.switch_to(editor::ViewMode::split) != ErrorCode::ok) return 4;
     const auto intro_source = static_cast<WPARAM>(session.snapshot().source.find("intro"));

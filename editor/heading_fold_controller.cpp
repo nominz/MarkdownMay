@@ -56,8 +56,11 @@ void HeadingFoldController::refresh() {
                     break;
                 }
             }
-            next[index].body_range = {next[index].heading_range.end,
-                (std::max)(next[index].heading_range.end, end)};
+            auto body_begin = next[index].heading_range.end;
+            if (body_begin < snapshot.source.size() &&
+                snapshot.source[static_cast<std::size_t>(body_begin)] == '\n')
+                ++body_begin;
+            next[index].body_range = {body_begin, (std::max)(body_begin, end)};
             next[index].collapsed = collapsed_.contains(next[index].node_id);
         }
         std::unordered_set<document::NodeId> retained;

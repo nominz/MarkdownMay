@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <cstdlib>
 #include <regex>
 #include <string>
 
@@ -228,6 +229,33 @@ private:
     Microsoft::WRL::ComPtr<ITextDocument2> document_;
     long count_{};
 };
+
+Microsoft::WRL::ComPtr<ITextDocument2> TextDocumentFor(HWND handle) {
+    Microsoft::WRL::ComPtr<IRichEditOle> rich_ole;
+    Microsoft::WRL::ComPtr<ITextDocument2> document;
+    if (SendMessageW(handle, EM_GETOLEINTERFACE, 0,
+            reinterpret_cast<LPARAM>(rich_ole.GetAddressOf())))
+        static_cast<void>(rich_ole.As(&document));
+    return document;
+}
+
+int HeadingVerticalCenter(HWND handle, ITextDocument2* document, LONG position,
+                          std::uint8_t level, UINT dpi) {
+    if (document) {
+        Microsoft::WRL::ComPtr<ITextRange2> range;
+        long top{}, bottom{}, unused{};
+        if (SUCCEEDED(document->Range2(position, position + 1, &range)) && range &&
+            SUCCEEDED(range->GetPoint(tomStart | tomClientCoord | tomAllowOffClient |
+                TA_TOP, &unused, &top)) &&
+            SUCCEEDED(range->GetPoint(tomStart | tomClientCoord | tomAllowOffClient |
+                TA_BOTTOM, &unused, &bottom)) && bottom > top)
+            return static_cast<int>(top + (bottom - top) / 2);
+    }
+    POINT point{};
+    SendMessageW(handle, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&point), position);
+    const auto points = 28 - (std::min)(level, std::uint8_t{6}) * 2;
+    return point.y + MulDiv(points, static_cast<int>(dpi), 144);
+}
 
 void ApplySpan(HWND handle, const ProjectionSpan& span,
         std::span<const LONG> utf16_positions, COLORREF text_color,
@@ -502,12 +530,15 @@ void RichEditHost::apply_heading_folds() {
 void RichEditHost::draw_heading_folds(HDC dc) const {
     if (!handle_ || !dc || !folds_) return;
     const auto utf16 = BuildUtf16Positions(projection_.text);
-    const auto size = (std::max)(6, MulDiv(8, static_cast<int>(dpi_), 96));
+    const auto size = (std::max)(8, MulDiv(10, static_cast<int>(dpi_), 96));
     const auto color = GetRValue(background_color_) < 128
         ? RGB(220, 220, 220) : RGB(70, 70, 70);
     const auto brush = CreateSolidBrush(color);
     const auto old_brush = SelectObject(dc, brush);
     const auto old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+    const auto document = TextDocumentFor(handle_);
+    RECT client{};
+    GetClientRect(handle_, &client);
     for (const auto& item : folds_->items()) {
         const auto hidden_by_parent = std::any_of(folds_->items().begin(),
             folds_->items().end(), [&item](const auto& parent) {
@@ -520,10 +551,14 @@ void RichEditHost::draw_heading_folds(HDC dc) const {
             projection_.source_offsets.end(), item.heading_range.begin);
         const auto index = static_cast<std::size_t>(position - projection_.source_offsets.begin());
         if (index >= utf16.size()) continue;
-        POINT text{};
-        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&text), utf16[index]);
-        const auto x = MulDiv(10, static_cast<int>(dpi_), 96);
-        const auto y = text.y + size / 2;
+        POINT approximate{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&approximate),
+            utf16[index]);
+        if (approximate.y < client.top - size * 2 ||
+            approximate.y > client.bottom + size * 2) continue;
+        const auto x = MulDiv(12, static_cast<int>(dpi_), 96);
+        const auto y = HeadingVerticalCenter(handle_, document.Get(), utf16[index],
+            item.level, dpi_);
         POINT triangle[3]{};
         if (item.collapsed) {
             triangle[0] = {x, y - size / 2};
@@ -545,6 +580,7 @@ bool RichEditHost::handle_heading_fold_click(POINT point) {
     if (!handle_ || !folds_ || point.x > MulDiv(24, static_cast<int>(dpi_), 96)) return false;
     const auto utf16 = BuildUtf16Positions(projection_.text);
     const auto tolerance = MulDiv(10, static_cast<int>(dpi_), 96);
+    const auto document = TextDocumentFor(handle_);
     for (const auto& item : folds_->items()) {
         const auto hidden_by_parent = std::any_of(folds_->items().begin(),
             folds_->items().end(), [&item](const auto& parent) {
@@ -557,9 +593,13 @@ bool RichEditHost::handle_heading_fold_click(POINT point) {
             projection_.source_offsets.end(), item.heading_range.begin);
         const auto index = static_cast<std::size_t>(position - projection_.source_offsets.begin());
         if (index >= utf16.size()) continue;
-        POINT text{};
-        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&text), utf16[index]);
-        if (point.y >= text.y - tolerance / 2 && point.y <= text.y + tolerance * 2)
+        POINT approximate{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&approximate),
+            utf16[index]);
+        if (std::abs(approximate.y - point.y) > tolerance * 3) continue;
+        const auto center = HeadingVerticalCenter(handle_, document.Get(), utf16[index],
+            item.level, dpi_);
+        if (point.y >= center - tolerance && point.y <= center + tolerance)
             return folds_->toggle(item.node_id);
     }
     return false;
