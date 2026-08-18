@@ -20,7 +20,14 @@ struct StartupOptions final {
     std::optional<std::uint32_t> wait_for_process;
 };
 
+struct MultiInstanceLaunchPlan final {
+    std::vector<std::filesystem::path> current_process_paths;
+    std::vector<std::filesystem::path> child_process_paths;
+};
+
 [[nodiscard]] Result<StartupOptions> ParseCommandLine(
     std::span<const std::wstring_view> arguments);
+[[nodiscard]] MultiInstanceLaunchPlan BuildMultiInstanceLaunchPlan(
+    std::span<const std::filesystem::path> paths);
 
 }  // namespace markdownmay::app

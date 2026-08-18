@@ -115,12 +115,12 @@ target_link_libraries(
 )
 add_test(NAME app_shell_integration COMMAND MarkdownMayAppShell)
 
-add_executable(MarkdownMayStartupSingleInstance startup_single_instance_test.cpp)
+add_executable(MarkdownMayStartupMultiInstance startup_single_instance_test.cpp)
 target_link_libraries(
-    MarkdownMayStartupSingleInstance
+    MarkdownMayStartupMultiInstance
     PRIVATE markdownmay_compiler_options markdownmay_app_shell markdownmay_platform
 )
-add_test(NAME startup_single_instance_integration COMMAND MarkdownMayStartupSingleInstance)
+add_test(NAME startup_multi_instance_integration COMMAND MarkdownMayStartupMultiInstance)
 
 add_executable(MarkdownMayFileAssociation file_association_test.cpp)
 target_link_libraries(

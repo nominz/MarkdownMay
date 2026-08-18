@@ -2,11 +2,11 @@
 
 #include "markdownmay/app/application.hpp"
 #include "markdownmay/app/command_line.hpp"
-#include "markdownmay/platform/single_instance.hpp"
 
 #include <shellapi.h>
 
 #include <filesystem>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -27,6 +27,47 @@ bool WaitForProcessExit(std::uint32_t process_id) {
     const auto wait = WaitForSingleObject(process, 30000);
     CloseHandle(process);
     return wait == WAIT_OBJECT_0;
+}
+
+std::wstring QuoteCommandLineArgument(std::wstring_view value) {
+    std::wstring quoted(1, L'"');
+    std::size_t backslashes{};
+    for (const auto character : value) {
+        if (character == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (character == L'"') {
+            quoted.append(backslashes * 2 + 1, L'\\');
+            quoted.push_back(L'"');
+        } else {
+            quoted.append(backslashes, L'\\');
+            quoted.push_back(character);
+        }
+        backslashes = 0;
+    }
+    quoted.append(backslashes * 2, L'\\');
+    quoted.push_back(L'"');
+    return quoted;
+}
+
+bool LaunchDocumentProcess(const std::filesystem::path& executable,
+                           const std::filesystem::path& document,
+                           bool safe_mode) {
+    auto command = QuoteCommandLineArgument(executable.native());
+    if (safe_mode) command.append(L" --safe-mode");
+    command.push_back(L' ');
+    command.append(QuoteCommandLineArgument(document.native()));
+    command.push_back(L'\0');
+
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    const auto created = CreateProcessW(executable.c_str(), command.data(), nullptr,
+        nullptr, FALSE, 0, nullptr, nullptr, &startup, &process);
+    if (!created) return false;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return true;
 }
 }
 
@@ -84,17 +125,16 @@ int RunStartup(HINSTANCE instance, int show_command) {
         }
     }
 
-    platform::SingleInstance single_instance;
-    const auto acquired = single_instance.acquire();
-    if (acquired != ErrorCode::ok) {
-        MessageBoxW(nullptr,
-            L"无法建立单实例保护，本次将使用独立窗口运行。",
-            L"马冬梅", MB_OK | MB_ICONWARNING);
+    const auto launch_plan = BuildMultiInstanceLaunchPlan(options.value().paths);
+    bool child_launch_failed{};
+    for (const auto& path : launch_plan.child_process_paths) {
+        if (executable.empty() ||
+            !LaunchDocumentProcess(executable, path, options.value().safe_mode))
+            child_launch_failed = true;
     }
-    if (acquired == ErrorCode::ok && !single_instance.is_primary()) {
-        if (single_instance.send(options.value().paths) == ErrorCode::ok) return 0;
+    if (child_launch_failed) {
         MessageBoxW(nullptr,
-            L"无法联系已经运行的马冬梅，将打开一个独立窗口以免丢失文件请求。",
+            L"部分文档无法在独立窗口中启动；其他文档仍会继续打开。",
             L"马冬梅", MB_OK | MB_ICONWARNING);
     }
 
@@ -114,21 +154,8 @@ int RunStartup(HINSTANCE instance, int show_command) {
     }
 
     Application application(instance);
-    application.enqueue_open_paths(options.value().paths);
-    if (acquired == ErrorCode::ok && single_instance.is_primary()) {
-        (void)single_instance.start_receiver(
-            [&application](std::vector<std::filesystem::path> paths) {
-                application.enqueue_open_paths(std::move(paths));
-            });
-    }
-    try {
-        const auto result = application.run(show_command);
-        single_instance.stop();
-        return result;
-    } catch (...) {
-        single_instance.stop();
-        throw;
-    }
+    application.enqueue_open_paths(launch_plan.current_process_paths);
+    return application.run(show_command);
 }
 
 }  // namespace markdownmay::app

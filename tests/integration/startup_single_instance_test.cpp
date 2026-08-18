@@ -4,11 +4,8 @@
 #include <windows.h>
 
 #include <array>
-#include <atomic>
-#include <chrono>
 #include <filesystem>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 using namespace markdownmay;
@@ -51,21 +48,12 @@ int main() {
     corrupt[0] = std::byte{0};
     if (platform::DecodeOpenRequest(corrupt).is_ok()) return 5;
 
-    platform::SingleInstance primary;
-    platform::SingleInstance secondary;
-    if (primary.acquire() != ErrorCode::ok || !primary.is_primary() ||
-        secondary.acquire() != ErrorCode::ok || secondary.is_primary()) return 6;
-    std::atomic_bool received{};
-    std::vector<std::filesystem::path> delivered;
-    if (primary.start_receiver([&](auto value) {
-            delivered = std::move(value);
-            received = true;
-        }) != ErrorCode::ok) return 7;
-    if (secondary.send(paths) != ErrorCode::ok) return 8;
-    for (int attempt = 0; attempt < 100 && !received; ++attempt)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    primary.stop();
-    if (!received || delivered != std::vector<std::filesystem::path>(paths.begin(), paths.end()))
-        return 9;
+    const auto launch_plan = app::BuildMultiInstanceLaunchPlan(paths);
+    if (launch_plan.current_process_paths.size() != 1 ||
+        launch_plan.current_process_paths.front() != paths.front() ||
+        launch_plan.child_process_paths.size() != 1 ||
+        launch_plan.child_process_paths.front() != paths.back()) return 14;
+    const std::span<const std::filesystem::path> no_paths;
+    if (!app::BuildMultiInstanceLaunchPlan(no_paths).current_process_paths.empty()) return 15;
     return 0;
 }

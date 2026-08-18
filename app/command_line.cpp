@@ -59,4 +59,13 @@ Result<StartupOptions> ParseCommandLine(
     return Result<StartupOptions>::success(std::move(result));
 }
 
+MultiInstanceLaunchPlan BuildMultiInstanceLaunchPlan(
+    std::span<const std::filesystem::path> paths) {
+    MultiInstanceLaunchPlan plan;
+    if (paths.empty()) return plan;
+    plan.current_process_paths.push_back(paths.front());
+    plan.child_process_paths.assign(paths.begin() + 1, paths.end());
+    return plan;
+}
+
 }  // namespace markdownmay::app
