@@ -101,6 +101,7 @@ public:
     void draw_heading_folds(HDC dc) const;
     [[nodiscard]] bool handle_heading_fold_click(POINT point);
     [[nodiscard]] bool toggle_heading_fold_at_caret();
+    void restore_heading_fold_scroll();
 
 private:
     document::DocumentSession& session_;
@@ -121,6 +122,8 @@ private:
     COLORREF background_color_{RGB(255, 255, 255)};
     UINT dpi_{96};
     HeadingFoldController* folds_{};
+    POINT pending_fold_scroll_{};
+    bool fold_scroll_pending_{};
 };
 
 }  // namespace markdownmay::editor

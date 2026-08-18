@@ -21,7 +21,7 @@ namespace markdownmay::editor {
 namespace {
 
 constexpr int kSelectionMarginDips = 8;
-constexpr LONG kFoldGutterTwips = 240;
+constexpr LONG kFoldGutterTwips = 360;
 constexpr int kFoldCenterDips = 16;
 constexpr int kFoldHitRightDips = 30;
 
@@ -66,6 +66,9 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
             self->draw_heading_folds(dc);
             ReleaseDC(window, dc);
         }
+        // RichEdit may scroll the caret into view while laying out hidden text.
+        // Restore only after that paint/layout pass has completed.
+        self->restore_heading_fold_scroll();
     } else if (self && message == WM_PRINTCLIENT) {
         self->draw_table_grid(reinterpret_cast<HDC>(w_param));
         self->draw_heading_folds(reinterpret_cast<HDC>(w_param));
@@ -509,35 +512,54 @@ void RichEditHost::set_heading_folds(HeadingFoldController* folds) {
 
 void RichEditHost::apply_heading_folds() {
     if (!handle_) return;
+    POINT scroll{};
     CHARRANGE selection{};
+    SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-    CHARFORMAT2W format{};
-    format.cbSize = sizeof(format);
-    format.dwMask = CFM_HIDDEN;
-    format.dwEffects = 0;
-    SendMessageW(handle_, EM_SETSEL, 0, -1);
-    SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&format));
-    if (folds_ && folds_->revision() == session_.snapshot().source_revision) {
-        const auto utf16 = BuildUtf16Positions(projection_.text);
-        for (const auto& item : folds_->items()) {
-            if (!item.collapsed) continue;
-            const auto begin_it = std::lower_bound(projection_.source_offsets.begin(),
-                projection_.source_offsets.end(), item.body_range.begin);
-            const auto end_it = std::lower_bound(projection_.source_offsets.begin(),
-                projection_.source_offsets.end(), item.body_range.end);
-            const auto begin = static_cast<std::size_t>(
-                begin_it - projection_.source_offsets.begin());
-            const auto end = static_cast<std::size_t>(
-                end_it - projection_.source_offsets.begin());
-            if (begin >= end || begin >= utf16.size() || end >= utf16.size()) continue;
-            CHARRANGE range{utf16[begin], utf16[end]};
-            SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
-            format.dwEffects = CFE_HIDDEN;
-            SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
-                reinterpret_cast<LPARAM>(&format));
+    SendMessageW(handle_, WM_SETREDRAW, FALSE, 0);
+    {
+        RichEditFreeze freeze(handle_);
+        const auto document = TextDocumentFor(handle_);
+        const auto set_hidden = [&document](LONG begin, LONG end, long hidden) {
+            if (!document || begin > end) return;
+            Microsoft::WRL::ComPtr<ITextRange2> range;
+            Microsoft::WRL::ComPtr<ITextFont2> font;
+            if (SUCCEEDED(document->Range2(begin, end, &range)) && range &&
+                SUCCEEDED(range->GetFont2(&font)) && font)
+                static_cast<void>(font->SetHidden(hidden));
+        };
+        set_hidden(0, static_cast<LONG>(GetWindowTextLengthW(handle_)), tomFalse);
+        if (document && folds_ &&
+            folds_->revision() == session_.snapshot().source_revision) {
+            const auto utf16 = BuildUtf16Positions(projection_.text);
+            for (const auto& item : folds_->items()) {
+                if (!item.collapsed) continue;
+                const auto begin_it = std::lower_bound(projection_.source_offsets.begin(),
+                    projection_.source_offsets.end(), item.body_range.begin);
+                const auto end_it = std::lower_bound(projection_.source_offsets.begin(),
+                    projection_.source_offsets.end(), item.body_range.end);
+                const auto begin = static_cast<std::size_t>(
+                    begin_it - projection_.source_offsets.begin());
+                const auto end = static_cast<std::size_t>(
+                    end_it - projection_.source_offsets.begin());
+                if (begin >= end || begin >= utf16.size() || end >= utf16.size()) continue;
+                set_hidden(utf16[begin], utf16[end], tomTrue);
+            }
         }
     }
+    SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    pending_fold_scroll_ = scroll;
+    fold_scroll_pending_ = true;
+    InvalidateRect(handle_, nullptr, TRUE);
+    SendMessageW(handle_, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+}
+
+void RichEditHost::restore_heading_fold_scroll() {
+    if (!handle_ || !fold_scroll_pending_) return;
+    fold_scroll_pending_ = false;
+    SendMessageW(handle_, EM_SETSCROLLPOS, 0,
+        reinterpret_cast<LPARAM>(&pending_fold_scroll_));
     InvalidateRect(handle_, nullptr, TRUE);
 }
 

@@ -3,6 +3,7 @@
 #include <Scintilla.h>
 #include <richedit.h>
 
+#include <algorithm>
 #include <string>
 
 namespace {
@@ -50,28 +51,64 @@ bool DrawsAnyTableGrid(markdownmay::editor::RichEditHost& host) {
     ReleaseDC(host.handle(), screen);
     return found;
 }
+void PumpMessages() {
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+}
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     using namespace markdownmay;
-    document::DocumentSession session(
-        "# A\nintro\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n## B\nbody\n# C\nend\n");
+    std::string source =
+        "# A\nintro\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\n## B\nbody\n# C\nend\n";
+    for (int line = 0; line < 100; ++line) source += "tail line\n";
+    document::DocumentSession session(std::move(source));
     HWND parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
         0, 0, 900, 600, nullptr, nullptr, instance, nullptr);
     editor::ViewModeController modes(session);
     RECT bounds{0, 0, 900, 600};
     if (!parent || modes.create(parent, bounds) != ErrorCode::ok) return 1;
+    ShowWindow(parent, SW_SHOW);
+    UpdateWindow(parent);
     const auto rendered = ReadWide(modes.render_view().handle());
     const auto body = static_cast<LONG>(rendered.find(L"intro"));
     const auto first_break = static_cast<LONG>(rendered.find(L'\r'));
     const auto next_heading = static_cast<LONG>(rendered.rfind(L'C'));
+    const auto rich_length = static_cast<LONG>(GetWindowTextLengthW(
+        modes.render_view().handle()));
+    CHARRANGE far_selection{rich_length, rich_length};
+    SendMessageW(modes.render_view().handle(), EM_EXSETSEL, 0,
+        reinterpret_cast<LPARAM>(&far_selection));
+    CHARRANGE selection_before{};
+    SendMessageW(modes.render_view().handle(), EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&selection_before));
+    POINT requested_scroll{};
+    SendMessageW(modes.render_view().handle(), EM_SETSCROLLPOS, 0,
+        reinterpret_cast<LPARAM>(&requested_scroll));
+    POINT scroll_before{};
+    SendMessageW(modes.render_view().handle(), EM_GETSCROLLPOS, 0,
+        reinterpret_cast<LPARAM>(&scroll_before));
     bool clicked{};
     const auto fold_x = MulDiv(16, static_cast<int>(GetDpiForWindow(
         modes.render_view().handle())), 96);
     for (int y = 0; y < 100 && !clicked; ++y)
         clicked = modes.render_view().handle_heading_fold_click({fold_x, y});
-    if (body < 0 || !clicked || !HiddenAt(modes.render_view().handle(), body))
-        return 2;
+    if (body < 0 || !clicked) return 2;
+    PumpMessages();
+    POINT scroll_after{};
+    SendMessageW(modes.render_view().handle(), EM_GETSCROLLPOS, 0,
+        reinterpret_cast<LPARAM>(&scroll_after));
+    CHARRANGE selection_after{};
+    SendMessageW(modes.render_view().handle(), EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&selection_after));
+    if (scroll_after.x != scroll_before.x) return 14;
+    if (scroll_after.y != scroll_before.y) return 15;
+    if (selection_after.cpMin != selection_before.cpMin) return 16;
+    if (selection_after.cpMax != selection_before.cpMax) return 17;
+    if (!HiddenAt(modes.render_view().handle(), body)) return 2;
     if (first_break < 0 || next_heading < 0 ||
         HiddenAt(modes.render_view().handle(), first_break) ||
         PointAt(modes.render_view().handle(), next_heading).y <=
