@@ -20,6 +20,11 @@
 namespace markdownmay::editor {
 namespace {
 
+constexpr int kSelectionMarginDips = 8;
+constexpr LONG kFoldGutterTwips = 240;
+constexpr int kFoldCenterDips = 16;
+constexpr int kFoldHitRightDips = 30;
+
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
     auto* self = reinterpret_cast<RichEditHost*>(reference);
@@ -69,7 +74,8 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         RECT formatting{};
         GetClientRect(window, &formatting);
         const auto inset = MulDiv(8, static_cast<int>(GetDpiForWindow(window)), 96);
-        formatting.left += MulDiv(24, static_cast<int>(GetDpiForWindow(window)), 96);
+        formatting.left += MulDiv(kSelectionMarginDips,
+            static_cast<int>(GetDpiForWindow(window)), 96);
         formatting.top += inset;
         formatting.right -= inset;
         formatting.bottom -= inset;
@@ -356,9 +362,11 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
             ? PFM_TABSTOPS : PFM_STARTINDENT;
-        if (span.kind == document::NodeKind::quote) paragraph.dxStartIndent = 360;
+        if (span.kind == document::NodeKind::quote)
+            paragraph.dxStartIndent = kFoldGutterTwips + 360;
         else if (span.kind == document::NodeKind::list_item)
-            paragraph.dxStartIndent = 360 + static_cast<LONG>(span.list_depth) * 360;
+            paragraph.dxStartIndent = kFoldGutterTwips + 360 +
+                static_cast<LONG>(span.list_depth) * 360;
         else if (span.kind == document::NodeKind::table) {
             paragraph.cTabCount = 8;
             for (LONG index = 0; index < paragraph.cTabCount; ++index)
@@ -478,6 +486,12 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     SendMessageW(handle_, EM_SETSEL, 0, -1);
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&base));
+    PARAFORMAT2 base_paragraph{};
+    base_paragraph.cbSize = sizeof(base_paragraph);
+    base_paragraph.dwMask = PFM_STARTINDENT;
+    base_paragraph.dxStartIndent = kFoldGutterTwips;
+    SendMessageW(handle_, EM_SETPARAFORMAT, 0,
+        reinterpret_cast<LPARAM>(&base_paragraph));
     const auto utf16_positions = BuildUtf16Positions(projection_.text);
     for (const auto& span : projection_.spans)
         ApplySpan(handle_, span, utf16_positions,
@@ -556,7 +570,7 @@ void RichEditHost::draw_heading_folds(HDC dc) const {
             utf16[index]);
         if (approximate.y < client.top - size * 2 ||
             approximate.y > client.bottom + size * 2) continue;
-        const auto x = MulDiv(12, static_cast<int>(dpi_), 96);
+        const auto x = MulDiv(kFoldCenterDips, static_cast<int>(dpi_), 96);
         const auto y = HeadingVerticalCenter(handle_, document.Get(), utf16[index],
             item.level, dpi_);
         POINT triangle[3]{};
@@ -577,7 +591,9 @@ void RichEditHost::draw_heading_folds(HDC dc) const {
 }
 
 bool RichEditHost::handle_heading_fold_click(POINT point) {
-    if (!handle_ || !folds_ || point.x > MulDiv(24, static_cast<int>(dpi_), 96)) return false;
+    const auto left = MulDiv(kSelectionMarginDips, static_cast<int>(dpi_), 96);
+    const auto right = MulDiv(kFoldHitRightDips, static_cast<int>(dpi_), 96);
+    if (!handle_ || !folds_ || point.x < left || point.x > right) return false;
     const auto utf16 = BuildUtf16Positions(projection_.text);
     const auto tolerance = MulDiv(10, static_cast<int>(dpi_), 96);
     const auto document = TextDocumentFor(handle_);
@@ -627,6 +643,17 @@ void RichEditHost::draw_table_grid(HDC dc) const {
 
     for (const auto& table : projection_.spans) {
         if (table.kind != document::NodeKind::table) continue;
+        const auto table_index = (std::min)(static_cast<std::size_t>(table.begin),
+            projection_.source_offsets.empty() ? std::size_t{} :
+                projection_.source_offsets.size() - 1U);
+        const auto table_source = projection_.source_offsets.empty()
+            ? std::uint64_t{} : projection_.source_offsets[table_index];
+        const auto hidden_by_fold = folds_ && std::any_of(folds_->items().begin(),
+            folds_->items().end(), [table_source](const auto& item) {
+                return item.collapsed && table_source >= item.body_range.begin &&
+                    table_source < item.body_range.end;
+            });
+        if (hidden_by_fold) continue;
         std::uint32_t rows{}, columns{};
         for (const auto& cell : projection_.spans) {
             if (cell.kind != document::NodeKind::table_cell ||
