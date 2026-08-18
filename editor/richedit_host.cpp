@@ -14,6 +14,7 @@
 #include <array>
 #include <climits>
 #include <cstdlib>
+#include <limits>
 #include <regex>
 #include <string>
 
@@ -191,12 +192,22 @@ ErrorCode MapControlSelection(HWND handle, const RichProjection& projection,
 }
 
 void SelectSourceRange(HWND handle, const RichProjection& projection, TextSelection source) {
-    std::size_t begin{}, end{};
-    while (begin + 1 < projection.source_offsets.size() &&
-           projection.source_offsets[begin] < source.anchor) ++begin;
-    end = begin;
-    while (end + 1 < projection.source_offsets.size() &&
-           projection.source_offsets[end] < source.caret) ++end;
+    const auto nearest = [&projection](std::uint64_t target) {
+        std::size_t best{};
+        auto distance = (std::numeric_limits<std::uint64_t>::max)();
+        for (std::size_t index = 0; index < projection.source_offsets.size(); ++index) {
+            const auto mapped = projection.source_offsets[index];
+            const auto candidate = mapped >= target ? mapped - target : target - mapped;
+            if (candidate < distance || (candidate == distance &&
+                    projection.source_offsets[best] < target && mapped >= target)) {
+                best = index;
+                distance = candidate;
+            }
+        }
+        return best;
+    };
+    const auto begin = nearest(source.anchor);
+    const auto end = nearest(source.caret);
     CHARRANGE selected{Utf16Length(projection.text, begin), Utf16Length(projection.text, end)};
     SendMessageW(handle, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selected));
 }
@@ -383,7 +394,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             const auto width_twips = (std::max)(1440L, static_cast<LONG>(MulDiv(
                 formatting.right - formatting.left, 1440,
                 static_cast<int>(GetDpiForWindow(handle)))));
-            paragraph.cTabCount = static_cast<SHORT>((std::min)(columns - 1, 31L));
+            paragraph.cTabCount = static_cast<SHORT>((std::min)(columns, 31L));
             for (LONG index = 0; index < paragraph.cTabCount; ++index)
                 paragraph.rgxTabs[index] = (index + 1) * width_twips / columns;
             paragraph.dySpaceBefore = 100;
@@ -699,8 +710,8 @@ void RichEditHost::draw_table_grid(HDC dc) const {
         }
         if (!rows || !columns) continue;
         std::vector<int> verticals(columns + 1, INT_MIN);
-        std::vector<int> tops(rows, INT_MAX);
-        std::vector<int> bottoms(rows, INT_MIN);
+        std::vector<int> text_tops(rows, INT_MAX);
+        std::vector<int> text_bottoms(rows, INT_MIN);
         for (const auto& cell : projection_.spans) {
             if (cell.kind != document::NodeKind::table_cell ||
                 cell.begin < table.begin || cell.end > table.end ||
@@ -717,9 +728,9 @@ void RichEditHost::draw_table_grid(HDC dc) const {
                 ? left : (std::min)(verticals[column], left);
             verticals[columns] = (std::max)(verticals[columns],
                 static_cast<int>(end.x) + padding);
-            tops[row] = (std::min)(tops[row], static_cast<int>(begin.y) - padding / 2);
-            bottoms[row] = (std::max)(bottoms[row],
-                static_cast<int>(begin.y + metrics.tmHeight) + padding / 2);
+            text_tops[row] = (std::min)(text_tops[row], static_cast<int>(begin.y));
+            text_bottoms[row] = (std::max)(text_bottoms[row],
+                static_cast<int>(begin.y + metrics.tmHeight));
         }
         for (std::size_t column = 1; column < columns; ++column) {
             if (verticals[column] == INT_MIN)
@@ -729,8 +740,18 @@ void RichEditHost::draw_table_grid(HDC dc) const {
         if (verticals[0] == INT_MIN || verticals[columns] == INT_MIN) continue;
         for (std::size_t column = 1; column <= columns; ++column)
             verticals[column] = (std::max)(verticals[column], verticals[column - 1] + padding * 2);
-        const auto top = tops.front();
-        const auto bottom = bottoms.back();
+        const auto paragraph_space = (std::max)(1, MulDiv(100,
+            static_cast<int>(dpi_), 1440));
+        std::vector<int> boundaries(rows + 1, INT_MIN);
+        boundaries.front() = text_tops.front() - paragraph_space;
+        for (std::size_t row = 1; row < rows; ++row) {
+            if (text_bottoms[row - 1] == INT_MIN || text_tops[row] == INT_MAX) continue;
+            boundaries[row] = text_bottoms[row - 1] +
+                (text_tops[row] - text_bottoms[row - 1]) / 2;
+        }
+        boundaries.back() = text_bottoms.back() + paragraph_space;
+        const auto top = boundaries.front();
+        const auto bottom = boundaries.back();
         if (top == INT_MAX || bottom == INT_MIN || bottom < client.top || top > client.bottom)
             continue;
         for (const auto x : verticals) {
@@ -739,10 +760,10 @@ void RichEditHost::draw_table_grid(HDC dc) const {
         }
         MoveToEx(dc, verticals.front(), top, nullptr);
         LineTo(dc, verticals.back(), top);
-        for (const auto row_bottom : bottoms) {
-            if (row_bottom == INT_MIN) continue;
-            MoveToEx(dc, verticals.front(), row_bottom, nullptr);
-            LineTo(dc, verticals.back(), row_bottom);
+        for (const auto boundary : boundaries) {
+            if (boundary == INT_MIN) continue;
+            MoveToEx(dc, verticals.front(), boundary, nullptr);
+            LineTo(dc, verticals.back(), boundary);
         }
     }
     SelectObject(dc, old_pen);
@@ -804,6 +825,16 @@ ErrorCode RichEditHost::select_source_range(TextSelection selection) {
     SelectSourceRange(handle_, projection_, selection);
     SendMessageW(handle_, EM_SCROLLCARET, 0, 0);
     return ErrorCode::ok;
+}
+
+void RichEditHost::align_selection_to_top() {
+    if (!handle_) return;
+    CHARRANGE selected{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    const auto target = static_cast<LONG>(SendMessageW(handle_, EM_LINEFROMCHAR,
+        static_cast<WPARAM>(selected.cpMin), 0));
+    const auto current = static_cast<LONG>(SendMessageW(handle_, EM_GETFIRSTVISIBLELINE, 0, 0));
+    SendMessageW(handle_, EM_LINESCROLL, 0, target - current);
 }
 
 ErrorCode RichEditHost::synchronize_change() {

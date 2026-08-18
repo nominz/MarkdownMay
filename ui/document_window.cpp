@@ -74,6 +74,9 @@ bool DocumentWindow::handle_control(HWND control, std::uint16_t notification) {
     return find_replace_.handle_control(control, notification) ||
         outline_.handle_control(control, notification);
 }
+bool DocumentWindow::handle_notify(const NMHDR& notification) {
+    return outline_.handle_notify(notification);
+}
 void DocumentWindow::show_find(bool replace_mode) {
     find_replace_.show(replace_mode);
     resize(bounds_);

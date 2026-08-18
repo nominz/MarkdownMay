@@ -105,27 +105,75 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         DestroyWindow(window.handle()); CoUninitialize(); return 41;
     }
     if (!window.document_window().outline_handle() ||
-        SendMessageW(window.document_window().outline_handle(), LB_GETCOUNT, 0, 0) != 1) {
+        TreeView_GetCount(window.document_window().outline_handle()) != 1) {
         DestroyWindow(window.handle()); CoUninitialize(); return 52;
     }
     if (window.document_window().outline_visible()) return 56;
-    if (window.document_window().modes().reload("# 一级\n\n### 三级\n") != ErrorCode::ok ||
-        SendMessageW(window.document_window().outline_handle(), LB_GETCOUNT, 0, 0) != 2) {
+    std::string outline_source = "# 一级\n\n";
+    for (int line = 0; line < 40; ++line)
+        outline_source += "正文行 " + std::to_string(line) + "\n\n";
+    const auto third_heading_offset = outline_source.size();
+    outline_source += "### 三级\n\n";
+    for (int line = 0; line < 40; ++line)
+        outline_source += "后续正文 " + std::to_string(line) + "\n\n";
+    if (window.document_window().modes().reload(outline_source) != ErrorCode::ok ||
+        TreeView_GetCount(window.document_window().outline_handle()) != 2) {
         DestroyWindow(window.handle()); CoUninitialize(); return 53;
     }
+    const auto outline = window.document_window().outline_handle();
+    const auto root_item = TreeView_GetRoot(outline);
+    const auto child_item = TreeView_GetChild(outline, root_item);
     std::array<wchar_t, 32> outline_label{};
-    SendMessageW(window.document_window().outline_handle(), LB_GETTEXT, 1,
-        reinterpret_cast<LPARAM>(outline_label.data()));
-    if (std::wstring_view(outline_label.data()).find(L"    三级") != 0) {
+    TVITEMW outline_item{};
+    outline_item.mask = TVIF_TEXT;
+    outline_item.hItem = child_item;
+    outline_item.pszText = outline_label.data();
+    outline_item.cchTextMax = static_cast<int>(outline_label.size());
+    if (!root_item || !child_item || !TreeView_GetItem(outline, &outline_item) ||
+        std::wstring_view(outline_label.data()) != L"三级") {
         DestroyWindow(window.handle()); CoUninitialize(); return 54;
     }
-    SendMessageW(window.document_window().outline_handle(), LB_SETCURSEL, 1, 0);
-    SendMessageW(window.handle(), WM_COMMAND, MAKEWPARAM(4100, LBN_SELCHANGE),
-        reinterpret_cast<LPARAM>(window.document_window().outline_handle()));
-    const auto outline_selection = window.document_window().modes().render_view().source_selection();
-    if (!outline_selection.is_ok() || outline_selection.value().caret == 0 || session.is_dirty()) {
-        DestroyWindow(window.handle()); CoUninitialize(); return 55;
+    outline_item.mask = TVIF_PARAM;
+    outline_item.hItem = child_item;
+    if (!TreeView_GetItem(outline, &outline_item) ||
+        static_cast<std::size_t>(outline_item.lParam) < third_heading_offset ||
+        static_cast<std::size_t>(outline_item.lParam) > third_heading_offset + 4) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 64;
     }
+    TreeView_Expand(outline, root_item, TVE_COLLAPSE);
+    if (TreeView_GetNextVisible(outline, root_item) != nullptr) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 59;
+    }
+    TreeView_Expand(outline, root_item, TVE_EXPAND);
+    if (!TreeView_SelectItem(outline, child_item) ||
+        TreeView_GetSelection(outline) != child_item) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 65;
+    }
+    NMTREEVIEWW selection_changed{};
+    selection_changed.hdr.hwndFrom = outline;
+    selection_changed.hdr.code = TVN_SELCHANGEDW;
+    selection_changed.itemNew.hItem = child_item;
+    if (!window.document_window().handle_notify(selection_changed.hdr)) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 66;
+    }
+    if (window.document_window().modes().navigate_to_source(
+            static_cast<std::uint64_t>(outline_item.lParam)) != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 67;
+    }
+    if (window.document_window().modes().mode() != editor::ViewMode::render) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 71;
+    }
+    if (window.document_window().modes().render_view().select_source_range(
+            {third_heading_offset, third_heading_offset}) != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 69;
+    }
+    const auto outline_selection = window.document_window().modes().render_view().source_selection();
+    if (!outline_selection.is_ok()) { DestroyWindow(window.handle()); CoUninitialize(); return 60; }
+    if (outline_selection.value().caret < third_heading_offset ||
+        outline_selection.value().caret > third_heading_offset + 4) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 61;
+    }
+    if (session.is_dirty()) { DestroyWindow(window.handle()); CoUninitialize(); return 63; }
     static_cast<void>(window.document_window().new_document());
     TBBUTTONINFO heading_button{sizeof(heading_button), TBIF_SIZE | TBIF_STATE};
     if (SendMessageW(window.toolbar()->handle(), TB_GETBUTTONINFOW,

@@ -153,6 +153,14 @@ ErrorCode SourceView::select_source_range(TextSelection selection) {
     return ErrorCode::ok;
 }
 
+void SourceView::align_selection_to_top() {
+    if (!editor_) return;
+    const auto position = SendEditor(editor_, SCI_GETCURRENTPOS);
+    const auto line = SendEditor(editor_, SCI_LINEFROMPOSITION,
+        static_cast<WPARAM>(position));
+    SendEditor(editor_, SCI_SETFIRSTVISIBLELINE, static_cast<WPARAM>(line));
+}
+
 std::pair<std::uint64_t, std::uint64_t> SourceView::scroll_fraction() const {
     if (!editor_) return {0, 1};
     return {static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETFIRSTVISIBLELINE)),

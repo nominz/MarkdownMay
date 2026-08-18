@@ -23,6 +23,7 @@ public:
     void refresh_outline_state();
     [[nodiscard]] HWND outline_handle() const noexcept;
     [[nodiscard]] bool handle_control(HWND control, std::uint16_t notification);
+    [[nodiscard]] bool handle_notify(const NMHDR& notification);
     void show_find(bool replace_mode);
     void toggle_find(bool replace_mode);
     [[nodiscard]] ErrorCode new_document();

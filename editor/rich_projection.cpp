@@ -242,11 +242,10 @@ void Block(const document::Node& node, RichProjection& output,
                 std::uint32_t column_index{};
                 for (const auto& cell : row->children) {
                     if (cell->kind != document::NodeKind::table_cell) continue;
-                    if (column_index > 0)
-                        AppendSynthetic(output, "\t", cell->source.begin, cell->source.begin);
                     const auto cell_begin = static_cast<std::uint64_t>(output.text.size());
                     for (const auto& child : cell->children)
                         Inline(*child, output, source, document_path);
+                    AppendSynthetic(output, "\t", cell->source.end, cell->source.end);
                     const auto cell_end = static_cast<std::uint64_t>(output.text.size());
                     output.spans.push_back({document::NodeKind::table_cell, cell_begin, cell_end,
                         0, 0, false, false, ImageDisplayState::missing, 0, 0, 100, {},

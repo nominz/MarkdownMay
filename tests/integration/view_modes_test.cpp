@@ -144,6 +144,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     const auto after_switch = scroll_modes.render_view().scroll_fraction();
     if (after_switch.first + 3 < before_switch.first ||
         after_switch.first > before_switch.first + 3) return 23;
+    ShowWindow(scroll_parent, SW_SHOWNOACTIVATE);
+    UpdateWindow(scroll_parent);
+    const auto navigation_target = static_cast<std::uint64_t>(long_source.find("line 1200"));
+    if (scroll_modes.navigate_to_source(navigation_target) != ErrorCode::ok) return 33;
+    const auto navigated = scroll_modes.render_view().source_selection();
+    CHARRANGE navigated_control{};
+    SendMessageW(scroll_modes.render_view().handle(), EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&navigated_control));
+    const auto navigated_line = SendMessageW(scroll_modes.render_view().handle(),
+        EM_LINEFROMCHAR, static_cast<WPARAM>(navigated_control.cpMin), 0);
+    const auto navigated_first = SendMessageW(scroll_modes.render_view().handle(),
+        EM_GETFIRSTVISIBLELINE, 0, 0);
+    if (!navigated.is_ok() || navigated.value().caret != navigation_target ||
+        navigated_line != navigated_first) return 34;
     if (scroll_modes.switch_to(editor::ViewMode::split) != ErrorCode::ok) return 28;
     const auto long_insert = static_cast<WPARAM>(long_source.size() / 2);
     SendMessageW(scroll_modes.source_view().handle(), SCI_SETSEL, long_insert, long_insert);

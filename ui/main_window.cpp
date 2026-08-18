@@ -229,6 +229,7 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
             break;
         case WM_NOTIFY: {
             const auto* header = reinterpret_cast<const NMHDR*>(l_param);
+            if (header && self->document_window_.handle_notify(*header)) return 0;
             if (self->toolbar_ && header &&
                 header->hwndFrom == self->toolbar_->handle() &&
                 header->code == TBN_GETINFOTIPW) {

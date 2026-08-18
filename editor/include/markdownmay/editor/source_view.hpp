@@ -34,6 +34,7 @@ public:
     void apply_appearance(COLORREF text, COLORREF background, COLORREF accent, UINT dpi);
     [[nodiscard]] TextSelection source_selection() const noexcept;
     [[nodiscard]] ErrorCode select_source_range(TextSelection selection);
+    void align_selection_to_top();
     [[nodiscard]] std::pair<std::uint64_t, std::uint64_t> scroll_fraction() const;
     void scroll_to_fraction(std::uint64_t numerator, std::uint64_t denominator);
     [[nodiscard]] ErrorCode cut();

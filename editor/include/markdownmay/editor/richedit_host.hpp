@@ -38,6 +38,7 @@ public:
     void reset_to_start();
     [[nodiscard]] Result<TextSelection> source_selection();
     [[nodiscard]] ErrorCode select_source_range(TextSelection selection);
+    void align_selection_to_top();
     [[nodiscard]] ErrorCode synchronize_change();
     [[nodiscard]] ErrorCode complete_thematic_break();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);

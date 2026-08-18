@@ -12,7 +12,11 @@ namespace markdownmay::ui {
 
 class OutlineView final {
 public:
-    struct Item final { std::uint64_t source_offset{}; };
+    struct Item final {
+        std::uint64_t source_offset{};
+        std::uint8_t level{1};
+        std::wstring label;
+    };
     OutlineView(document::DocumentSession& session,
                 editor::ViewModeController& modes);
     ~OutlineView();
@@ -20,6 +24,7 @@ public:
     void resize(const RECT& bounds);
     void refresh();
     [[nodiscard]] bool handle_control(HWND control, std::uint16_t notification);
+    [[nodiscard]] bool handle_notify(const NMHDR& notification);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int width() const noexcept;
     void set_width(int width) noexcept;

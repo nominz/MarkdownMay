@@ -268,8 +268,12 @@ ErrorCode ViewModeController::navigate_to_source(std::uint64_t offset) {
     const auto result = mode_ == ViewMode::render
         ? render_.select_source_range(selection)
         : split_.source_view().select_source_range(selection);
-    if (result == ErrorCode::ok) SetFocus(mode_ == ViewMode::render
-        ? render_.handle() : split_.source_view().handle());
+    if (result == ErrorCode::ok) {
+        if (mode_ == ViewMode::render) render_.align_selection_to_top();
+        else split_.source_view().align_selection_to_top();
+        SetFocus(mode_ == ViewMode::render
+            ? render_.handle() : split_.source_view().handle());
+    }
     return result;
 }
 bool ViewModeController::toggle_heading_fold_at(std::uint64_t heading_source_offset) {
