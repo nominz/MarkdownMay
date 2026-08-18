@@ -150,6 +150,7 @@ void Block(const document::Node& node, RichProjection& output,
            std::string_view source, const std::filesystem::path& document_path,
            std::uint8_t depth = 0) {
     const auto begin = static_cast<std::uint64_t>(output.text.size());
+    std::uint32_t table_columns{};
     if (node.kind == document::NodeKind::text ||
         node.kind == document::NodeKind::emphasis ||
         node.kind == document::NodeKind::strong ||
@@ -252,6 +253,7 @@ void Block(const document::Node& node, RichProjection& output,
                         row_index, column_index});
                     ++column_index;
                 }
+                table_columns = (std::max)(table_columns, column_index);
                 ++row_index;
                 first_row = false;
             }
@@ -267,7 +269,9 @@ void Block(const document::Node& node, RichProjection& output,
         std::uint8_t level{};
         if (const auto* heading = std::get_if<document::HeadingAttributes>(&node.attributes))
             level = heading->level;
-        output.spans.push_back({node.kind, begin, end, level, depth, false, false});
+        ProjectionSpan span{node.kind, begin, end, level, depth, false, false};
+        if (node.kind == document::NodeKind::table) span.table_columns = table_columns;
+        output.spans.push_back(std::move(span));
     }
 }
 

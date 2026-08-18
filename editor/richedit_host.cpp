@@ -213,7 +213,7 @@ bool HasSameFormattingStructure(const RichProjection& left,
             a.image_width != b.image_width || a.image_height != b.image_height ||
             a.image_display_percent != b.image_display_percent ||
             a.image_path != b.image_path || a.table_row != b.table_row ||
-            a.table_column != b.table_column) return false;
+            a.table_column != b.table_column || a.table_columns != b.table_columns) return false;
     }
     return true;
 }
@@ -324,10 +324,16 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             ? (dark ? RGB(145, 205, 235) : RGB(35, 90, 125))
             : (dark ? RGB(230, 165, 120) : RGB(145, 80, 45));
     } else if (span.kind == document::NodeKind::table_cell) {
-        format.dwMask = CFM_BACKCOLOR;
-        format.crBackColor = span.table_row == 0
-            ? (dark ? RGB(54, 61, 68) : RGB(230, 236, 242))
-            : (dark ? RGB(38, 38, 41) : RGB(248, 248, 248));
+        format.dwMask = CFM_BACKCOLOR | CFM_BOLD;
+        if (span.table_row == 0) {
+            format.dwEffects = CFE_BOLD;
+            format.crBackColor = dark ? RGB(54, 61, 68) : RGB(232, 232, 232);
+        } else {
+            format.dwEffects = 0;
+            format.crBackColor = span.table_row % 2 == 0
+                ? (dark ? RGB(44, 44, 47) : RGB(242, 242, 242))
+                : background_color;
+        }
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
@@ -364,16 +370,24 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
-            ? PFM_TABSTOPS : PFM_STARTINDENT;
+            ? PFM_TABSTOPS | PFM_SPACEBEFORE | PFM_SPACEAFTER : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote)
             paragraph.dxStartIndent = kFoldGutterTwips + 360;
         else if (span.kind == document::NodeKind::list_item)
             paragraph.dxStartIndent = kFoldGutterTwips + 360 +
                 static_cast<LONG>(span.list_depth) * 360;
         else if (span.kind == document::NodeKind::table) {
-            paragraph.cTabCount = 8;
+            RECT formatting{};
+            SendMessageW(handle, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
+            const auto columns = (std::max)(1L, static_cast<LONG>(span.table_columns));
+            const auto width_twips = (std::max)(1440L, static_cast<LONG>(MulDiv(
+                formatting.right - formatting.left, 1440,
+                static_cast<int>(GetDpiForWindow(handle)))));
+            paragraph.cTabCount = static_cast<SHORT>((std::min)(columns - 1, 31L));
             for (LONG index = 0; index < paragraph.cTabCount; ++index)
-                paragraph.rgxTabs[index] = (index + 1) * 1440;
+                paragraph.rgxTabs[index] = (index + 1) * width_twips / columns;
+            paragraph.dySpaceBefore = 100;
+            paragraph.dySpaceAfter = 100;
         } else paragraph.wAlignment = PFA_CENTER;
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));

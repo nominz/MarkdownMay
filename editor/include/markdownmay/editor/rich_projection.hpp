@@ -25,6 +25,7 @@ struct ProjectionSpan final {
     std::filesystem::path image_path;
     std::uint32_t table_row{};
     std::uint32_t table_column{};
+    std::uint32_t table_columns{};
 };
 
 struct RichProjection final {

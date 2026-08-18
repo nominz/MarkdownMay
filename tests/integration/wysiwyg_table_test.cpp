@@ -61,6 +61,39 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (visible.find(L'|') != std::wstring::npos || visible.find(L'\t') == std::wstring::npos ||
         visible.find(L'┌') != std::wstring::npos || visible.find(L'│') != std::wstring::npos ||
         visible.find(L"数据") == std::wstring::npos) return 8;
+    const auto first_tab = visible.find(L'\t');
+    POINT first_cell{}, second_cell{}, first_row{}, second_row{};
+    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&first_cell), 0);
+    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&second_cell),
+        static_cast<LPARAM>(first_tab + 1));
+    const auto first_newline = visible.find(L'\n');
+    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&first_row), 0);
+    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&second_row),
+        static_cast<LPARAM>(first_newline + 1));
+    if (second_cell.x - first_cell.x < 200 || second_row.y - first_row.y < 24) return 82;
+    CHARFORMAT2W header_format{};
+    header_format.cbSize = sizeof(header_format);
+    CHARRANGE header_range{0, 1};
+    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&header_range));
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&header_format));
+    if ((header_format.dwEffects & CFE_BOLD) == 0) return 83;
+    const auto second_newline = visible.find(L'\n', first_newline + 1);
+    if (second_newline == std::wstring::npos) return 84;
+    CHARFORMAT2W odd_format{}, even_format{};
+    odd_format.cbSize = sizeof(odd_format);
+    even_format.cbSize = sizeof(even_format);
+    CHARRANGE odd_range{static_cast<LONG>(first_newline + 1),
+        static_cast<LONG>(first_newline + 2)};
+    CHARRANGE even_range{static_cast<LONG>(second_newline + 1),
+        static_cast<LONG>(second_newline + 2)};
+    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&odd_range));
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&odd_format));
+    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&even_range));
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&even_format));
+    if (odd_format.crBackColor == even_format.crBackColor) return 84;
     const auto screen = GetDC(host.handle());
     const auto memory = CreateCompatibleDC(screen);
     const auto bitmap = CreateCompatibleBitmap(screen, 760, 560);
