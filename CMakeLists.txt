@@ -7,6 +7,12 @@ project(
     LANGUAGES C CXX
 )
 
+configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake/build_version.hpp.in"
+    "${PROJECT_BINARY_DIR}/generated/markdownmay/build_version.hpp"
+    @ONLY
+)
+
 if(MSVC)
     set(
         CMAKE_MSVC_RUNTIME_LIBRARY
