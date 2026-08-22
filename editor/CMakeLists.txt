@@ -1,4 +1,5 @@
 add_library(markdownmay_editor STATIC
+    block_interaction_controller.cpp
     block_formatter.cpp
     clipboard_controller.cpp
     find_replace_controller.cpp
