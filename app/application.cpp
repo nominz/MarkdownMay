@@ -67,20 +67,22 @@ int ConfirmUnsavedChanges(HWND owner) {
 class PlacementDialog final {
 public:
     std::optional<std::filesystem::path> show(HWND owner,
-                                              std::filesystem::path initial) {
+                                              std::filesystem::path initial,
+                                              ui::ThemePreference theme_preference) {
         owner_ = owner;
         value_ = std::move(initial);
+        theme_preference_ = theme_preference;
         const wchar_t class_name[] = L"MarkdownMay.PlacementDialog";
         WNDCLASSEXW type{sizeof(type)};
         type.lpfnWndProc = WindowProc;
         type.hInstance = GetModuleHandleW(nullptr);
         type.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        type.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        type.hbrBackground = nullptr;
         type.lpszClassName = class_name;
         RegisterClassExW(&type);
         window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, class_name,
             L"安置马冬梅", WS_CAPTION | WS_SYSMENU | WS_POPUP,
-            CW_USEDEFAULT, CW_USEDEFAULT, 600, 230, owner_, nullptr,
+            CW_USEDEFAULT, CW_USEDEFAULT, 640, 324, owner_, nullptr,
             GetModuleHandleW(nullptr), this);
         if (!window_) return std::nullopt;
         CenterAndShow();
@@ -94,6 +96,7 @@ public:
         }
         EnableWindow(owner_, TRUE);
         SetForegroundWindow(owner_);
+        ReleaseAppearance();
         return accepted_ ? std::optional(value_) : std::nullopt;
     }
 
@@ -116,7 +119,6 @@ private:
 
     LRESULT HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) {
         if (message == WM_CREATE) {
-            const auto font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
             auto make = [&](const wchar_t* type, const wchar_t* text, DWORD style,
                             int id) {
                 const auto control = CreateWindowExW(wcscmp(type, L"EDIT") == 0
@@ -124,18 +126,23 @@ private:
                     type, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 0, 0,
                     window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                     GetModuleHandleW(nullptr), nullptr);
-                SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
                 return control;
             };
+            heading_ = make(L"STATIC", L"选择马冬梅的长期保存位置", SS_LEFT, 0);
             note_ = make(L"STATIC",
-                L"请选择马冬梅长期保存的位置。马冬梅程序仅约 2 MB，您可以放心将它保存在系统盘。",
+                L"安置完成后，马冬梅将从新位置重新打开；原位置的程序不会被删除。",
                 SS_LEFT, 0);
-            label_ = make(L"STATIC", L"目标文件夹：", SS_LEFT, 0);
+            size_note_ = make(L"STATIC",
+                L"程序约 2 MB，可以放心保存在系统盘。", SS_LEFT, 0);
+            label_ = make(L"STATIC", L"目标文件夹(&F)：", SS_LEFT, 0);
             edit_ = make(L"EDIT", value_.c_str(), ES_AUTOHSCROLL | WS_TABSTOP, edit_path);
-            browse_ = make(L"BUTTON", L"浏览…", BS_PUSHBUTTON | WS_TABSTOP, browse);
-            ok_ = make(L"BUTTON", L"安置", BS_DEFPUSHBUTTON | WS_TABSTOP, IDOK);
+            browse_ = make(L"BUTTON", L"浏览(&B)…", BS_PUSHBUTTON | WS_TABSTOP, browse);
+            target_ = make(L"STATIC", L"目标程序：MarkdownMay.exe", SS_LEFT, 0);
+            divider_ = make(L"STATIC", L"", SS_ETCHEDHORZ, 0);
+            ok_ = make(L"BUTTON", L"安置(&P)", BS_DEFPUSHBUTTON | WS_TABSTOP, IDOK);
             cancel_ = make(L"BUTTON", L"取消", BS_PUSHBUTTON | WS_TABSTOP, IDCANCEL);
-            Layout();
+            dpi_ = GetDpiForWindow(window_);
+            ApplyAppearance();
             SetFocus(edit_);
             SendMessageW(edit_, EM_SETSEL, 0, -1);
             return 0;
@@ -146,28 +153,105 @@ private:
             if (id == IDOK) { Accept(); return 0; }
             if (id == IDCANCEL) { DestroyWindow(window_); return 0; }
         }
+        if (message == WM_SETTINGCHANGE || message == WM_THEMECHANGED) {
+            ApplyAppearance();
+            return 0;
+        }
+        if (message == WM_DPICHANGED) {
+            dpi_ = HIWORD(w_param);
+            const auto* suggested = reinterpret_cast<const RECT*>(l_param);
+            SetWindowPos(window_, nullptr, suggested->left, suggested->top,
+                suggested->right - suggested->left,
+                suggested->bottom - suggested->top,
+                SWP_NOACTIVATE | SWP_NOZORDER);
+            ApplyAppearance();
+            return 0;
+        }
+        if (message == WM_ERASEBKGND) {
+            RECT client{};
+            GetClientRect(window_, &client);
+            FillRect(reinterpret_cast<HDC>(w_param), &client, background_brush_);
+            return 1;
+        }
+        if (message == WM_CTLCOLORSTATIC) {
+            const auto control = reinterpret_cast<HWND>(l_param);
+            const auto dc = reinterpret_cast<HDC>(w_param);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, control == note_ || control == size_note_ || control == target_
+                    ? palette_.muted : palette_.text);
+            return reinterpret_cast<LRESULT>(background_brush_);
+        }
+        if (message == WM_CTLCOLOREDIT) {
+            const auto dc = reinterpret_cast<HDC>(w_param);
+            SetTextColor(dc, palette_.text);
+            SetBkColor(dc, palette_.window);
+            return reinterpret_cast<LRESULT>(edit_brush_);
+        }
         if (message == WM_CLOSE) { DestroyWindow(window_); return 0; }
         if (message == WM_DESTROY) { window_ = nullptr; return 0; }
         return DefWindowProcW(window_, message, w_param, l_param);
     }
 
     void Layout() {
-        const int dpi = static_cast<int>(GetDpiForWindow(window_));
-        auto px = [dpi](int value) { return MulDiv(value, dpi, 96); };
-        SetWindowPos(note_, nullptr, px(20), px(18), px(540), px(42), SWP_NOZORDER);
-        SetWindowPos(label_, nullptr, px(20), px(78), px(90), px(24), SWP_NOZORDER);
-        SetWindowPos(edit_, nullptr, px(20), px(103), px(448), px(28), SWP_NOZORDER);
-        SetWindowPos(browse_, nullptr, px(478), px(103), px(82), px(28), SWP_NOZORDER);
-        SetWindowPos(ok_, nullptr, px(382), px(153), px(84), px(30), SWP_NOZORDER);
-        SetWindowPos(cancel_, nullptr, px(476), px(153), px(84), px(30), SWP_NOZORDER);
+        auto px = [this](int value) { return ui::ScaleForDpi(value, dpi_); };
+        RECT client{};
+        GetClientRect(window_, &client);
+        const int width = client.right - client.left;
+        const int content_width = width - px(48);
+        SetWindowPos(heading_, nullptr, px(24), px(22), content_width, px(30), SWP_NOZORDER);
+        SetWindowPos(note_, nullptr, px(24), px(58), content_width, px(22), SWP_NOZORDER);
+        SetWindowPos(size_note_, nullptr, px(24), px(82), content_width, px(22), SWP_NOZORDER);
+        SetWindowPos(label_, nullptr, px(24), px(119), px(130), px(22), SWP_NOZORDER);
+        SetWindowPos(edit_, nullptr, px(24), px(144), width - px(148), px(30), SWP_NOZORDER);
+        SetWindowPos(browse_, nullptr, width - px(114), px(144), px(90), px(30), SWP_NOZORDER);
+        SetWindowPos(target_, nullptr, px(24), px(181), content_width, px(22), SWP_NOZORDER);
+        SetWindowPos(divider_, nullptr, 0, px(218), width, px(2), SWP_NOZORDER);
+        SetWindowPos(ok_, nullptr, width - px(214), px(236), px(90), px(32), SWP_NOZORDER);
+        SetWindowPos(cancel_, nullptr, width - px(114), px(236), px(90), px(32), SWP_NOZORDER);
+    }
+
+    void ApplyAppearance() {
+        theme_ = ui::ResolveTheme(theme_preference_, ui::ReadSystemTheme());
+        palette_ = ui::PaletteFor(theme_);
+        ReleaseAppearance();
+        background_brush_ = CreateSolidBrush(palette_.surface);
+        edit_brush_ = CreateSolidBrush(palette_.window);
+        NONCLIENTMETRICSW metrics{sizeof(metrics)};
+        if (SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics),
+                &metrics, 0, dpi_)) {
+            font_ = CreateFontIndirectW(&metrics.lfMessageFont);
+            auto heading = metrics.lfMessageFont;
+            heading.lfHeight = -MulDiv(14, static_cast<int>(dpi_), 72);
+            heading.lfWeight = FW_SEMIBOLD;
+            heading_font_ = CreateFontIndirectW(&heading);
+        }
+        const auto fallback = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        for (const auto control : {note_, size_note_, label_, edit_, browse_, target_, ok_, cancel_})
+            SendMessageW(control, WM_SETFONT,
+                reinterpret_cast<WPARAM>(font_ ? font_ : fallback), TRUE);
+        SendMessageW(heading_, WM_SETFONT,
+            reinterpret_cast<WPARAM>(heading_font_ ? heading_font_ : fallback), TRUE);
+        static_cast<void>(ui::ApplyTitleBarTheme(window_, theme_));
+        Layout();
+        InvalidateRect(window_, nullptr, TRUE);
+    }
+
+    void ReleaseAppearance() {
+        if (font_) DeleteObject(font_);
+        if (heading_font_) DeleteObject(heading_font_);
+        if (background_brush_) DeleteObject(background_brush_);
+        if (edit_brush_) DeleteObject(edit_brush_);
+        font_ = nullptr;
+        heading_font_ = nullptr;
+        background_brush_ = nullptr;
+        edit_brush_ = nullptr;
     }
 
     void CenterAndShow() {
         RECT owner{};
         GetWindowRect(owner_, &owner);
-        const int dpi = static_cast<int>(GetDpiForWindow(window_));
-        const int width = MulDiv(600, dpi, 96);
-        const int height = MulDiv(230, dpi, 96);
+        const int width = ui::ScaleForDpi(640, dpi_);
+        const int height = ui::ScaleForDpi(324, dpi_);
         const int x = owner.left + ((owner.right - owner.left) - width) / 2;
         const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
         SetWindowPos(window_, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW);
@@ -218,12 +302,24 @@ private:
 
     HWND owner_{};
     HWND window_{};
+    HWND heading_{};
     HWND note_{};
+    HWND size_note_{};
     HWND label_{};
     HWND edit_{};
     HWND browse_{};
+    HWND target_{};
+    HWND divider_{};
     HWND ok_{};
     HWND cancel_{};
+    UINT dpi_{USER_DEFAULT_SCREEN_DPI};
+    ui::ThemePreference theme_preference_{ui::ThemePreference::follow_system};
+    ui::ThemeKind theme_{ui::ThemeKind::light};
+    ui::ThemePalette palette_{};
+    HFONT font_{};
+    HFONT heading_font_{};
+    HBRUSH background_brush_{};
+    HBRUSH edit_brush_{};
     std::filesystem::path value_;
     bool accepted_{};
 };
@@ -803,7 +899,7 @@ ErrorCode Application::OpenDefaultApps() {
 ErrorCode Application::PlaceApplication() {
     PlacementDialog dialog;
     const auto folder = dialog.show(main_window_.handle(),
-        platform::DefaultPlacementFolder());
+        platform::DefaultPlacementFolder(), main_window_.theme_preference());
     if (!folder) return ErrorCode::ok;
     const auto inspected = placement_service_.inspect(ExecutablePath(), *folder);
     if (!inspected.is_ok()) { ShowPlacementError(inspected.error()); return inspected.error(); }
