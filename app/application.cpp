@@ -82,7 +82,7 @@ public:
         RegisterClassExW(&type);
         window_ = CreateWindowExW(WS_EX_DLGMODALFRAME, class_name,
             L"安置马冬梅", WS_CAPTION | WS_SYSMENU | WS_POPUP,
-            CW_USEDEFAULT, CW_USEDEFAULT, 640, 324, owner_, nullptr,
+            CW_USEDEFAULT, CW_USEDEFAULT, 640, 388, owner_, nullptr,
             GetModuleHandleW(nullptr), this);
         if (!window_) return std::nullopt;
         CenterAndShow();
@@ -101,7 +101,12 @@ public:
     }
 
 private:
-    enum : int { edit_path = 1001, browse = 1002 };
+    enum : int {
+        edit_path = 1001,
+        browse = 1002,
+        location_preset = 1003,
+        location_custom = 1004
+    };
 
     static LRESULT CALLBACK WindowProc(HWND window, UINT message,
                                        WPARAM w_param, LPARAM l_param) {
@@ -134,6 +139,11 @@ private:
                 SS_LEFT, 0);
             size_note_ = make(L"STATIC",
                 L"程序约 2 MB，可以放心保存在系统盘。", SS_LEFT, 0);
+            location_label_ = make(L"STATIC", L"安置位置：", SS_LEFT, 0);
+            preset_ = make(L"BUTTON", L"楼上322", BS_AUTORADIOBUTTON |
+                WS_GROUP | WS_TABSTOP, location_preset);
+            custom_ = make(L"BUTTON", L"自定义位置", BS_AUTORADIOBUTTON |
+                WS_TABSTOP, location_custom);
             label_ = make(L"STATIC", L"目标文件夹(&F)：", SS_LEFT, 0);
             edit_ = make(L"EDIT", value_.c_str(), ES_AUTOHSCROLL | WS_TABSTOP, edit_path);
             browse_ = make(L"BUTTON", L"浏览(&B)…", BS_PUSHBUTTON | WS_TABSTOP, browse);
@@ -142,13 +152,30 @@ private:
             ok_ = make(L"BUTTON", L"安置(&P)", BS_DEFPUSHBUTTON | WS_TABSTOP, IDOK);
             cancel_ = make(L"BUTTON", L"取消", BS_PUSHBUTTON | WS_TABSTOP, IDCANCEL);
             dpi_ = GetDpiForWindow(window_);
+            preset_value_ = value_;
+            custom_value_ = value_;
+            SendMessageW(preset_, BM_SETCHECK, BST_CHECKED, 0);
+            UpdateLocationMode(false);
             ApplyAppearance();
-            SetFocus(edit_);
-            SendMessageW(edit_, EM_SETSEL, 0, -1);
+            SetFocus(preset_);
             return 0;
         }
         if (message == WM_COMMAND) {
             const auto id = LOWORD(w_param);
+            const auto notification = HIWORD(w_param);
+            if (id == location_preset && notification == BN_CLICKED) {
+                UpdateLocationMode(false);
+                return 0;
+            }
+            if (id == location_custom && notification == BN_CLICKED) {
+                UpdateLocationMode(true);
+                return 0;
+            }
+            if (id == edit_path && notification == EN_CHANGE && custom_location_ &&
+                    !updating_path_) {
+                custom_value_ = ReadPath();
+                return 0;
+            }
             if (id == browse) { Browse(); return 0; }
             if (id == IDOK) { Accept(); return 0; }
             if (id == IDCANCEL) { DestroyWindow(window_); return 0; }
@@ -201,13 +228,16 @@ private:
         SetWindowPos(heading_, nullptr, px(24), px(22), content_width, px(30), SWP_NOZORDER);
         SetWindowPos(note_, nullptr, px(24), px(58), content_width, px(22), SWP_NOZORDER);
         SetWindowPos(size_note_, nullptr, px(24), px(82), content_width, px(22), SWP_NOZORDER);
-        SetWindowPos(label_, nullptr, px(24), px(119), px(130), px(22), SWP_NOZORDER);
-        SetWindowPos(edit_, nullptr, px(24), px(144), width - px(148), px(30), SWP_NOZORDER);
-        SetWindowPos(browse_, nullptr, width - px(114), px(144), px(90), px(30), SWP_NOZORDER);
-        SetWindowPos(target_, nullptr, px(24), px(181), content_width, px(22), SWP_NOZORDER);
-        SetWindowPos(divider_, nullptr, 0, px(218), width, px(2), SWP_NOZORDER);
-        SetWindowPos(ok_, nullptr, width - px(214), px(236), px(90), px(32), SWP_NOZORDER);
-        SetWindowPos(cancel_, nullptr, width - px(114), px(236), px(90), px(32), SWP_NOZORDER);
+        SetWindowPos(location_label_, nullptr, px(24), px(116), px(90), px(22), SWP_NOZORDER);
+        SetWindowPos(preset_, nullptr, px(24), px(140), px(116), px(24), SWP_NOZORDER);
+        SetWindowPos(custom_, nullptr, px(154), px(140), px(126), px(24), SWP_NOZORDER);
+        SetWindowPos(label_, nullptr, px(24), px(180), px(130), px(22), SWP_NOZORDER);
+        SetWindowPos(edit_, nullptr, px(24), px(205), width - px(148), px(30), SWP_NOZORDER);
+        SetWindowPos(browse_, nullptr, width - px(114), px(205), px(90), px(30), SWP_NOZORDER);
+        SetWindowPos(target_, nullptr, px(24), px(242), content_width, px(22), SWP_NOZORDER);
+        SetWindowPos(divider_, nullptr, 0, px(279), width, px(2), SWP_NOZORDER);
+        SetWindowPos(ok_, nullptr, width - px(214), px(297), px(90), px(32), SWP_NOZORDER);
+        SetWindowPos(cancel_, nullptr, width - px(114), px(297), px(90), px(32), SWP_NOZORDER);
     }
 
     void ApplyAppearance() {
@@ -226,7 +256,8 @@ private:
             heading_font_ = CreateFontIndirectW(&heading);
         }
         const auto fallback = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-        for (const auto control : {note_, size_note_, label_, edit_, browse_, target_, ok_, cancel_})
+        for (const auto control : {note_, size_note_, location_label_, preset_, custom_,
+                label_, edit_, browse_, target_, ok_, cancel_})
             SendMessageW(control, WM_SETFONT,
                 reinterpret_cast<WPARAM>(font_ ? font_ : fallback), TRUE);
         SendMessageW(heading_, WM_SETFONT,
@@ -251,7 +282,7 @@ private:
         RECT owner{};
         GetWindowRect(owner_, &owner);
         const int width = ui::ScaleForDpi(640, dpi_);
-        const int height = ui::ScaleForDpi(324, dpi_);
+        const int height = ui::ScaleForDpi(388, dpi_);
         const int x = owner.left + ((owner.right - owner.left) - width) / 2;
         const int y = owner.top + ((owner.bottom - owner.top) - height) / 2;
         SetWindowPos(window_, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW);
@@ -279,6 +310,7 @@ private:
                 PWSTR path{};
                 if (SUCCEEDED(selected->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
                     SetWindowTextW(edit_, path);
+                    custom_value_ = path;
                     CoTaskMemFree(path);
                 }
                 selected->Release();
@@ -288,16 +320,37 @@ private:
     }
 
     void Accept() {
-        std::array<wchar_t, 32768> path{};
-        GetWindowTextW(edit_, path.data(), static_cast<int>(path.size()));
-        if (!*path.data()) {
+        const auto path = ReadPath();
+        if (path.empty()) {
             MessageBoxW(window_, L"请输入或浏览选择一个目标文件夹。",
                 L"安置马冬梅", MB_OK | MB_ICONWARNING);
             return;
         }
-        value_ = path.data();
+        value_ = path;
         accepted_ = true;
         DestroyWindow(window_);
+    }
+
+    std::filesystem::path ReadPath() const {
+        std::array<wchar_t, 32768> path{};
+        GetWindowTextW(edit_, path.data(), static_cast<int>(path.size()));
+        return path.data();
+    }
+
+    void UpdateLocationMode(bool custom) {
+        if (custom_location_ && !updating_path_) custom_value_ = ReadPath();
+        custom_location_ = custom;
+        SendMessageW(preset_, BM_SETCHECK, custom ? BST_UNCHECKED : BST_CHECKED, 0);
+        SendMessageW(custom_, BM_SETCHECK, custom ? BST_CHECKED : BST_UNCHECKED, 0);
+        updating_path_ = true;
+        SetWindowTextW(edit_, (custom ? custom_value_ : preset_value_).c_str());
+        updating_path_ = false;
+        EnableWindow(edit_, custom);
+        EnableWindow(browse_, custom);
+        if (custom) {
+            SetFocus(edit_);
+            SendMessageW(edit_, EM_SETSEL, 0, -1);
+        }
     }
 
     HWND owner_{};
@@ -305,6 +358,9 @@ private:
     HWND heading_{};
     HWND note_{};
     HWND size_note_{};
+    HWND location_label_{};
+    HWND preset_{};
+    HWND custom_{};
     HWND label_{};
     HWND edit_{};
     HWND browse_{};
@@ -321,6 +377,10 @@ private:
     HBRUSH background_brush_{};
     HBRUSH edit_brush_{};
     std::filesystem::path value_;
+    std::filesystem::path preset_value_;
+    std::filesystem::path custom_value_;
+    bool custom_location_{};
+    bool updating_path_{};
     bool accepted_{};
 };
 
