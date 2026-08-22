@@ -51,6 +51,8 @@ public:
 
     [[nodiscard]] std::optional<BlockCommandContext> hit_test(
         std::int32_t x, std::int32_t y) const noexcept;
+    [[nodiscard]] std::optional<BlockScreenRect> layout_rect(
+        document::NodeId node_id) const noexcept;
     [[nodiscard]] bool validate(
         const BlockCommandContext& context,
         std::uint64_t document_id,

@@ -93,6 +93,13 @@ target_link_libraries(
 )
 add_test(NAME heading_fold_integration COMMAND MarkdownMayHeadingFold)
 
+add_executable(MarkdownMayBlockInteraction WIN32 block_interaction_test.cpp)
+target_link_libraries(
+    MarkdownMayBlockInteraction
+    PRIVATE markdownmay_compiler_options markdownmay_editor
+)
+add_test(NAME block_interaction_integration COMMAND MarkdownMayBlockInteraction)
+
 add_executable(MarkdownMaySaveReopen WIN32 save_reopen_test.cpp)
 target_link_libraries(
     MarkdownMaySaveReopen

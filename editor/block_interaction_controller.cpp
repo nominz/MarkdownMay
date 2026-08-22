@@ -153,6 +153,13 @@ std::optional<BlockCommandContext> BlockInteractionController::hit_test(
     return std::nullopt;
 }
 
+std::optional<BlockScreenRect> BlockInteractionController::layout_rect(
+    const document::NodeId node_id) const noexcept {
+    for (const auto& positioned : positioned_)
+        if (items_[positioned.item_index].node_id == node_id) return positioned.rect;
+    return std::nullopt;
+}
+
 bool BlockInteractionController::validate(
     const BlockCommandContext& context,
     const std::uint64_t document_id,

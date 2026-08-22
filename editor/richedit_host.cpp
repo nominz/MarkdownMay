@@ -22,9 +22,13 @@ namespace markdownmay::editor {
 namespace {
 
 constexpr int kSelectionMarginDips = 8;
-constexpr LONG kFoldGutterTwips = 360;
+constexpr LONG kBlockGutterTwips = 1200;
 constexpr int kFoldCenterDips = 16;
 constexpr int kFoldHitRightDips = 30;
+constexpr int kBlockTypeLeftDips = 31;
+constexpr int kBlockTypeRightDips = 53;
+constexpr int kBlockHandleLeftDips = 55;
+constexpr int kBlockHandleRightDips = 77;
 
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
@@ -36,6 +40,10 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
     if (message == WM_LBUTTONDOWN && self &&
         self->handle_heading_fold_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
         return 0;
+    if (message == WM_MOUSEMOVE && self)
+        static_cast<void>(self->update_block_hover(
+            {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}));
+    if (message == WM_MOUSELEAVE && self) self->clear_block_hover();
     if (message == WM_CHAR && w_param == L'-') {
         CHARRANGE selected{};
         SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
@@ -52,6 +60,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         }
     }
     if (message == WM_MOUSEWHEEL) {
+        if (self) self->invalidate_block_layout();
         const auto delta = GET_WHEEL_DELTA_WPARAM(w_param);
         if (delta != 0) {
             const auto lines = -3 * delta / WHEEL_DELTA;
@@ -65,6 +74,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         if (dc) {
             self->draw_table_grid(dc);
             self->draw_heading_folds(dc);
+            self->draw_block_interaction(dc);
             ReleaseDC(window, dc);
         }
         // RichEdit may scroll the caret into view while laying out hidden text.
@@ -73,7 +83,10 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
     } else if (self && message == WM_PRINTCLIENT) {
         self->draw_table_grid(reinterpret_cast<HDC>(w_param));
         self->draw_heading_folds(reinterpret_cast<HDC>(w_param));
+        self->draw_block_interaction(reinterpret_cast<HDC>(w_param));
     }
+    if (self && (message == WM_SIZE || message == WM_VSCROLL || message == WM_HSCROLL))
+        self->invalidate_block_layout();
     if (message == WM_SIZE) {
         RECT formatting{};
         GetClientRect(window, &formatting);
@@ -386,9 +399,9 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
             ? PFM_TABSTOPS | PFM_SPACEBEFORE | PFM_SPACEAFTER : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote)
-            paragraph.dxStartIndent = kFoldGutterTwips + 360;
+            paragraph.dxStartIndent = kBlockGutterTwips + 360;
         else if (span.kind == document::NodeKind::list_item)
-            paragraph.dxStartIndent = kFoldGutterTwips + 360 +
+            paragraph.dxStartIndent = kBlockGutterTwips + 360 +
                 static_cast<LONG>(span.list_depth) * 360;
         else if (span.kind == document::NodeKind::table) {
             RECT formatting{};
@@ -464,6 +477,10 @@ ErrorCode RichEditHost::project() {
     SendMessageW(handle_, WM_SETREDRAW, FALSE, 0);
     RichEditFreeze freeze(handle_);
     projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source, document_path_);
+    static_cast<void>(block_interactions_.refresh(
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&session_)),
+        snapshot, projection_));
+    block_layout_valid_ = false;
     const auto utf16_positions = BuildUtf16Positions(projection_.text);
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
@@ -523,7 +540,7 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     PARAFORMAT2 base_paragraph{};
     base_paragraph.cbSize = sizeof(base_paragraph);
     base_paragraph.dwMask = PFM_STARTINDENT;
-    base_paragraph.dxStartIndent = kFoldGutterTwips;
+    base_paragraph.dxStartIndent = kBlockGutterTwips;
     SendMessageW(handle_, EM_SETPARAFORMAT, 0,
         reinterpret_cast<LPARAM>(&base_paragraph));
     const auto utf16_positions = BuildUtf16Positions(projection_.text);
@@ -531,6 +548,7 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
         ApplySpan(handle_, span, utf16_positions,
             text_color_, background_color_, false, profile);
     apply_heading_folds();
+    invalidate_block_layout();
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = was_projecting;
     InvalidateRect(handle_, nullptr, TRUE);
@@ -551,6 +569,7 @@ void RichEditHost::set_heading_folds(HeadingFoldController* folds) {
 
 void RichEditHost::apply_heading_folds() {
     if (!handle_) return;
+    invalidate_block_layout();
     POINT scroll{};
     CHARRANGE selection{};
     SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
@@ -686,6 +705,212 @@ bool RichEditHost::toggle_heading_fold_at_caret() {
     if (!folds_) return false;
     const auto selection = source_selection();
     return selection.is_ok() && folds_->toggle_at(selection.value().caret);
+}
+
+bool RichEditHost::block_hidden_by_fold(const VisibleBlockItem& item) const noexcept {
+    return folds_ && std::any_of(folds_->items().begin(), folds_->items().end(),
+        [&item](const auto& fold) {
+            return fold.collapsed && item.node_id != fold.node_id &&
+                item.source_range.begin >= fold.body_range.begin &&
+                item.source_range.begin < fold.body_range.end;
+        });
+}
+
+bool RichEditHost::refresh_block_layout() {
+    if (!handle_ || block_interactions_.revision() != session_.snapshot().source_revision)
+        return false;
+    if (block_layout_valid_) return true;
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    RECT client{};
+    GetClientRect(handle_, &client);
+    const auto line_height = (std::max)(18, MulDiv(22, static_cast<int>(dpi_), 96));
+    const auto first_line = static_cast<LONG>(SendMessageW(
+        handle_, EM_GETFIRSTVISIBLELINE, 0, 0));
+    const auto visible_lines = (std::max)(4L,
+        static_cast<LONG>((client.bottom - client.top) / line_height + 4));
+    auto first_character = static_cast<LONG>(SendMessageW(
+        handle_, EM_LINEINDEX, static_cast<WPARAM>((std::max)(0L, first_line - 2)), 0));
+    auto last_character = static_cast<LONG>(SendMessageW(
+        handle_, EM_LINEINDEX, static_cast<WPARAM>(first_line + visible_lines), 0));
+    if (first_character < 0) first_character = 0;
+    if (last_character < 0) last_character = GetWindowTextLengthW(handle_);
+    const auto first_projection = static_cast<std::uint64_t>(
+        std::lower_bound(utf16.begin(), utf16.end(), first_character) - utf16.begin());
+    const auto last_projection = static_cast<std::uint64_t>(
+        std::upper_bound(utf16.begin(), utf16.end(), last_character) - utf16.begin());
+    struct Candidate final {
+        document::NodeId node_id{};
+        int top{};
+        int bottom{};
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(block_interactions_.items().size());
+    const auto first_item = std::lower_bound(block_interactions_.items().begin(),
+        block_interactions_.items().end(), first_projection,
+        [](const VisibleBlockItem& item, const std::uint64_t projection_position) {
+            return item.projection_end < projection_position;
+        });
+    for (auto cursor = first_item; cursor != block_interactions_.items().end(); ++cursor) {
+        const auto& item = *cursor;
+        if (item.projection_begin > last_projection) break;
+        if (block_hidden_by_fold(item) || item.projection_begin >= utf16.size() ||
+            item.projection_end >= utf16.size()) continue;
+        POINT begin{};
+        POINT end{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
+            utf16[static_cast<std::size_t>(item.projection_begin)]);
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
+            utf16[static_cast<std::size_t>(item.projection_end)]);
+        auto bottom = (std::max)(begin.y + line_height, end.y + line_height);
+        if (bottom <= client.top || begin.y >= client.bottom) continue;
+        candidates.push_back({item.node_id, begin.y, bottom});
+    }
+    std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
+        if (left.top != right.top) return left.top < right.top;
+        return left.bottom < right.bottom;
+    });
+    std::vector<BlockLayoutItem> layout;
+    layout.reserve(candidates.size());
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        auto top = (std::max)(static_cast<int>(client.top), candidates[index].top);
+        auto bottom = (std::min)(static_cast<int>(client.bottom), candidates[index].bottom);
+        if (index + 1 < candidates.size())
+            bottom = (std::min)(bottom, candidates[index + 1].top);
+        if (bottom <= top) continue;
+        layout.push_back({candidates[index].node_id,
+            {client.left, top, client.right, bottom}});
+    }
+    block_layout_valid_ = block_interactions_.set_visible_layout(
+        block_interactions_.revision(), std::move(layout));
+    return block_layout_valid_;
+}
+
+bool RichEditHost::update_block_hover(const POINT point) {
+    if (!handle_ || !refresh_block_layout()) {
+        clear_block_hover();
+        return false;
+    }
+    if (!tracking_mouse_leave_) {
+        TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE, handle_, 0};
+        tracking_mouse_leave_ = TrackMouseEvent(&tracking) != FALSE;
+    }
+    const auto next = block_interactions_.hit_test(point.x, point.y);
+    const auto unchanged = next.has_value() == hovered_block_.has_value() &&
+        (!next || next->node_id == hovered_block_->node_id);
+    if (unchanged) return next.has_value();
+    hovered_block_ = next;
+    RECT dirty{};
+    GetClientRect(handle_, &dirty);
+    dirty.right = MulDiv(kBlockHandleRightDips + 2, static_cast<int>(dpi_), 96);
+    InvalidateRect(handle_, &dirty, TRUE);
+    return hovered_block_.has_value();
+}
+
+void RichEditHost::clear_block_hover() {
+    tracking_mouse_leave_ = false;
+    if (!hovered_block_) return;
+    hovered_block_.reset();
+    if (handle_) {
+        RECT dirty{};
+        GetClientRect(handle_, &dirty);
+        dirty.right = MulDiv(kBlockHandleRightDips + 2, static_cast<int>(dpi_), 96);
+        InvalidateRect(handle_, &dirty, TRUE);
+    }
+}
+
+void RichEditHost::invalidate_block_layout() {
+    block_layout_valid_ = false;
+    clear_block_hover();
+}
+
+RECT RichEditHost::block_type_hit_rect() const noexcept {
+    RECT result{};
+    if (!hovered_block_ || hovered_block_->kind != document::NodeKind::heading) return result;
+    const auto layout = block_interactions_.layout_rect(hovered_block_->node_id);
+    if (!layout) return result;
+    result.left = MulDiv(kBlockTypeLeftDips, static_cast<int>(dpi_), 96);
+    result.right = MulDiv(kBlockTypeRightDips, static_cast<int>(dpi_), 96);
+    result.top = layout->top;
+    result.bottom = layout->bottom;
+    return result;
+}
+
+RECT RichEditHost::block_handle_hit_rect() const noexcept {
+    RECT result{};
+    if (!hovered_block_) return result;
+    const auto layout = block_interactions_.layout_rect(hovered_block_->node_id);
+    if (!layout) return result;
+    result.left = MulDiv(kBlockHandleLeftDips, static_cast<int>(dpi_), 96);
+    result.right = MulDiv(kBlockHandleRightDips, static_cast<int>(dpi_), 96);
+    result.top = layout->top;
+    result.bottom = layout->bottom;
+    return result;
+}
+
+std::optional<BlockCommandContext> RichEditHost::hovered_block() const noexcept {
+    return hovered_block_;
+}
+
+void RichEditHost::draw_block_interaction(HDC dc) const {
+    if (!handle_ || !dc || !hovered_block_) return;
+    const auto handle_rect = block_handle_hit_rect();
+    if (IsRectEmpty(&handle_rect)) return;
+    const auto saved_dc = SaveDC(dc);
+    const auto dark = GetRValue(background_color_) < 128;
+    const auto foreground = dark ? RGB(224, 224, 224) : RGB(70, 70, 70);
+    const auto hover_background = dark ? RGB(62, 62, 66) : RGB(238, 238, 238);
+    const auto brush = CreateSolidBrush(hover_background);
+    const auto pen = CreatePen(PS_SOLID, 1, hover_background);
+    const auto old_brush = SelectObject(dc, brush);
+    const auto old_pen = SelectObject(dc, pen);
+    const auto radius = (std::max)(3, MulDiv(4, static_cast<int>(dpi_), 96));
+    RoundRect(dc, handle_rect.left, handle_rect.top + 1, handle_rect.right,
+        handle_rect.bottom - 1, radius, radius);
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    DeleteObject(pen);
+    DeleteObject(brush);
+
+    const auto dot_brush = CreateSolidBrush(foreground);
+    const auto old_dot_brush = SelectObject(dc, dot_brush);
+    const auto old_dot_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+    const auto center_x = (handle_rect.left + handle_rect.right) / 2;
+    const auto center_y = (handle_rect.top + handle_rect.bottom) / 2;
+    const auto dot = (std::max)(1, MulDiv(2, static_cast<int>(dpi_), 96));
+    const auto gap = (std::max)(3, MulDiv(4, static_cast<int>(dpi_), 96));
+    for (int row = -1; row <= 1; ++row)
+        for (int column = -1; column <= 0; ++column) {
+            const auto x = center_x + column * gap + gap / 2;
+            const auto y = center_y + row * gap;
+            Ellipse(dc, x - dot / 2, y - dot / 2, x + (dot + 1) / 2,
+                y + (dot + 1) / 2);
+        }
+    SelectObject(dc, old_dot_pen);
+    SelectObject(dc, old_dot_brush);
+    DeleteObject(dot_brush);
+
+    if (hovered_block_->kind == document::NodeKind::heading) {
+        const auto type_rect = block_type_hit_rect();
+        const auto item = std::find_if(block_interactions_.items().begin(),
+            block_interactions_.items().end(), [this](const auto& candidate) {
+                return candidate.node_id == hovered_block_->node_id;
+            });
+        if (!IsRectEmpty(&type_rect) && item != block_interactions_.items().end()) {
+            const auto font = CreateFontW(-MulDiv(9, static_cast<int>(dpi_), 72), 0, 0, 0,
+                FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+            const auto old_font = SelectObject(dc, font);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, foreground);
+            const wchar_t label[]{L'H', static_cast<wchar_t>(L'0' + item->heading_level), L'\0'};
+            RECT text_rect = type_rect;
+            DrawTextW(dc, label, 2, &text_rect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            SelectObject(dc, old_font);
+            DeleteObject(font);
+        }
+    }
+    if (saved_dc != 0) RestoreDC(dc, saved_dc);
 }
 
 void RichEditHost::draw_table_grid(HDC dc) const {

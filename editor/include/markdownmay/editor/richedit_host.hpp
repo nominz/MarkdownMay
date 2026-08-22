@@ -10,6 +10,7 @@
 #include "markdownmay/editor/find_replace_controller.hpp"
 #include "markdownmay/editor/rich_projection.hpp"
 #include "markdownmay/editor/heading_fold_controller.hpp"
+#include "markdownmay/editor/block_interaction_controller.hpp"
 #include "markdownmay/editor/render_style.hpp"
 
 #include <windows.h>
@@ -106,6 +107,13 @@ public:
     [[nodiscard]] bool handle_heading_fold_click(POINT point);
     [[nodiscard]] bool toggle_heading_fold_at_caret();
     void restore_heading_fold_scroll();
+    [[nodiscard]] bool update_block_hover(POINT point);
+    void clear_block_hover();
+    void invalidate_block_layout();
+    void draw_block_interaction(HDC dc) const;
+    [[nodiscard]] std::optional<BlockCommandContext> hovered_block() const noexcept;
+    [[nodiscard]] RECT block_type_hit_rect() const noexcept;
+    [[nodiscard]] RECT block_handle_hit_rect() const noexcept;
 
 private:
     document::DocumentSession& session_;
@@ -127,8 +135,15 @@ private:
     UINT dpi_{96};
     RenderStyle render_style_{RenderStyle::yuan_lang};
     HeadingFoldController* folds_{};
+    BlockInteractionController block_interactions_;
+    std::optional<BlockCommandContext> hovered_block_;
+    bool tracking_mouse_leave_{};
+    bool block_layout_valid_{};
     POINT pending_fold_scroll_{};
     bool fold_scroll_pending_{};
+
+    [[nodiscard]] bool refresh_block_layout();
+    [[nodiscard]] bool block_hidden_by_fold(const VisibleBlockItem& item) const noexcept;
 };
 
 }  // namespace markdownmay::editor
