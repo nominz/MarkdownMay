@@ -71,3 +71,7 @@ target_link_libraries(
     PRIVATE markdownmay_compiler_options markdownmay_editor
 )
 add_test(NAME heading_fold_controller_unit COMMAND MarkdownMayHeadingFoldUnit)
+
+add_executable(MarkdownMayRenderStyleUnit render_style_test.cpp)
+target_link_libraries(MarkdownMayRenderStyleUnit PRIVATE markdownmay_compiler_options markdownmay_editor)
+add_test(NAME render_style_unit COMMAND MarkdownMayRenderStyleUnit)

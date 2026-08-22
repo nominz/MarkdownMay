@@ -12,6 +12,7 @@ namespace markdownmay::services {
 
 enum class DefaultViewMode : std::uint8_t { render, source, split };
 enum class ThemeSetting : std::uint8_t { follow_system, light, dark };
+enum class RenderStyleSetting : std::uint8_t { song_ying, yuan_lang, ming_zheng, qing_xi };
 enum class ExportScopeSetting : std::uint8_t { outline, full };
 enum class ExportFormatSetting : std::uint8_t { pdf, docx, txt, html };
 
@@ -19,6 +20,7 @@ struct Settings final {
     std::uint32_t schema_version{4};
     DefaultViewMode default_mode{DefaultViewMode::render};
     ThemeSetting theme{ThemeSetting::follow_system};
+    RenderStyleSetting render_style{RenderStyleSetting::yuan_lang};
     std::uint32_t recovery_interval_seconds{30};
     bool print_landscape{};
     bool outline_visible{true};

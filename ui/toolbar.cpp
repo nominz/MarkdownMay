@@ -51,6 +51,7 @@ constexpr const wchar_t* Icon(app::CommandId command) noexcept {
     case app::CommandId::view_render: return L"\xE7C3";
     case app::CommandId::view_source: return L"\xE943";
     case app::CommandId::view_split: return L"\xE952";
+    case app::CommandId::view_style_yuan_lang: return L"Aa";
     case app::CommandId::edit_find: return L"\xE721";
     case app::CommandId::tools_settings: return L"\xE713";
     default: return L"";
@@ -166,7 +167,7 @@ bool Toolbar::create(HWND parent) {
     if (tooltip) SetWindowLongPtrW(tooltip, GWL_STYLE,
         GetWindowLongPtrW(tooltip, GWL_STYLE) | TTS_ALWAYSTIP | TTS_NOPREFIX);
 
-    constexpr std::array<ButtonDefinition, 15> definitions{{
+    constexpr std::array<ButtonDefinition, 16> definitions{{
         {app::CommandId::format_bold, Icon(app::CommandId::format_bold), BTNS_BUTTON},
         {app::CommandId::format_italic, Icon(app::CommandId::format_italic), BTNS_BUTTON},
         {app::CommandId::format_strike, Icon(app::CommandId::format_strike), BTNS_BUTTON},
@@ -180,6 +181,7 @@ bool Toolbar::create(HWND parent) {
         {app::CommandId::view_render, Icon(app::CommandId::view_render), BTNS_CHECKGROUP},
         {app::CommandId::view_source, Icon(app::CommandId::view_source), BTNS_CHECKGROUP},
         {app::CommandId::view_split, Icon(app::CommandId::view_split), BTNS_CHECKGROUP},
+        {app::CommandId::view_style_yuan_lang, Icon(app::CommandId::view_style_yuan_lang), BTNS_BUTTON},
         {app::CommandId::edit_find, Icon(app::CommandId::edit_find), BTNS_BUTTON},
         {app::CommandId::tools_settings, Icon(app::CommandId::tools_settings), BTNS_BUTTON},
     }};
@@ -191,7 +193,7 @@ bool Toolbar::create(HWND parent) {
     buttons[output].fsStyle = BTNS_BUTTON;
     ++output;
     for (std::size_t index = 0; index < definitions.size(); ++index) {
-        if (index == 4 || index == 10 || index == 13 || index == 14) {
+        if (index == 4 || index == 10 || index == 14 || index == 15) {
             buttons[output].fsStyle = BTNS_SEP;
             buttons[output].iBitmap = index == 12 ? MulDiv(120, dpi_, 96) : MulDiv(8, dpi_, 96);
             ++output;
@@ -234,7 +236,7 @@ void Toolbar::refresh() {
         app::CommandId::format_clear, app::CommandId::insert_table,
         app::CommandId::view_render, app::CommandId::view_source,
         app::CommandId::view_split, app::CommandId::edit_find,
-        app::CommandId::tools_settings};
+        app::CommandId::view_style_yuan_lang, app::CommandId::tools_settings};
     for (const auto command : commands) {
         const auto state = query_(command);
         SendMessageW(handle_, TB_ENABLEBUTTON, Native(command),
@@ -258,7 +260,29 @@ void Toolbar::refresh() {
 bool Toolbar::handle_control(std::uint16_t identifier,
         std::uint16_t notification, HWND control) {
     static_cast<void>(notification);
-    if (identifier != Native(app::CommandId::format_body) || control != handle_) return false;
+    if (control != handle_) return false;
+    if (identifier == Native(app::CommandId::view_style_yuan_lang)) {
+        HMENU menu = CreatePopupMenu();
+        if (!menu) return true;
+        constexpr std::array labels{L"宋盈", L"元朗", L"明正", L"清晰"};
+        for (std::size_t index = 0; index < labels.size(); ++index) {
+            const auto command = static_cast<app::CommandId>(
+                static_cast<std::uint16_t>(app::CommandId::view_style_song_ying) + index);
+            AppendMenuW(menu, MF_STRING | (query_(command).checked ? MF_CHECKED : 0),
+                static_cast<UINT>(command), labels[index]);
+        }
+        RECT bounds{};
+        SendMessageW(handle_, TB_GETRECT, Native(app::CommandId::view_style_yuan_lang),
+            reinterpret_cast<LPARAM>(&bounds));
+        MapWindowPoints(handle_, HWND_DESKTOP, reinterpret_cast<POINT*>(&bounds), 2);
+        const auto selected = TrackPopupMenuEx(menu, TPM_LEFTALIGN | TPM_TOPALIGN |
+            TPM_RETURNCMD, bounds.left, bounds.bottom, GetParent(handle_), nullptr);
+        DestroyMenu(menu);
+        if (selected) execute_(static_cast<app::CommandId>(selected));
+        refresh();
+        return true;
+    }
+    if (identifier != Native(app::CommandId::format_body)) return false;
     if (!execute_ || !query_(app::CommandId::format_body).enabled) return true;
     HMENU menu = CreatePopupMenu();
     if (!menu) return true;
@@ -451,6 +475,7 @@ const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {
     case app::CommandId::view_render: return L"切换到渲染模式（Ctrl+1）";
     case app::CommandId::view_source: return L"切换到源码模式（Ctrl+2）";
     case app::CommandId::view_split: return L"切换到对照模式（Ctrl+3）";
+    case app::CommandId::view_style_yuan_lang: return L"渲染风格";
     case app::CommandId::edit_find: return L"查找（Ctrl+F）";
     case app::CommandId::tools_settings: return L"设置（即将提供）";
     default: return L"";

@@ -335,6 +335,13 @@ void ViewModeController::apply_appearance(COLORREF text, COLORREF background,
     split_.source_view().apply_appearance(text, background, accent, dpi);
     split_.render_view().apply_appearance(text, background, dpi);
 }
+void ViewModeController::set_render_style(RenderStyle style) {
+    render_.set_render_style(style);
+    split_.render_view().set_render_style(style);
+}
+RenderStyle ViewModeController::render_style() const noexcept {
+    return render_.render_style();
+}
 
 LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
                                                     WPARAM w_param, LPARAM l_param) {

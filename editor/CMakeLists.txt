@@ -9,6 +9,7 @@ add_library(markdownmay_editor STATIC
     list_editor.cpp
     paragraph_editor.cpp
     rich_projection.cpp
+    render_style.cpp
     richedit_host.cpp
     source_sync.cpp
     source_view.cpp

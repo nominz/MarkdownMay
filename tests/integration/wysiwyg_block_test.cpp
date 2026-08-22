@@ -31,7 +31,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     heading.dwMask = CFM_BOLD | CFM_SIZE;
     SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&heading));
-    if ((heading.dwEffects & CFE_BOLD) == 0 || heading.yHeight <= 240) return 4;
+    if ((heading.dwEffects & CFE_BOLD) == 0 || heading.yHeight != 420) return 4;
+    host.set_render_style(markdownmay::editor::RenderStyle::song_ying);
+    SendMessageW(host.handle(), EM_SETSEL, 0, 2);
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+                 reinterpret_cast<LPARAM>(&heading));
+    if (heading.yHeight != 400) return 40;
+    CHARFORMAT2W body{};
+    body.cbSize = sizeof(body);
+    body.dwMask = CFM_FACE | CFM_SIZE;
+    SendMessageW(host.handle(), EM_SETSEL, 3, 3);
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+                 reinterpret_cast<LPARAM>(&body));
+    const std::wstring body_face(body.szFaceName);
+    if (body.yHeight != 230 || (body_face != L"SimSun" && body_face != L"宋体")) return 41;
 
     FINDTEXTEXW find_code{{0, -1}, const_cast<wchar_t*>(L"代码"), {}};
     if (SendMessageW(host.handle(), EM_FINDTEXTEXW, FR_DOWN,

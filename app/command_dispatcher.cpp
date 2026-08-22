@@ -44,6 +44,14 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
             ? ui::ThemePreference::dark : ui::ThemePreference::follow_system;
         return {static_cast<bool>(appearance_commands_.set_preference), preference == expected};
     }
+    if (command >= CommandId::view_style_song_ying && command <= CommandId::view_style_qing_xi) {
+        const auto expected = static_cast<editor::RenderStyle>(
+            static_cast<std::uint16_t>(command) -
+            static_cast<std::uint16_t>(CommandId::view_style_song_ying));
+        const auto current = appearance_commands_.render_style
+            ? appearance_commands_.render_style() : editor::RenderStyle::yuan_lang;
+        return {static_cast<bool>(appearance_commands_.set_render_style), current == expected};
+    }
     const auto& modes = document_window_.modes();
     const bool markdown = modes.supports_markdown_commands();
     switch (command) {
@@ -149,6 +157,13 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
             ? ui::ThemePreference::dark : ui::ThemePreference::follow_system;
         if (appearance_commands_.set_preference) appearance_commands_.set_preference(preference);
         return appearance_commands_.set_preference ? ErrorCode::ok : ErrorCode::document_invalid_state;
+    }
+    if (command >= CommandId::view_style_song_ying && command <= CommandId::view_style_qing_xi) {
+        if (!appearance_commands_.set_render_style) return ErrorCode::document_invalid_state;
+        appearance_commands_.set_render_style(static_cast<editor::RenderStyle>(
+            static_cast<std::uint16_t>(command) -
+            static_cast<std::uint16_t>(CommandId::view_style_song_ying)));
+        return ErrorCode::ok;
     }
     switch (command) {
     case CommandId::file_new:

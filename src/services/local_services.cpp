@@ -119,6 +119,7 @@ Result<Settings> SettingsStore::load() const {
     const auto version = take("schema_version");
     const auto mode = take("default_mode");
     auto theme = take("theme");
+    const auto render_style = take("render_style");
     const auto legacy_theme = take("follow_system_theme");
     const auto interval = take("recovery_interval_seconds");
     const auto landscape = take("print_landscape");
@@ -143,6 +144,13 @@ Result<Settings> SettingsStore::load() const {
         if (theme == "system") settings.theme = ThemeSetting::follow_system;
         else if (theme == "light") settings.theme = ThemeSetting::light;
         else if (theme == "dark") settings.theme = ThemeSetting::dark;
+        else return corrupt();
+    }
+    if (!render_style.empty()) {
+        if (render_style == "song_ying") settings.render_style = RenderStyleSetting::song_ying;
+        else if (render_style == "yuan_lang") settings.render_style = RenderStyleSetting::yuan_lang;
+        else if (render_style == "ming_zheng") settings.render_style = RenderStyleSetting::ming_zheng;
+        else if (render_style == "qing_xi") settings.render_style = RenderStyleSetting::qing_xi;
         else return corrupt();
     }
     if (!interval.empty() && (!ParseInteger(interval, settings.recovery_interval_seconds) ||
@@ -187,6 +195,9 @@ ErrorCode SettingsStore::save(const Settings& settings) const {
                settings.default_mode == DefaultViewMode::source ? "source" : "split") << "\n"
            << "theme=" << (settings.theme == ThemeSetting::follow_system ? "system" :
                settings.theme == ThemeSetting::light ? "light" : "dark") << "\n"
+           << "render_style=" << (settings.render_style == RenderStyleSetting::song_ying ? "song_ying" :
+               settings.render_style == RenderStyleSetting::ming_zheng ? "ming_zheng" :
+               settings.render_style == RenderStyleSetting::qing_xi ? "qing_xi" : "yuan_lang") << "\n"
            << "recovery_interval_seconds=" << settings.recovery_interval_seconds << "\n"
            << "print_landscape=" << (settings.print_landscape ? "true" : "false") << "\n"
            << "outline_visible=" << (settings.outline_visible ? "true" : "false") << "\n"

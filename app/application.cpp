@@ -475,6 +475,12 @@ Application::Application(HINSTANCE instance)
               settings_.theme = ToSettingTheme(value);
               SaveSettings();
           },
+          [this] { return main_window_.document_window().modes().render_style(); },
+          [this](editor::RenderStyle value) {
+              main_window_.document_window().modes().set_render_style(value);
+              settings_.render_style = static_cast<services::RenderStyleSetting>(value);
+              SaveSettings();
+          },
       }),
       recent_files_(RecentFilePath(), 20),
       settings_store_(SettingsFilePath()),
@@ -512,6 +518,8 @@ int Application::run(int show_command) {
     LoadSettings();
     main_window_.document_window().set_outline_visible(settings_.outline_visible);
     main_window_.set_theme_preference(ToUiTheme(settings_.theme));
+    main_window_.document_window().modes().set_render_style(
+        static_cast<editor::RenderStyle>(settings_.render_style));
     if (main_window_.create(instance_, show_command) != ErrorCode::ok) return 1;
     const auto initial_mode = settings_.default_mode == services::DefaultViewMode::source
         ? editor::ViewMode::source : settings_.default_mode == services::DefaultViewMode::split

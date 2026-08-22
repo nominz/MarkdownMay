@@ -260,7 +260,7 @@ Microsoft::WRL::ComPtr<ITextDocument2> TextDocumentFor(HWND handle) {
 }
 
 int HeadingVerticalCenter(HWND handle, ITextDocument2* document, LONG position,
-                          std::uint8_t level, UINT dpi) {
+                          std::uint8_t level, UINT dpi, const RenderStyleProfile& profile) {
     if (document) {
         Microsoft::WRL::ComPtr<ITextRange2> range;
         long top{}, bottom{}, unused{};
@@ -273,13 +273,13 @@ int HeadingVerticalCenter(HWND handle, ITextDocument2* document, LONG position,
     }
     POINT point{};
     SendMessageW(handle, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&point), position);
-    const auto points = 28 - (std::min)(level, std::uint8_t{6}) * 2;
-    return point.y + MulDiv(points, static_cast<int>(dpi), 144);
+    const auto index = (std::clamp)(level, std::uint8_t{1}, std::uint8_t{6}) - 1;
+    return point.y + MulDiv(profile.heading_sizes[index], static_cast<int>(dpi), 2880);
 }
 
 void ApplySpan(HWND handle, const ProjectionSpan& span,
         std::span<const LONG> utf16_positions, COLORREF text_color,
-        COLORREF background_color, bool insert_image) {
+        COLORREF background_color, bool insert_image, const RenderStyleProfile& profile) {
     const bool dark = GetRValue(background_color) + GetGValue(background_color) +
         GetBValue(background_color) < 384;
     const auto begin = utf16_positions[(std::min)(
@@ -304,9 +304,12 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         format.dwEffects = CFE_UNDERLINE;
         format.crTextColor = dark ? RGB(105, 175, 245) : RGB(0, 102, 204);
     } else if (span.kind == document::NodeKind::heading) {
-        format.dwMask = CFM_BOLD | CFM_SIZE;
-        format.dwEffects = CFE_BOLD;
-        format.yHeight = static_cast<LONG>((28 - (std::min)(span.heading_level, std::uint8_t{6}) * 2) * 20);
+        format.dwMask = CFM_BOLD | CFM_SIZE | CFM_FACE;
+        format.dwEffects = profile.heading_bold ? CFE_BOLD : 0;
+        const auto index = (std::clamp)(span.heading_level,
+            std::uint8_t{1}, std::uint8_t{6}) - 1;
+        format.yHeight = profile.heading_sizes[index];
+        wcscpy_s(format.szFaceName, profile.heading_font);
     } else if (span.kind == document::NodeKind::code_block) {
         format.dwMask = CFM_FACE | CFM_BACKCOLOR;
         format.crBackColor = dark ? RGB(42, 42, 45) : RGB(245, 245, 245);
@@ -473,7 +476,7 @@ ErrorCode RichEditHost::project() {
     for (const auto& span : projection_.spans) {
         if (span.kind == document::NodeKind::image)
             ApplySpan(handle_, span, utf16_positions,
-                text_color_, background_color_, true);
+                text_color_, background_color_, true, ProfileFor(render_style_));
     }
     apply_appearance(text_color_, background_color_, dpi_);
     apply_heading_folds();
@@ -502,15 +505,18 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     format.dwMask = CFM_COLOR | CFM_BACKCOLOR | CFM_FACE | CFM_SIZE;
     format.crTextColor = text_color_;
     format.crBackColor = background_color_;
-    format.yHeight = 220;
-    wcscpy_s(format.szFaceName, L"Microsoft YaHei UI");
+    const auto& profile = ProfileFor(render_style_);
+    format.yHeight = profile.body_size;
+    wcscpy_s(format.szFaceName, profile.body_font);
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_DEFAULT,
         reinterpret_cast<LPARAM>(&format));
     CHARFORMAT2W base{};
     base.cbSize = sizeof(base);
-    base.dwMask = CFM_COLOR | CFM_BACKCOLOR;
+    base.dwMask = CFM_COLOR | CFM_BACKCOLOR | CFM_FACE | CFM_SIZE;
     base.crTextColor = text_color_;
     base.crBackColor = background_color_;
+    base.yHeight = profile.body_size;
+    wcscpy_s(base.szFaceName, profile.body_font);
     SendMessageW(handle_, EM_SETSEL, 0, -1);
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&base));
@@ -523,12 +529,20 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     const auto utf16_positions = BuildUtf16Positions(projection_.text);
     for (const auto& span : projection_.spans)
         ApplySpan(handle_, span, utf16_positions,
-            text_color_, background_color_, false);
+            text_color_, background_color_, false, profile);
     apply_heading_folds();
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = was_projecting;
     InvalidateRect(handle_, nullptr, TRUE);
 }
+
+void RichEditHost::set_render_style(RenderStyle style) {
+    if (render_style_ == style) return;
+    render_style_ = style;
+    apply_appearance(text_color_, background_color_, dpi_);
+}
+
+RenderStyle RichEditHost::render_style() const noexcept { return render_style_; }
 
 void RichEditHost::set_heading_folds(HeadingFoldController* folds) {
     folds_ = folds;
@@ -619,7 +633,7 @@ void RichEditHost::draw_heading_folds(HDC dc) const {
             approximate.y > client.bottom + size * 2) continue;
         const auto x = MulDiv(kFoldCenterDips, static_cast<int>(dpi_), 96);
         const auto y = HeadingVerticalCenter(handle_, document.Get(), utf16[index],
-            item.level, dpi_);
+            item.level, dpi_, ProfileFor(render_style_));
         POINT triangle[3]{};
         if (item.collapsed) {
             triangle[0] = {x, y - size / 2};
@@ -661,7 +675,7 @@ bool RichEditHost::handle_heading_fold_click(POINT point) {
             utf16[index]);
         if (std::abs(approximate.y - point.y) > tolerance * 3) continue;
         const auto center = HeadingVerticalCenter(handle_, document.Get(), utf16[index],
-            item.level, dpi_);
+            item.level, dpi_, ProfileFor(render_style_));
         if (point.y >= center - tolerance && point.y <= center + tolerance)
             return folds_->toggle(item.node_id);
     }

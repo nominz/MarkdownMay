@@ -75,10 +75,11 @@ bool MenuController::create(HWND window) {
     const auto format = CreatePopupMenu();
     const auto insert = CreatePopupMenu();
     const auto view = CreatePopupMenu();
+    const auto render_style = CreatePopupMenu();
     const auto tools = CreatePopupMenu();
     const auto help = CreatePopupMenu();
     recent_menu_ = CreatePopupMenu();
-    if (!menu_ || !file || !edit || !insert || !format || !view || !tools || !help || !recent_menu_)
+    if (!menu_ || !file || !edit || !insert || !format || !view || !render_style || !tools || !help || !recent_menu_)
         return false;
 
     AddCommand(file, app::CommandId::file_new, L"新建(&N)\tCtrl+N");
@@ -129,6 +130,12 @@ bool MenuController::create(HWND window) {
     AddCommand(view, app::CommandId::view_split, L"对照模式(&P)\tCtrl+3");
     AddSeparator(view);
     AddCommand(view, app::CommandId::view_outline, L"大纲(&O)");
+    AddSeparator(view);
+    AddCommand(render_style, app::CommandId::view_style_song_ying, L"宋盈(&S)");
+    AddCommand(render_style, app::CommandId::view_style_yuan_lang, L"元朗(&Y)");
+    AddCommand(render_style, app::CommandId::view_style_ming_zheng, L"明正(&M)");
+    AddCommand(render_style, app::CommandId::view_style_qing_xi, L"清晰(&Q)");
+    AddPopup(view, render_style, L"渲染风格(&A)");
     AddSeparator(view);
     AddCommand(view, app::CommandId::view_theme_system, L"主题：跟随系统(&Y)");
     AddCommand(view, app::CommandId::view_theme_light, L"主题：浅色(&L)");

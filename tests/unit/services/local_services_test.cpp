@@ -18,6 +18,7 @@ int main() {
     SettingsStore settings_store(root / L"settings.ini");
     Settings settings; settings.default_mode = DefaultViewMode::split;
     settings.theme = ThemeSetting::dark; settings.recovery_interval_seconds = 45;
+    settings.render_style = RenderStyleSetting::qing_xi;
     settings.print_landscape = true; settings.margin_left_hundredths_mm = 1234;
     settings.outline_visible = false;
     settings.export_scope = ExportScopeSetting::outline;
@@ -28,6 +29,7 @@ int main() {
     if (!loaded_settings.is_ok() ||
         loaded_settings.value().default_mode != DefaultViewMode::split ||
         loaded_settings.value().theme != ThemeSetting::dark ||
+        loaded_settings.value().render_style != RenderStyleSetting::qing_xi ||
         loaded_settings.value().recovery_interval_seconds != 45 ||
         !loaded_settings.value().print_landscape ||
         loaded_settings.value().outline_visible ||
@@ -61,6 +63,7 @@ int main() {
     if (!migrated.is_ok() || migrated.value().schema_version != 4 ||
         !migrated.value().outline_visible ||
         migrated.value().theme != ThemeSetting::light ||
+        migrated.value().render_style != RenderStyleSetting::yuan_lang ||
         migrated.value().unknown.at("future_legacy") != "kept") {
         cleanup(); return 12;
     }

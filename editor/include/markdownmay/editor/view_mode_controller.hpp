@@ -62,6 +62,8 @@ public:
     [[nodiscard]] SplitView& split_view() noexcept;
     void apply_appearance(COLORREF text, COLORREF background,
                           COLORREF accent, UINT dpi);
+    void set_render_style(RenderStyle style);
+    [[nodiscard]] RenderStyle render_style() const noexcept;
     static LRESULT CALLBACK HostProcedure(HWND window, UINT message,
                                            WPARAM w_param, LPARAM l_param);
 

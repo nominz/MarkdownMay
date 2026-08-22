@@ -40,6 +40,8 @@ public:
     struct AppearanceCommands final {
         std::function<ui::ThemePreference()> preference;
         std::function<void(ui::ThemePreference)> set_preference;
+        std::function<editor::RenderStyle()> render_style;
+        std::function<void(editor::RenderStyle)> set_render_style;
     };
 
     CommandDispatcher(ui::DocumentWindow& document_window,
