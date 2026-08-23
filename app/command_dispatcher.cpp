@@ -77,6 +77,7 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {document_commands_.can_split && document_commands_.can_split(), false};
     case CommandId::insert_table:
     case CommandId::insert_link:
+    case CommandId::insert_thematic_break:
         return {markdown && modes.mode() == editor::ViewMode::render, false};
     case CommandId::edit_undo:
         return {modes.can_undo(), false};
@@ -97,6 +98,7 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
     case CommandId::format_ordered_list:
     case CommandId::format_task_list:
     case CommandId::format_clear:
+    case CommandId::format_code_block:
         return {markdown && modes.mode() == editor::ViewMode::render, false};
     case CommandId::format_body:
     case CommandId::format_heading1:
@@ -212,6 +214,8 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
         return modes.render_view().insert_table(3, 3);
     case CommandId::insert_link:
         return modes.render_view().set_link("https://");
+    case CommandId::insert_thematic_break:
+        return modes.render_view().insert_thematic_break();
     case CommandId::format_bold: return modes.execute(editor::EditorCommand::bold);
     case CommandId::format_italic: return modes.execute(editor::EditorCommand::italic);
     case CommandId::format_strike: return modes.execute(editor::EditorCommand::strike);
@@ -226,6 +230,8 @@ ErrorCode CommandDispatcher::execute(CommandId command) {
         return modes.execute(editor::EditorCommand::task_list);
     case CommandId::format_clear:
         return modes.execute(editor::EditorCommand::clear_format);
+    case CommandId::format_code_block:
+        return modes.render_view().toggle_code_block();
     case CommandId::format_body:
     case CommandId::format_heading1:
     case CommandId::format_heading2:

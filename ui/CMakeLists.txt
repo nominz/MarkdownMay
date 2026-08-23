@@ -5,6 +5,7 @@ add_library(markdownmay_ui STATIC
     menu_controller.cpp
     outline_view.cpp
     status_bar.cpp
+    svg_icon_renderer.cpp
     toolbar.cpp
     theme.cpp
 )
@@ -17,5 +18,5 @@ target_include_directories(markdownmay_ui
 target_link_libraries(
     markdownmay_ui
     PUBLIC markdownmay_editor
-    PRIVATE markdownmay_compiler_options comctl32 dwmapi shell32 user32 uxtheme
+    PRIVATE markdownmay_compiler_options comctl32 dwmapi gdiplus shell32 user32 uxtheme
 )

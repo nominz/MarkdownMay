@@ -98,6 +98,34 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!window.toolbar() || !window.toolbar()->handle()) {
         DestroyWindow(window.handle()); CoUninitialize(); return 40;
     }
+    constexpr std::array toolbar_commands{
+        app::CommandId::file_open, app::CommandId::file_save, app::CommandId::file_print,
+        app::CommandId::format_bold, app::CommandId::format_italic,
+        app::CommandId::format_inline_code, app::CommandId::format_code_block,
+        app::CommandId::format_quote, app::CommandId::format_unordered_list,
+        app::CommandId::format_ordered_list, app::CommandId::format_task_list,
+        app::CommandId::insert_thematic_break, app::CommandId::format_clear,
+        app::CommandId::insert_table, app::CommandId::view_render,
+        app::CommandId::view_source, app::CommandId::view_split,
+        app::CommandId::view_outline, app::CommandId::view_style_yuan_lang,
+        app::CommandId::edit_find, app::CommandId::edit_replace,
+        app::CommandId::tools_settings};
+    for (const auto command : toolbar_commands) {
+        TBBUTTONINFO info{sizeof(info), TBIF_STYLE};
+        if (SendMessageW(window.toolbar()->handle(), TB_GETBUTTONINFO,
+                static_cast<WPARAM>(command), reinterpret_cast<LPARAM>(&info)) < 0)
+            return 80;
+    }
+    TBBUTTONINFO outline_style{sizeof(outline_style), TBIF_STYLE};
+    TBBUTTONINFO render_style{sizeof(render_style), TBIF_STYLE};
+    if (SendMessageW(window.toolbar()->handle(), TB_GETBUTTONINFO,
+            static_cast<WPARAM>(app::CommandId::view_outline),
+            reinterpret_cast<LPARAM>(&outline_style)) < 0 ||
+        SendMessageW(window.toolbar()->handle(), TB_GETBUTTONINFO,
+            static_cast<WPARAM>(app::CommandId::view_render),
+            reinterpret_cast<LPARAM>(&render_style)) < 0 ||
+        (outline_style.fsStyle & BTNS_CHECK) == 0 ||
+        (render_style.fsStyle & BTNS_CHECKGROUP) != BTNS_CHECKGROUP) return 81;
     if (!dispatcher.query(app::CommandId::file_export).enabled ||
         dispatcher.execute(app::CommandId::file_export) != ErrorCode::ok ||
         !export_requested) { DestroyWindow(window.handle()); CoUninitialize(); return 58; }

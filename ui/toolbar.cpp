@@ -1,4 +1,6 @@
 #include "markdownmay/ui/toolbar.hpp"
+#include "markdownmay/ui/svg_icon_renderer.hpp"
+#include "resource.h"
 
 #include <dwmapi.h>
 
@@ -25,6 +27,9 @@ void CALLBACK RoundHeadingMenu(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG,
     if (region && !SetWindowRgn(window, region, TRUE)) DeleteObject(region);
 }
 constexpr int kHeadingComboWidth = 112;
+constexpr int kToolbarIconSize = 18;
+constexpr int kToolbarChevronSize = 8;
+constexpr COLORREF kAccentCyanBlue = RGB(21, 156, 181);
 constexpr UINT kHeadingMenuFirst = 9200;
 constexpr int Native(app::CommandId command) noexcept {
     return static_cast<int>(command);
@@ -32,29 +37,35 @@ constexpr int Native(app::CommandId command) noexcept {
 
 struct ButtonDefinition final {
     app::CommandId command;
-    const wchar_t* icon;
     BYTE style;
 };
 
-constexpr const wchar_t* Icon(app::CommandId command) noexcept {
+constexpr std::uint16_t Icon(app::CommandId command) noexcept {
     switch (command) {
-    case app::CommandId::format_bold: return L"\xE8DD";
-    case app::CommandId::format_italic: return L"\xE8DB";
-    case app::CommandId::format_strike: return L"\xE8DC";
-    case app::CommandId::format_inline_code: return L"</>";
-    case app::CommandId::format_quote: return L"\xE8B1";
-    case app::CommandId::format_unordered_list: return L"";
-    case app::CommandId::format_ordered_list: return L"";
-    case app::CommandId::format_task_list: return L"\xE739";
-    case app::CommandId::format_clear: return L"\xE74D";
-    case app::CommandId::insert_table: return L"\xE80A";
-    case app::CommandId::view_render: return L"\xE7C3";
-    case app::CommandId::view_source: return L"\xE943";
-    case app::CommandId::view_split: return L"\xE952";
-    case app::CommandId::view_style_yuan_lang: return L"Aa";
-    case app::CommandId::edit_find: return L"\xE721";
-    case app::CommandId::tools_settings: return L"\xE713";
-    default: return L"";
+    case app::CommandId::file_open: return IDR_TABLER_FOLDER_OPEN_SVG;
+    case app::CommandId::file_save: return IDR_TABLER_DEVICE_FLOPPY_SVG;
+    case app::CommandId::file_print: return IDR_TABLER_PRINTER_SVG;
+    case app::CommandId::format_bold: return IDR_TABLER_BOLD_SVG;
+    case app::CommandId::format_italic: return IDR_TABLER_ITALIC_SVG;
+    case app::CommandId::format_strike: return IDR_TABLER_STRIKETHROUGH_SVG;
+    case app::CommandId::format_inline_code: return IDR_TABLER_CODE_SVG;
+    case app::CommandId::format_code_block: return IDR_TABLER_CODEBLOCK_SVG;
+    case app::CommandId::format_quote: return IDR_TABLER_BLOCKQUOTE_SVG;
+    case app::CommandId::format_unordered_list: return IDR_TABLER_LIST_SVG;
+    case app::CommandId::format_ordered_list: return IDR_TABLER_LIST_NUMBERS_SVG;
+    case app::CommandId::format_task_list: return IDR_TABLER_LIST_CHECK_SVG;
+    case app::CommandId::insert_thematic_break: return IDR_TABLER_MINUS_SVG;
+    case app::CommandId::format_clear: return IDR_TABLER_ERASER_SVG;
+    case app::CommandId::insert_table: return IDR_TABLER_BORDER_ALL_SVG;
+    case app::CommandId::view_render: return IDR_TABLER_MARKDOWN_SVG;
+    case app::CommandId::view_source: return IDR_TABLER_GRID_PATTERN_SVG;
+    case app::CommandId::view_split: return IDR_TABLER_LAYOUT_COLUMNS_SVG;
+    case app::CommandId::view_outline: return IDR_TABLER_AUTOMATIC_GEARBOX_SVG;
+    case app::CommandId::view_style_yuan_lang: return IDR_TABLER_TEXT_SIZE_SVG;
+    case app::CommandId::edit_find: return IDR_TABLER_SEARCH_SVG;
+    case app::CommandId::edit_replace: return IDR_TABLER_REPLACE_SVG;
+    case app::CommandId::tools_settings: return IDR_TABLER_SETTINGS_SVG;
+    default: return 0;
     }
 }
 
@@ -167,37 +178,37 @@ bool Toolbar::create(HWND parent) {
     if (tooltip) SetWindowLongPtrW(tooltip, GWL_STYLE,
         GetWindowLongPtrW(tooltip, GWL_STYLE) | TTS_ALWAYSTIP | TTS_NOPREFIX);
 
-    constexpr std::array<ButtonDefinition, 16> definitions{{
-        {app::CommandId::format_bold, Icon(app::CommandId::format_bold), BTNS_BUTTON},
-        {app::CommandId::format_italic, Icon(app::CommandId::format_italic), BTNS_BUTTON},
-        {app::CommandId::format_strike, Icon(app::CommandId::format_strike), BTNS_BUTTON},
-        {app::CommandId::format_inline_code, Icon(app::CommandId::format_inline_code), BTNS_BUTTON},
-        {app::CommandId::format_quote, Icon(app::CommandId::format_quote), BTNS_BUTTON},
-        {app::CommandId::format_unordered_list, Icon(app::CommandId::format_unordered_list), BTNS_BUTTON},
-        {app::CommandId::format_ordered_list, Icon(app::CommandId::format_ordered_list), BTNS_BUTTON},
-        {app::CommandId::format_task_list, Icon(app::CommandId::format_task_list), BTNS_BUTTON},
-        {app::CommandId::format_clear, Icon(app::CommandId::format_clear), BTNS_BUTTON},
-        {app::CommandId::insert_table, Icon(app::CommandId::insert_table), BTNS_BUTTON},
-        {app::CommandId::view_render, Icon(app::CommandId::view_render), BTNS_CHECKGROUP},
-        {app::CommandId::view_source, Icon(app::CommandId::view_source), BTNS_CHECKGROUP},
-        {app::CommandId::view_split, Icon(app::CommandId::view_split), BTNS_CHECKGROUP},
-        {app::CommandId::view_style_yuan_lang, Icon(app::CommandId::view_style_yuan_lang), BTNS_BUTTON},
-        {app::CommandId::edit_find, Icon(app::CommandId::edit_find), BTNS_BUTTON},
-        {app::CommandId::tools_settings, Icon(app::CommandId::tools_settings), BTNS_BUTTON},
+    constexpr std::array<ButtonDefinition, 23> definitions{{
+        {app::CommandId::file_open, BTNS_BUTTON}, {app::CommandId::file_save, BTNS_BUTTON},
+        {app::CommandId::file_print, BTNS_BUTTON}, {app::CommandId::format_bold, BTNS_BUTTON},
+        {app::CommandId::format_italic, BTNS_BUTTON}, {app::CommandId::format_strike, BTNS_BUTTON},
+        {app::CommandId::format_inline_code, BTNS_BUTTON}, {app::CommandId::format_code_block, BTNS_BUTTON},
+        {app::CommandId::format_quote, BTNS_BUTTON}, {app::CommandId::format_unordered_list, BTNS_BUTTON},
+        {app::CommandId::format_ordered_list, BTNS_BUTTON}, {app::CommandId::format_task_list, BTNS_BUTTON},
+        {app::CommandId::insert_thematic_break, BTNS_BUTTON}, {app::CommandId::format_clear, BTNS_BUTTON},
+        {app::CommandId::insert_table, BTNS_BUTTON}, {app::CommandId::view_render, BTNS_CHECKGROUP},
+        {app::CommandId::view_source, BTNS_CHECKGROUP}, {app::CommandId::view_split, BTNS_CHECKGROUP},
+        {app::CommandId::view_outline, BTNS_CHECK}, {app::CommandId::view_style_yuan_lang, BTNS_BUTTON},
+        {app::CommandId::edit_find, BTNS_BUTTON}, {app::CommandId::edit_replace, BTNS_BUTTON},
+        {app::CommandId::tools_settings, BTNS_BUTTON},
     }};
-    std::array<TBBUTTON, definitions.size() + 5> buttons{};
+    std::array<TBBUTTON, definitions.size() + 8> buttons{};
     std::size_t output{};
+    auto separator = [&] { buttons[output].fsStyle = BTNS_SEP;
+        buttons[output].iBitmap = MulDiv(8, dpi_, 96); ++output; };
+    for (std::size_t index = 0; index < 3; ++index) {
+        buttons[output].iBitmap=I_IMAGENONE; buttons[output].idCommand=Native(definitions[index].command);
+        buttons[output].fsState=TBSTATE_ENABLED; buttons[output].fsStyle=definitions[index].style; ++output;
+    }
+    separator();
     buttons[output].iBitmap = I_IMAGENONE;
     buttons[output].idCommand = Native(app::CommandId::format_body);
     buttons[output].fsState = TBSTATE_ENABLED;
     buttons[output].fsStyle = BTNS_BUTTON;
     ++output;
-    for (std::size_t index = 0; index < definitions.size(); ++index) {
-        if (index == 4 || index == 10 || index == 14 || index == 15) {
-            buttons[output].fsStyle = BTNS_SEP;
-            buttons[output].iBitmap = index == 12 ? MulDiv(120, dpi_, 96) : MulDiv(8, dpi_, 96);
-            ++output;
-        }
+    separator();
+    for (std::size_t index = 3; index < definitions.size(); ++index) {
+        if (index == 8 || index == 15 || index == 19 || index == 20 || index == 22) separator();
         const auto& definition = definitions[index];
         buttons[output].iBitmap = I_IMAGENONE;
         buttons[output].idCommand = Native(definition.command);
@@ -229,13 +240,16 @@ void Toolbar::resize(int width, int top) {
 void Toolbar::refresh() {
     if (!handle_ || !query_) return;
     constexpr std::array commands{
+        app::CommandId::file_open, app::CommandId::file_save, app::CommandId::file_print,
         app::CommandId::format_bold, app::CommandId::format_italic,
         app::CommandId::format_strike, app::CommandId::format_inline_code,
+        app::CommandId::format_code_block,
         app::CommandId::format_quote, app::CommandId::format_unordered_list,
         app::CommandId::format_ordered_list, app::CommandId::format_task_list,
-        app::CommandId::format_clear, app::CommandId::insert_table,
+        app::CommandId::insert_thematic_break, app::CommandId::format_clear, app::CommandId::insert_table,
         app::CommandId::view_render, app::CommandId::view_source,
-        app::CommandId::view_split, app::CommandId::edit_find,
+        app::CommandId::view_split, app::CommandId::view_outline, app::CommandId::edit_find,
+        app::CommandId::edit_replace,
         app::CommandId::view_style_yuan_lang, app::CommandId::tools_settings};
     for (const auto command : commands) {
         const auto state = query_(command);
@@ -315,8 +329,9 @@ bool Toolbar::handle_control(std::uint16_t identifier,
 bool Toolbar::measure_heading_menu(MEASUREITEMSTRUCT& item) const {
     if (item.CtlType != ODT_MENU || item.itemID < kHeadingMenuFirst ||
         item.itemID >= kHeadingMenuFirst + 7) return false;
-    item.itemWidth = MulDiv(122, static_cast<int>(dpi_), 96);
-    item.itemHeight = MulDiv(32, static_cast<int>(dpi_), 96);
+    constexpr std::array<int, 7> heights{36, 48, 44, 41, 39, 37, 36};
+    item.itemWidth = MulDiv(190, static_cast<int>(dpi_), 96);
+    item.itemHeight = MulDiv(heights[item.itemID-kHeadingMenuFirst], static_cast<int>(dpi_), 96);
     return true;
 }
 
@@ -338,22 +353,30 @@ bool Toolbar::draw_heading_menu(const DRAWITEMSTRUCT& item) const {
         FillRounded(item.hDC, highlight, MulDiv(7, dpi_, 96), fill);
         DeleteObject(fill);
     }
-    const auto old_font = SelectObject(item.hDC, font_);
+    const auto level = static_cast<std::size_t>(item.itemID-kHeadingMenuFirst);
+    constexpr std::array<int, 7> sizes{10, 21, 18, 16, 15, 14, 13};
+    constexpr std::array<int, 7> weights{FW_NORMAL, FW_SEMIBOLD, FW_SEMIBOLD,
+        FW_SEMIBOLD, FW_MEDIUM, FW_MEDIUM, FW_MEDIUM};
+    const auto preview_font = CreateFontW(-MulDiv(sizes[level], dpi_, 72), 0, 0, 0,
+        weights[level], FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    const auto old_font = SelectObject(item.hDC, preview_font ? preview_font : font_);
     SetBkMode(item.hDC, TRANSPARENT);
     SetTextColor(item.hDC, text_color_);
     if (checked) {
-        RECT check = item.rcItem;
-        check.left += MulDiv(9, dpi_, 96);
-        check.right = check.left + MulDiv(12, dpi_, 96);
-        DrawTextW(item.hDC, L"✓", -1, &check,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        RECT marker = item.rcItem;
+        marker.left += MulDiv(6,dpi_,96); marker.right = marker.left + MulDiv(2,dpi_,96);
+        marker.top += MulDiv(7,dpi_,96); marker.bottom -= MulDiv(7,dpi_,96);
+        const auto accent = CreateSolidBrush(kAccentCyanBlue);
+        FillRect(item.hDC,&marker,accent); DeleteObject(accent);
     }
     RECT text = item.rcItem;
-    text.left += MulDiv(30, dpi_, 96);
+    text.left += MulDiv(18, dpi_, 96);
     text.right -= MulDiv(12, dpi_, 96);
     DrawTextW(item.hDC, reinterpret_cast<const wchar_t*>(item.itemData), -1,
         &text, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     SelectObject(item.hDC, old_font);
+    if (preview_font) DeleteObject(preview_font);
     return true;
 }
 
@@ -395,8 +418,7 @@ LRESULT Toolbar::custom_draw(NMTBCUSTOMDRAW& draw) {
     const bool checked = (draw.nmcd.uItemState & CDIS_CHECKED) != 0;
     const bool disabled = (draw.nmcd.uItemState & CDIS_DISABLED) != 0;
     const bool dark = IsDark(background_color_);
-    const auto fill = checked ? (dark ? RGB(61, 78, 96) : RGB(220, 232, 243)) :
-        hot ? (dark ? RGB(62, 62, 65) : RGB(235, 235, 235)) : background_color_;
+    const auto fill = hot ? (dark ? RGB(62, 62, 65) : RGB(235, 235, 235)) : background_color_;
     auto brush = CreateSolidBrush(fill);
     const auto radius = MulDiv(6, dpi_, 96);
     FillRounded(draw.nmcd.hdc, rect, radius, brush);
@@ -422,27 +444,26 @@ LRESULT Toolbar::custom_draw(NMTBCUSTOMDRAW& draw) {
         SelectObject(draw.nmcd.hdc, old);
         return CDRF_SKIPDEFAULT;
     }
-    const bool literal = command == app::CommandId::format_inline_code;
-    const auto old_font = SelectObject(draw.nmcd.hdc, literal ? font_ : icon_font_);
-    SetBkMode(draw.nmcd.hdc, TRANSPARENT);
-    SetTextColor(draw.nmcd.hdc, disabled ? RGB(150, 150, 150) : text_color_);
-    if (command == app::CommandId::format_unordered_list ||
-        command == app::CommandId::format_ordered_list) {
-        DrawListIcon(draw.nmcd.hdc, rect,
-            disabled ? (dark ? RGB(115, 115, 115) : RGB(150, 150, 150)) : text_color_,
-            command == app::CommandId::format_ordered_list, dpi_);
-    } else if (command == app::CommandId::format_quote ||
-               command == app::CommandId::format_task_list ||
-               command == app::CommandId::view_source ||
-               command == app::CommandId::view_split) {
-        DrawAssetIcon(draw.nmcd.hdc, rect,
-            disabled ? (dark ? RGB(115, 115, 115) : RGB(150, 150, 150)) : text_color_,
-            command, dpi_);
-    } else {
-        DrawTextW(draw.nmcd.hdc, Icon(command), -1, &rect,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    const auto icon_color = disabled ? (dark ? RGB(115,115,115) : RGB(150,150,150)) :
+        checked ? kAccentCyanBlue : text_color_;
+    RECT icon_rect = rect;
+    const bool dropdown = command == app::CommandId::insert_table ||
+        command == app::CommandId::view_style_yuan_lang;
+    if (dropdown) icon_rect.right -= MulDiv(7, dpi_, 96);
+    const auto icon_side = MulDiv(kToolbarIconSize, dpi_, 96);
+    const auto center_x = (icon_rect.left + icon_rect.right) / 2;
+    const auto center_y = (icon_rect.top + icon_rect.bottom) / 2;
+    icon_rect = {center_x-icon_side/2, center_y-icon_side/2,
+        center_x+(icon_side+1)/2, center_y+(icon_side+1)/2};
+    static_cast<void>(SvgIconRenderer::draw(draw.nmcd.hdc, icon_rect,
+        Icon(command), icon_color, dpi_));
+    if (dropdown) {
+        const auto arrow_side = MulDiv(kToolbarChevronSize, dpi_, 96);
+        RECT arrow{rect.right-arrow_side-MulDiv(2,dpi_,96), center_y-arrow_side/2,
+            rect.right-MulDiv(2,dpi_,96), center_y+(arrow_side+1)/2};
+        static_cast<void>(SvgIconRenderer::draw(draw.nmcd.hdc, arrow,
+            IDR_TABLER_CHEVRON_DOWN_SVG, icon_color, dpi_));
     }
-    SelectObject(draw.nmcd.hdc, old_font);
     return CDRF_SKIPDEFAULT;
 }
 
@@ -462,21 +483,28 @@ LRESULT CALLBACK Toolbar::SubclassProcedure(HWND window, UINT message,
 
 const wchar_t* Toolbar::tooltip(std::uint16_t command) noexcept {
     switch (static_cast<app::CommandId>(command)) {
+    case app::CommandId::file_open: return L"打开（Ctrl+O）";
+    case app::CommandId::file_save: return L"保存（Ctrl+S）";
+    case app::CommandId::file_print: return L"打印（Ctrl+P）";
     case app::CommandId::format_bold: return L"粗体（Ctrl+B）";
     case app::CommandId::format_italic: return L"斜体（Ctrl+I）";
     case app::CommandId::format_strike: return L"删除线";
     case app::CommandId::format_inline_code: return L"行内代码";
+    case app::CommandId::format_code_block: return L"代码块";
     case app::CommandId::format_quote: return L"引用";
     case app::CommandId::format_unordered_list: return L"无序列表";
     case app::CommandId::format_ordered_list: return L"有序列表";
     case app::CommandId::format_task_list: return L"任务列表";
+    case app::CommandId::insert_thematic_break: return L"插入分隔线";
     case app::CommandId::format_clear: return L"清除当前段落格式（Ctrl+\\）";
     case app::CommandId::insert_table: return L"插入 3×3 表格";
     case app::CommandId::view_render: return L"切换到渲染模式（Ctrl+1）";
     case app::CommandId::view_source: return L"切换到源码模式（Ctrl+2）";
     case app::CommandId::view_split: return L"切换到对照模式（Ctrl+3）";
+    case app::CommandId::view_outline: return L"显示/隐藏大纲";
     case app::CommandId::view_style_yuan_lang: return L"渲染风格";
     case app::CommandId::edit_find: return L"查找（Ctrl+F）";
+    case app::CommandId::edit_replace: return L"替换（Ctrl+H）";
     case app::CommandId::tools_settings: return L"设置（即将提供）";
     default: return L"";
     }
