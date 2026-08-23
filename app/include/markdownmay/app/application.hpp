@@ -19,7 +19,7 @@ namespace markdownmay::app {
 
 class Application final {
 public:
-    explicit Application(HINSTANCE instance);
+    explicit Application(HINSTANCE instance, bool safe_mode = false);
     [[nodiscard]] int run(int show_command);
     [[nodiscard]] ui::MainWindow& main_window() noexcept;
     void enqueue_open_paths(std::vector<std::filesystem::path> paths);
@@ -51,11 +51,14 @@ private:
     [[nodiscard]] ErrorCode SaveDocument();
     [[nodiscard]] ErrorCode SaveDocumentAs();
     [[nodiscard]] ErrorCode OpenPath(const std::filesystem::path& path);
+    [[nodiscard]] ErrorCode OpenPathWithWindowPolicy(const std::filesystem::path& path);
+    [[nodiscard]] bool CanReuseForOpen() noexcept;
     [[nodiscard]] bool PrepareLineEndingForSave();
     void ShowFileError(ErrorCode error);
     void ShowPlacementError(ErrorCode error);
 
     HINSTANCE instance_{};
+    bool safe_mode_{};
     document::DocumentSession session_{""};
     ui::MainWindow main_window_{session_};
     CommandDispatcher dispatcher_;

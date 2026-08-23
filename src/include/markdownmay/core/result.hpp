@@ -43,6 +43,7 @@ enum class ErrorCode : std::uint32_t {
     platform_single_instance_failed = 7101,
     platform_ipc_invalid_message = 7102,
     platform_ipc_send_failed = 7103,
+    platform_process_launch_failed = 7104,
     platform_print_failed = 7301,
     platform_placement_invalid_target = 7401,
     platform_placement_copy_failed = 7402,

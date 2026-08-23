@@ -51,6 +51,8 @@ std::wstring QuoteCommandLineArgument(std::wstring_view value) {
     return quoted;
 }
 
+}
+
 bool LaunchDocumentProcess(const std::filesystem::path& executable,
                            const std::filesystem::path& document,
                            bool safe_mode) {
@@ -68,7 +70,6 @@ bool LaunchDocumentProcess(const std::filesystem::path& executable,
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     return true;
-}
 }
 
 int RunStartup(HINSTANCE instance, int show_command) {
@@ -153,7 +154,7 @@ int RunStartup(HINSTANCE instance, int show_command) {
         }
     }
 
-    Application application(instance);
+    Application application(instance, options.value().safe_mode);
     application.enqueue_open_paths(launch_plan.current_process_paths);
     return application.run(show_command);
 }

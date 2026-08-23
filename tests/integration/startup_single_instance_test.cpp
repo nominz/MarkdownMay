@@ -1,4 +1,5 @@
 #include "markdownmay/app/command_line.hpp"
+#include "markdownmay/app/startup.hpp"
 #include "markdownmay/platform/single_instance.hpp"
 
 #include <windows.h>
@@ -55,5 +56,9 @@ int main() {
         launch_plan.child_process_paths.front() != paths.back()) return 14;
     const std::span<const std::filesystem::path> no_paths;
     if (!app::BuildMultiInstanceLaunchPlan(no_paths).current_process_paths.empty()) return 15;
+    if (!app::ShouldReuseWindowForOpen(false, false, true) ||
+        app::ShouldReuseWindowForOpen(true, false, true) ||
+        app::ShouldReuseWindowForOpen(false, true, false) ||
+        app::ShouldReuseWindowForOpen(false, false, false)) return 16;
     return 0;
 }

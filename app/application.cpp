@@ -1,4 +1,5 @@
 #include "markdownmay/app/application.hpp"
+#include "markdownmay/app/startup.hpp"
 #include "markdownmay/services/document_combine.hpp"
 #include "markdownmay/services/document_split.hpp"
 #include "markdownmay/services/source_position_mapper.hpp"
@@ -439,8 +440,9 @@ HRESULT CALLBACK ExportProgressCallback(HWND window, UINT message, WPARAM w_para
 }
 }
 
-Application::Application(HINSTANCE instance)
+Application::Application(HINSTANCE instance, bool safe_mode)
     : instance_(instance),
+      safe_mode_(safe_mode),
       dispatcher_(main_window_.document_window(), [this] {
           if (main_window_.handle()) PostMessageW(main_window_.handle(), WM_CLOSE, 0, 0);
       }, {
@@ -490,7 +492,8 @@ Application::Application(HINSTANCE instance)
         [this](CommandId command) {
             const auto result = dispatcher_.execute(command);
             if (result != ErrorCode::ok && main_window_.handle()) {
-                if (command >= CommandId::file_new && command <= CommandId::file_save_as)
+                if ((command >= CommandId::file_new && command <= CommandId::file_save_as) ||
+                    (command >= CommandId::recent_first && command <= CommandId::recent_last))
                     ShowFileError(result);
                 else if (command == CommandId::tools_place_application) {
                     // PlaceApplication already presents a specific diagnostic.
@@ -791,7 +794,6 @@ ErrorCode Application::NewDocument() {
 }
 
 ErrorCode Application::OpenDocumentDialog() {
-    if (!ConfirmDocumentReplacement()) return ErrorCode::ok;
     std::array<wchar_t, 32768> path{};
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
@@ -801,7 +803,7 @@ ErrorCode Application::OpenDocumentDialog() {
     dialog.nMaxFile = static_cast<DWORD>(path.size());
     dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&dialog)) return ErrorCode::ok;
-    return OpenPath(path.data());
+    return OpenPathWithWindowPolicy(path.data());
 }
 
 ErrorCode Application::SaveDocument() {
@@ -876,14 +878,25 @@ ErrorCode Application::OpenPath(const std::filesystem::path& path) {
     return result;
 }
 
+bool Application::CanReuseForOpen() noexcept {
+    return ShouldReuseWindowForOpen(main_window_.document_window().is_named(),
+        session_.is_dirty(), session_.snapshot().source.empty());
+}
+
+ErrorCode Application::OpenPathWithWindowPolicy(const std::filesystem::path& path) {
+    if (CanReuseForOpen()) return OpenPath(path);
+    const auto executable = ExecutablePath();
+    return !executable.empty() && LaunchDocumentProcess(executable, path, safe_mode_)
+        ? ErrorCode::ok : ErrorCode::platform_process_launch_failed;
+}
+
 void Application::RememberRecentFile(const std::filesystem::path& path) {
     if (!path.empty() && recent_files_.touch(path) == ErrorCode::ok) RefreshRecentFiles();
 }
 
 ErrorCode Application::OpenRecentFile(std::size_t index) {
     if (index >= recent_file_list_.size()) return ErrorCode::file_not_found;
-    if (!ConfirmDocumentReplacement()) return ErrorCode::ok;
-    const auto result = OpenPath(recent_file_list_[index]);
+    const auto result = OpenPathWithWindowPolicy(recent_file_list_[index]);
     if (result == ErrorCode::file_not_found) RefreshRecentFiles();
     return result;
 }
@@ -1063,6 +1076,8 @@ void Application::ShowFileError(ErrorCode error) {
         message = L"无法保存文件，原文件未被覆盖。";
     else if (error == ErrorCode::file_read_only)
         message = L"该文件是只读文件，请另存为一个新文件。";
+    else if (error == ErrorCode::platform_process_launch_failed)
+        message = L"无法在新窗口中打开该文件；当前窗口和文档保持不变。";
     MessageBoxW(main_window_.handle(), message, L"马冬梅", MB_OK | MB_ICONERROR);
 }
 
