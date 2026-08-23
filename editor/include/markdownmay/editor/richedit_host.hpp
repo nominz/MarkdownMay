@@ -16,12 +16,28 @@
 #include <windows.h>
 
 #include <utility>
+#include <functional>
 
 namespace markdownmay::editor {
 
 enum class EditorCommand : std::uint8_t {
     bold, italic, strike, inline_code, quote, unordered_list, ordered_list, task_list,
     clear_format
+};
+
+enum class BlockMenuCommand : std::uint8_t {
+    convert_paragraph, convert_h1, convert_h2, convert_h3, convert_h4, convert_h5,
+    convert_h6, remove, copy, cut, indent, outdent, add_below
+};
+
+struct BlockMenuCapabilities final {
+    bool convert{};
+    bool remove{};
+    bool copy{};
+    bool cut{};
+    bool indent{};
+    bool outdent{};
+    bool add_below{};
 };
 
 class RichEditHost final {
@@ -114,6 +130,21 @@ public:
     [[nodiscard]] std::optional<BlockCommandContext> hovered_block() const noexcept;
     [[nodiscard]] RECT block_type_hit_rect() const noexcept;
     [[nodiscard]] RECT block_handle_hit_rect() const noexcept;
+    [[nodiscard]] BlockMenuCapabilities query_block_menu(
+        const BlockCommandContext& context) const noexcept;
+    [[nodiscard]] HMENU create_block_context_menu(
+        const BlockCommandContext& context) const;
+    void set_block_menu_callback(std::function<void(
+        BlockMenuCommand, const BlockCommandContext&)> callback);
+    [[nodiscard]] bool show_block_context_menu(const BlockCommandContext& context,
+        POINT screen_point);
+    [[nodiscard]] bool show_block_context_menu_at_caret();
+    [[nodiscard]] bool handle_block_handle_click(POINT point);
+    [[nodiscard]] HWND block_type_window() const noexcept;
+    [[nodiscard]] HWND block_handle_window() const noexcept;
+    [[nodiscard]] std::optional<BlockCommandContext> block_context_at_source(
+        std::uint64_t source_offset) const noexcept;
+    void draw_block_accessible_button(const DRAWITEMSTRUCT& item) const;
 
 private:
     document::DocumentSession& session_;
@@ -139,11 +170,15 @@ private:
     std::optional<BlockCommandContext> hovered_block_;
     bool tracking_mouse_leave_{};
     bool block_layout_valid_{};
+    HWND block_type_window_{};
+    HWND block_handle_window_{};
+    std::function<void(BlockMenuCommand, const BlockCommandContext&)> block_menu_callback_;
     POINT pending_fold_scroll_{};
     bool fold_scroll_pending_{};
 
     [[nodiscard]] bool refresh_block_layout();
     [[nodiscard]] bool block_hidden_by_fold(const VisibleBlockItem& item) const noexcept;
+    void update_block_accessible_windows();
 };
 
 }  // namespace markdownmay::editor

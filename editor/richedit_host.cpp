@@ -29,6 +29,27 @@ constexpr int kBlockTypeLeftDips = 31;
 constexpr int kBlockTypeRightDips = 53;
 constexpr int kBlockHandleLeftDips = 55;
 constexpr int kBlockHandleRightDips = 77;
+constexpr int kBlockTypeControlId = 6101;
+constexpr int kBlockHandleControlId = 6102;
+constexpr UINT kBlockMenuFirst = 6201;
+
+LRESULT CALLBACK BlockButtonSubclass(HWND window, UINT message, WPARAM w_param,
+                                     LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
+    auto* self = reinterpret_cast<RichEditHost*>(reference);
+    if (message == WM_MOUSEMOVE) {
+        TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE, window, 0};
+        static_cast<void>(TrackMouseEvent(&tracking));
+    } else if (message == WM_MOUSELEAVE && self) {
+        POINT cursor{};
+        GetCursorPos(&cursor);
+        const auto hovered = WindowFromPoint(cursor);
+        if (hovered != self->block_type_window() && hovered != self->block_handle_window())
+            self->clear_block_hover();
+    } else if (message == WM_NCDESTROY) {
+        RemoveWindowSubclass(window, BlockButtonSubclass, 1);
+    }
+    return DefSubclassProc(window, message, w_param, l_param);
+}
 
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
@@ -37,13 +58,50 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         (GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
         (GetKeyState(VK_SHIFT) & 0x8000) != 0 && self &&
         self->toggle_heading_fold_at_caret()) return 0;
+    if (message == WM_KEYDOWN && self &&
+        (w_param == VK_APPS || (w_param == VK_F10 &&
+            (GetKeyState(VK_SHIFT) & 0x8000) != 0)) &&
+        self->show_block_context_menu_at_caret()) return 0;
     if (message == WM_LBUTTONDOWN && self &&
         self->handle_heading_fold_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
+        return 0;
+    if (message == WM_LBUTTONDOWN && self &&
+        self->handle_block_handle_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
         return 0;
     if (message == WM_MOUSEMOVE && self)
         static_cast<void>(self->update_block_hover(
             {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}));
-    if (message == WM_MOUSELEAVE && self) self->clear_block_hover();
+    if (message == WM_MOUSELEAVE && self) {
+        POINT cursor{};
+        GetCursorPos(&cursor);
+        const auto hovered = WindowFromPoint(cursor);
+        if (hovered != self->block_type_window() && hovered != self->block_handle_window())
+            self->clear_block_hover();
+    }
+    if (message == WM_COMMAND && self && HIWORD(w_param) == BN_CLICKED &&
+        reinterpret_cast<HWND>(l_param) == self->block_handle_window()) {
+        const auto context = self->hovered_block();
+        if (context) {
+            RECT rect{};
+            GetWindowRect(self->block_handle_window(), &rect);
+            static_cast<void>(self->show_block_context_menu(*context,
+                {rect.left, rect.bottom}));
+        }
+        return 0;
+    }
+    if (message == WM_COMMAND && self && HIWORD(w_param) == BN_CLICKED &&
+        reinterpret_cast<HWND>(l_param) == self->block_type_window()) {
+        SetFocus(window);
+        return 0;
+    }
+    if (message == WM_DRAWITEM && self) {
+        const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(l_param);
+        if (item && (item->hwndItem == self->block_type_window() ||
+            item->hwndItem == self->block_handle_window())) {
+            self->draw_block_accessible_button(*item);
+            return TRUE;
+        }
+    }
     if (message == WM_CHAR && w_param == L'-') {
         CHARRANGE selected{};
         SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
@@ -451,6 +509,22 @@ ErrorCode RichEditHost::create(HWND parent, const RECT& bounds) {
     if (!SetWindowSubclass(handle_, RichEditSubclass, 1,
             reinterpret_cast<DWORD_PTR>(this)))
         return ErrorCode::editor_render_projection_failed;
+    block_type_window_ = CreateWindowExW(WS_EX_TRANSPARENT, L"BUTTON", L"",
+        WS_CHILD | BS_OWNERDRAW,
+        0, 0, 0, 0, handle_, reinterpret_cast<HMENU>(
+            static_cast<INT_PTR>(kBlockTypeControlId)),
+        GetModuleHandleW(nullptr), nullptr);
+    block_handle_window_ = CreateWindowExW(WS_EX_TRANSPARENT, L"BUTTON", L"块操作",
+        WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
+        0, 0, 0, 0, handle_, reinterpret_cast<HMENU>(
+            static_cast<INT_PTR>(kBlockHandleControlId)),
+        GetModuleHandleW(nullptr), nullptr);
+    if (!block_type_window_ || !block_handle_window_ ||
+        !SetWindowSubclass(block_type_window_, BlockButtonSubclass, 1,
+            reinterpret_cast<DWORD_PTR>(this)) ||
+        !SetWindowSubclass(block_handle_window_, BlockButtonSubclass, 1,
+            reinterpret_cast<DWORD_PTR>(this)))
+        return ErrorCode::editor_render_projection_failed;
     const auto event_mask = static_cast<DWORD>(
         SendMessageW(handle_, EM_GETEVENTMASK, 0, 0));
     SendMessageW(handle_, EM_SETEVENTMASK, 0, event_mask | ENM_CHANGE | ENM_SELCHANGE);
@@ -803,6 +877,7 @@ bool RichEditHost::update_block_hover(const POINT point) {
     GetClientRect(handle_, &dirty);
     dirty.right = MulDiv(kBlockHandleRightDips + 2, static_cast<int>(dpi_), 96);
     InvalidateRect(handle_, &dirty, TRUE);
+    update_block_accessible_windows();
     return hovered_block_.has_value();
 }
 
@@ -810,6 +885,8 @@ void RichEditHost::clear_block_hover() {
     tracking_mouse_leave_ = false;
     if (!hovered_block_) return;
     hovered_block_.reset();
+    if (block_type_window_) ShowWindow(block_type_window_, SW_HIDE);
+    if (block_handle_window_) ShowWindow(block_handle_window_, SW_HIDE);
     if (handle_) {
         RECT dirty{};
         GetClientRect(handle_, &dirty);
@@ -911,6 +988,186 @@ void RichEditHost::draw_block_interaction(HDC dc) const {
         }
     }
     if (saved_dc != 0) RestoreDC(dc, saved_dc);
+}
+
+void RichEditHost::update_block_accessible_windows() {
+    if (!handle_ || !hovered_block_ || !block_handle_window_) return;
+    const auto handle_rect = block_handle_hit_rect();
+    if (IsRectEmpty(&handle_rect)) return;
+    const auto snapshot = session_.snapshot();
+    std::wstring summary;
+    if (hovered_block_->source_range.end <= snapshot.source.size()) {
+        auto source = std::string_view(snapshot.source).substr(
+            static_cast<std::size_t>(hovered_block_->source_range.begin),
+            static_cast<std::size_t>(hovered_block_->source_range.end -
+                hovered_block_->source_range.begin));
+        if (source.size() > 40) source = source.substr(0, 40);
+        summary = ToWide(source);
+        std::replace(summary.begin(), summary.end(), L'\r', L' ');
+        std::replace(summary.begin(), summary.end(), L'\n', L' ');
+    }
+    const auto handle_name = std::wstring(L"块操作：") + summary;
+    SetWindowTextW(block_handle_window_, handle_name.c_str());
+    MoveWindow(block_handle_window_, handle_rect.left, handle_rect.top,
+        handle_rect.right - handle_rect.left, handle_rect.bottom - handle_rect.top, TRUE);
+    ShowWindow(block_handle_window_, SW_SHOWNA);
+    if (hovered_block_->kind == document::NodeKind::heading && block_type_window_) {
+        const auto type_rect = block_type_hit_rect();
+        const auto item = std::find_if(block_interactions_.items().begin(),
+            block_interactions_.items().end(), [this](const auto& candidate) {
+                return candidate.node_id == hovered_block_->node_id;
+            });
+        const auto level = item == block_interactions_.items().end()
+            ? 1 : static_cast<int>(item->heading_level);
+        const auto type_name = std::wstring(L"标题 ") + std::to_wstring(level) +
+            L"：" + summary;
+        SetWindowTextW(block_type_window_, type_name.c_str());
+        MoveWindow(block_type_window_, type_rect.left, type_rect.top,
+            type_rect.right - type_rect.left, type_rect.bottom - type_rect.top, TRUE);
+        ShowWindow(block_type_window_, SW_SHOWNA);
+    } else if (block_type_window_) ShowWindow(block_type_window_, SW_HIDE);
+    NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, block_handle_window_, OBJID_CLIENT, CHILDID_SELF);
+}
+
+void RichEditHost::draw_block_accessible_button(const DRAWITEMSTRUCT& item) const {
+    if (!item.hDC) return;
+    const auto dark = GetRValue(background_color_) < 128;
+    const auto foreground = dark ? RGB(224, 224, 224) : RGB(70, 70, 70);
+    const auto hover_background = dark ? RGB(62, 62, 66) : RGB(238, 238, 238);
+    const auto background = CreateSolidBrush(hover_background);
+    FillRect(item.hDC, &item.rcItem, background);
+    DeleteObject(background);
+    if (item.hwndItem == block_type_window_) {
+        const auto found = hovered_block_ ? std::find_if(block_interactions_.items().begin(),
+            block_interactions_.items().end(), [this](const auto& candidate) {
+                return candidate.node_id == hovered_block_->node_id;
+            }) : block_interactions_.items().end();
+        if (found != block_interactions_.items().end()) {
+            const wchar_t label[]{L'H', static_cast<wchar_t>(L'0' + found->heading_level), L'\0'};
+            RECT rect = item.rcItem;
+            SetBkMode(item.hDC, TRANSPARENT);
+            SetTextColor(item.hDC, foreground);
+            DrawTextW(item.hDC, label, 2, &rect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        return;
+    }
+    const auto brush = CreateSolidBrush(foreground);
+    const auto old_brush = SelectObject(item.hDC, brush);
+    const auto old_pen = SelectObject(item.hDC, GetStockObject(NULL_PEN));
+    const auto center_x = (item.rcItem.left + item.rcItem.right) / 2;
+    const auto center_y = (item.rcItem.top + item.rcItem.bottom) / 2;
+    const auto gap = (std::max)(3, MulDiv(4, static_cast<int>(dpi_), 96));
+    for (int row = -1; row <= 1; ++row)
+        for (int column = -1; column <= 0; ++column) {
+            const auto x = center_x + column * gap + gap / 2;
+            const auto y = center_y + row * gap;
+            Ellipse(item.hDC, x - 1, y - 1, x + 1, y + 1);
+        }
+    SelectObject(item.hDC, old_pen);
+    SelectObject(item.hDC, old_brush);
+    DeleteObject(brush);
+}
+
+BlockMenuCapabilities RichEditHost::query_block_menu(
+    const BlockCommandContext& context) const noexcept {
+    const auto snapshot = session_.snapshot();
+    if (!block_interactions_.validate(context,
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&session_)), snapshot))
+        return {};
+    const auto simple = context.kind == document::NodeKind::paragraph ||
+        context.kind == document::NodeKind::heading;
+    const auto list = context.kind == document::NodeKind::list_item;
+    return {simple, true, true, true, list, list, simple};
+}
+
+void RichEditHost::set_block_menu_callback(std::function<void(
+    BlockMenuCommand, const BlockCommandContext&)> callback) {
+    block_menu_callback_ = std::move(callback);
+}
+
+HMENU RichEditHost::create_block_context_menu(
+    const BlockCommandContext& context) const {
+    const auto capabilities = query_block_menu(context);
+    if (!capabilities.copy) return nullptr;
+    const auto menu = CreatePopupMenu();
+    const auto convert = CreatePopupMenu();
+    if (!menu || !convert) {
+        if (menu) DestroyMenu(menu);
+        if (convert) DestroyMenu(convert);
+        return nullptr;
+    }
+    const auto append = [](HMENU target, UINT id, const wchar_t* label, bool enabled) {
+        return AppendMenuW(target, MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED), id, label) != FALSE;
+    };
+    append(convert, kBlockMenuFirst + 0, L"普通段落", capabilities.convert);
+    for (UINT level = 1; level <= 6; ++level) {
+        const auto label = L"标题 " + std::to_wstring(level);
+        append(convert, kBlockMenuFirst + level, label.c_str(), capabilities.convert);
+    }
+    AppendMenuW(menu, MF_POPUP | (capabilities.convert ? MF_ENABLED : MF_GRAYED),
+        reinterpret_cast<UINT_PTR>(convert), L"转换为");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    append(menu, kBlockMenuFirst + 7, L"删除", capabilities.remove);
+    append(menu, kBlockMenuFirst + 8, L"复制", capabilities.copy);
+    append(menu, kBlockMenuFirst + 9, L"剪切", capabilities.cut);
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    append(menu, kBlockMenuFirst + 10, L"增加缩进", capabilities.indent);
+    append(menu, kBlockMenuFirst + 11, L"减少缩进", capabilities.outdent);
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    append(menu, kBlockMenuFirst + 12, L"在下方添加", capabilities.add_below);
+    return menu;
+}
+
+bool RichEditHost::show_block_context_menu(
+    const BlockCommandContext& context, const POINT screen_point) {
+    if (!handle_) return false;
+    const auto menu = create_block_context_menu(context);
+    if (!menu) return false;
+    const auto selected = static_cast<UINT>(TrackPopupMenuEx(menu,
+        TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
+        screen_point.x, screen_point.y, handle_, nullptr));
+    DestroyMenu(menu);
+    SetFocus(handle_);
+    if (selected < kBlockMenuFirst || selected > kBlockMenuFirst + 12) return true;
+    if (block_menu_callback_ && query_block_menu(context).copy)
+        block_menu_callback_(static_cast<BlockMenuCommand>(selected - kBlockMenuFirst), context);
+    return true;
+}
+
+bool RichEditHost::handle_block_handle_click(const POINT point) {
+    if (!hovered_block_) return false;
+    const auto rect = block_handle_hit_rect();
+    if (point.x < rect.left || point.x >= rect.right ||
+        point.y < rect.top || point.y >= rect.bottom) return false;
+    POINT screen{rect.left, rect.bottom};
+    ClientToScreen(handle_, &screen);
+    return show_block_context_menu(*hovered_block_, screen);
+}
+
+bool RichEditHost::show_block_context_menu_at_caret() {
+    const auto selection = source_selection();
+    if (!selection.is_ok() || !refresh_block_layout()) return false;
+    const auto context = block_interactions_.context_at_source(selection.value().caret);
+    if (!context) return false;
+    hovered_block_ = context;
+    update_block_accessible_windows();
+    auto rect = block_handle_hit_rect();
+    POINT screen{rect.left, rect.bottom};
+    if (IsRectEmpty(&rect)) {
+        CHARRANGE native{};
+        SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&native));
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&screen), native.cpMin);
+    }
+    ClientToScreen(handle_, &screen);
+    return show_block_context_menu(*context, screen);
+}
+
+HWND RichEditHost::block_type_window() const noexcept { return block_type_window_; }
+HWND RichEditHost::block_handle_window() const noexcept { return block_handle_window_; }
+std::optional<BlockCommandContext> RichEditHost::block_context_at_source(
+    const std::uint64_t source_offset) const noexcept {
+    return block_interactions_.context_at_source(source_offset);
 }
 
 void RichEditHost::draw_table_grid(HDC dc) const {

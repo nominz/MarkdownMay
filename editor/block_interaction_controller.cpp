@@ -160,6 +160,18 @@ std::optional<BlockScreenRect> BlockInteractionController::layout_rect(
     return std::nullopt;
 }
 
+std::optional<BlockCommandContext> BlockInteractionController::context_at_source(
+    const std::uint64_t source_offset) const noexcept {
+    const auto found = std::find_if(items_.begin(), items_.end(),
+        [source_offset](const auto& item) {
+            return source_offset >= item.source_range.begin &&
+                source_offset <= item.source_range.end;
+        });
+    if (found == items_.end()) return std::nullopt;
+    return BlockCommandContext{document_id_, revision_, found->node_id, found->kind,
+        found->source_range};
+}
+
 bool BlockInteractionController::validate(
     const BlockCommandContext& context,
     const std::uint64_t document_id,

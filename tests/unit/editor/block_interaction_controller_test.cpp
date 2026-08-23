@@ -24,6 +24,8 @@ int main() {
     const auto hit = controller.hit_test(10, 5);
     if (!hit || hit->node_id != heading.node_id ||
         !controller.validate(*hit, document_id, snapshot)) return 5;
+    const auto source_context = controller.context_at_source(paragraph.source_range.begin + 1);
+    if (!source_context || source_context->node_id != paragraph.node_id) return 14;
     if (controller.hit_test(50, 5) || controller.hit_test(10, 40)) return 6;
     if (controller.set_visible_layout(snapshot.source_revision + 1,
             {{heading.node_id, {0, 0, 40, 20}}})) return 7;
