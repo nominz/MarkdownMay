@@ -70,6 +70,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         !HasVisibleStyle(modes.split_view().render_view().handle()) ||
         ReadWide(modes.split_view().render_view().handle()).find(L"渲源正文") ==
             std::wstring::npos) return 7;
+    const auto split_before_add = session.snapshot().source;
+    const auto second_offset = static_cast<std::uint64_t>(split_before_add.find("第二段"));
+    const auto split_context = modes.split_view().render_view().block_context_at_source(
+        second_offset);
+    if (!split_context || modes.split_view().execute_block_menu(
+        editor::BlockMenuCommand::add_below, *split_context) != ErrorCode::ok ||
+        ReadSource(modes.source_view().handle()) != session.snapshot().source ||
+        ReadWide(modes.split_view().render_view().handle()).find(L"第二段") ==
+            std::wstring::npos ||
+        SendMessageW(modes.source_view().handle(), SCI_GETCURRENTPOS, 0, 0) !=
+            static_cast<LRESULT>(split_context->source_range.end + 1)) return 36;
+    if (modes.undo() != ErrorCode::ok || session.snapshot().source != split_before_add ||
+        ReadSource(modes.source_view().handle()) != split_before_add) return 37;
     if (modes.undo() != ErrorCode::ok ||
         session.snapshot().source.find("渲正文") == std::string::npos ||
         session.snapshot().source.find("源正文") != std::string::npos ||
@@ -193,6 +206,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         GetTickCount64() - exact_started > 1000 ||
         ReadWide(exact_modes.render_view().handle()).find(L"标题1") ==
             std::wstring::npos) return 35;
+    if (exact_modes.change_document_kind(document::DocumentKind::plain_text) != ErrorCode::ok ||
+        exact_modes.mode() != editor::ViewMode::source ||
+        HasVisibleStyle(exact_modes.split_view().render_view().handle()) ||
+        exact_modes.split_view().render_view().block_context_at_source(0)) return 38;
     DestroyWindow(exact_parent);
     return 0;
 }

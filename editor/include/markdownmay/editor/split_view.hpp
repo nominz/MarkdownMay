@@ -17,6 +17,8 @@ public:
     [[nodiscard]] ErrorCode create(HWND parent, const RECT& bounds);
     [[nodiscard]] ErrorCode project();
     [[nodiscard]] ErrorCode synchronize_source(bool refresh_render = true);
+    [[nodiscard]] ErrorCode execute_block_menu(
+        BlockMenuCommand command, const BlockCommandContext& context);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] SourceView& source_view() noexcept;
     [[nodiscard]] RichEditHost& render_view() noexcept;

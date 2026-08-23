@@ -1209,8 +1209,21 @@ ErrorCode RichEditHost::execute_block_menu(
             if (!capabilities.outdent) return ErrorCode::editor_unmapped_rich_edit_change;
             replacement = ShiftBlockIndent(source, false);
             break;
-        case BlockMenuCommand::add_below:
-            return ErrorCode::editor_unmapped_rich_edit_change;
+        case BlockMenuCommand::add_below: {
+            if (!capabilities.add_below) return ErrorCode::editor_unmapped_rich_edit_change;
+            const auto ending = fileio::DetectLineEnding(snapshot.source) ==
+                fileio::LineEnding::crlf ? std::string("\r\n") : std::string("\n");
+            const auto has_following_ending = snapshot.source.compare(
+                static_cast<std::size_t>(context.source_range.end), ending.size(), ending) == 0;
+            const auto insertion = has_following_ending ? ending : ending + ending;
+            const auto caret = context.source_range.end + ending.size();
+            const auto result = editor_.replace_source_range(context.source_range.end,
+                context.source_range.end, insertion, {caret, caret});
+            if (result != ErrorCode::ok) return result;
+            const auto projected = project();
+            if (projected != ErrorCode::ok) return projected;
+            return select_source_range({caret, caret});
+        }
     }
     const auto next = context.source_range.begin + replacement.size();
     const auto result = editor_.replace_source_range(context.source_range.begin,
@@ -1409,6 +1422,9 @@ void RichEditHost::draw_table_grid(HDC dc) const {
 ErrorCode RichEditHost::show_status_message(std::wstring_view message) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
     projecting_ = true;
+    clear_block_hover();
+    block_interactions_.clear();
+    block_layout_valid_ = false;
     const std::wstring value(message);
     const auto success = SetWindowTextW(handle_, value.c_str()) != 0 || value.empty();
     projection_ = {};

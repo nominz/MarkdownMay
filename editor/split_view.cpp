@@ -31,6 +31,10 @@ bool RegisterSplitClass() {
 
 SplitView::SplitView(document::DocumentSession& session)
     : session_(session), source_(session), render_(session) {
+    render_.set_block_menu_callback([this](BlockMenuCommand command,
+        const BlockCommandContext& context) {
+        static_cast<void>(execute_block_menu(command, context));
+    });
     source_.set_synchronized_callback(
         [this](ErrorCode result) {
             if (!suppress_refresh_) RefreshRender(result);
@@ -41,6 +45,7 @@ SplitView::SplitView(document::DocumentSession& session)
 }
 
 SplitView::~SplitView() {
+    render_.set_block_menu_callback({});
     source_.set_synchronized_callback({});
     source_.set_scroll_callback({});
     if (host_ && IsWindow(host_)) DestroyWindow(host_);
@@ -80,6 +85,18 @@ ErrorCode SplitView::synchronize_source(bool refresh_render) {
     const auto result = source_.synchronize_now();
     suppress_refresh_ = false;
     return result;
+}
+
+ErrorCode SplitView::execute_block_menu(
+    const BlockMenuCommand command, const BlockCommandContext& context) {
+    const auto result = render_.execute_block_menu(command, context);
+    if (result != ErrorCode::ok) return result;
+    const auto selection = render_.source_selection();
+    const auto refreshed = project();
+    if (refreshed != ErrorCode::ok) return refreshed;
+    if (selection.is_ok())
+        static_cast<void>(source_.select_source_range(selection.value()));
+    return ErrorCode::ok;
 }
 
 HWND SplitView::handle() const noexcept { return host_; }

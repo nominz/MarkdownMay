@@ -159,6 +159,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         host.undo() != ErrorCode::ok) return 38;
     command_context = host.block_context_at_source(
         static_cast<std::uint64_t>(session.snapshot().source.find("paragraph")));
+    const auto before_add = session.snapshot();
+    const auto add_end = command_context ? command_context->source_range.end : 0;
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::add_below, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.size() != before_add.source.size() + 1 ||
+        session.snapshot().source.substr(static_cast<std::size_t>(add_end), 3) != "\n\n\n")
+        return 39;
+    const auto added_selection = host.source_selection();
+    if (!added_selection.is_ok() || added_selection.value().caret != add_end + 1 ||
+        host.undo() != ErrorCode::ok || session.snapshot().source != before_add.source)
+        return 40;
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("paragraph")));
     const auto before_copy = session.snapshot();
     if (!command_context || host.execute_block_menu(
         editor::BlockMenuCommand::copy, *command_context) != ErrorCode::ok) return 26;
@@ -205,6 +218,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     document::DocumentSession plain("# plain", document::DocumentKind::plain_text);
     editor::BlockInteractionController plain_controller;
     if (plain_controller.refresh(1, plain.snapshot(), {})) return 12;
+
+    document::DocumentSession crlf("first\r\n\r\ntail");
+    editor::RichEditHost crlf_host(crlf);
+    RECT crlf_bounds{0, 0, 400, 200};
+    if (crlf_host.create(parent, crlf_bounds) != ErrorCode::ok) return 41;
+    const auto tail = crlf_host.block_context_at_source(
+        static_cast<std::uint64_t>(crlf.snapshot().source.find("tail")));
+    if (!tail || crlf_host.execute_block_menu(
+        editor::BlockMenuCommand::add_below, *tail) != ErrorCode::ok ||
+        crlf.snapshot().source != "first\r\n\r\ntail\r\n\r\n") return 42;
+    const auto tail_selection = crlf_host.source_selection();
+    if (!tail_selection.is_ok() || tail_selection.value().caret != tail->source_range.end + 2 ||
+        crlf_host.undo() != ErrorCode::ok || crlf.snapshot().source != "first\r\n\r\ntail")
+        return 43;
     DestroyWindow(parent);
     return 0;
 }
