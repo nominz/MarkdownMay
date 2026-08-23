@@ -2,11 +2,11 @@
 
 namespace markdownmay::editor {
 namespace {
-constexpr RenderStyleProfile kSongYing{L"SimSun", 230, L"Microsoft YaHei UI",
+constexpr RenderStyleProfile kSongYing{L"SimSun", 230, L"SimHei",
     {400, 360, 320, 300, 280, 260}, true};
-constexpr RenderStyleProfile kYuanLang{L"Microsoft YaHei UI", 220, L"Microsoft YaHei UI",
+constexpr RenderStyleProfile kYuanLang{L"DengXian", 220, L"DengXian",
     {420, 380, 340, 300, 280, 260}, true};
-constexpr RenderStyleProfile kMingZheng{L"Microsoft YaHei UI", 220, L"Microsoft YaHei UI",
+constexpr RenderStyleProfile kMingZheng{L"SimHei", 220, L"SimHei",
     {440, 400, 360, 320, 300, 280}, true};
 constexpr RenderStyleProfile kQingXi{L"Microsoft YaHei UI", 220, L"Microsoft YaHei UI",
     {480, 440, 400, 360, 320, 280}, true};
