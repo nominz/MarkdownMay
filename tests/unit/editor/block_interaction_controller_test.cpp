@@ -31,6 +31,8 @@ int main() {
         !controller.validate(*hit, document_id, snapshot)) return 5;
     const auto source_context = controller.context_at_source(paragraph.source_range.begin + 1);
     if (!source_context || source_context->node_id != paragraph.node_id) return 14;
+    const auto heading_end_context = controller.context_at_source(heading.source_range.end);
+    if (!heading_end_context || heading_end_context->node_id != heading.node_id) return 19;
     if (controller.hit_test(50, 5) || controller.hit_test(10, 40)) return 6;
     if (controller.set_visible_layout(snapshot.source_revision + 1,
             {{heading.node_id, {0, 0, 40, 20}}})) return 7;
@@ -62,5 +64,24 @@ int main() {
         controller.items().size() != 10000) return 12;
     const auto elapsed = std::chrono::steady_clock::now() - started;
     if (elapsed > std::chrono::milliseconds(250)) return 13;
+    std::vector<editor::BlockLayoutItem> large_layout;
+    large_layout.reserve(controller.items().size());
+    for (std::size_t index = 0; index < controller.items().size(); ++index) {
+        const auto top = static_cast<std::int32_t>(index * 2);
+        large_layout.push_back({controller.items()[index].node_id, {0, top, 40, top + 2}});
+    }
+    if (!controller.set_visible_layout(large_snapshot.source_revision,
+            std::move(large_layout))) return 16;
+    auto maximum_hit = std::chrono::steady_clock::duration::zero();
+    const auto hits_started = std::chrono::steady_clock::now();
+    for (std::int32_t index = 0; index < 10000; ++index) {
+        const auto hit_started = std::chrono::steady_clock::now();
+        const auto found = controller.hit_test(10, index * 2 + 1);
+        maximum_hit = (std::max)(maximum_hit,
+            std::chrono::steady_clock::now() - hit_started);
+        if (!found) return 17;
+    }
+    if (std::chrono::steady_clock::now() - hits_started > std::chrono::milliseconds(500) ||
+        maximum_hit > std::chrono::milliseconds(16)) return 18;
     return 0;
 }

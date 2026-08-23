@@ -189,6 +189,14 @@ std::optional<BlockCommandContext> BlockInteractionController::context_at_source
             (item.source_range.begin == found->source_range.begin &&
              item.source_range.end < found->source_range.end)) found = &item;
     }
+    if (!found) {
+        for (const auto& item : items_) {
+            if (source_offset != item.source_range.end) continue;
+            if (!found || item.source_range.begin > found->source_range.begin ||
+                (item.source_range.begin == found->source_range.begin &&
+                 item.source_range.end < found->source_range.end)) found = &item;
+        }
+    }
     if (!found) return std::nullopt;
     return BlockCommandContext{document_id_, revision_, found->node_id, found->kind,
         found->source_range};

@@ -132,6 +132,26 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (scaled_type.left != MulDiv(31, 144, 96) ||
         scaled_handle.left != MulDiv(55, 144, 96) ||
         scaled_type.right > scaled_handle.left) return 10;
+    host.apply_appearance(GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_WINDOW), 288);
+    const auto dpi_heading_point = PointAt(host.handle(), heading_position);
+    if (!host.update_block_hover({600, dpi_heading_point.y + 2})) return 44;
+    const auto dpi_type = host.block_type_hit_rect();
+    const auto dpi_handle = host.block_handle_hit_rect();
+    if (dpi_type.left != MulDiv(31, 288, 96) ||
+        dpi_handle.left != MulDiv(55, 288, 96) || dpi_type.right > dpi_handle.left ||
+        !IsWindowVisible(host.block_type_window()) ||
+        !IsWindowVisible(host.block_handle_window())) return 45;
+    const auto process = GetCurrentProcess();
+    const auto user_before = GetGuiResources(process, GR_USEROBJECTS);
+    const auto gdi_before = GetGuiResources(process, GR_GDIOBJECTS);
+    for (int index = 0; index < 200; ++index) {
+        const auto menu = host.create_block_context_menu(*heading);
+        if (!menu) return 46;
+        DestroyMenu(menu);
+    }
+    const auto user_after = GetGuiResources(process, GR_USEROBJECTS);
+    const auto gdi_after = GetGuiResources(process, GR_GDIOBJECTS);
+    if (user_after > user_before + 2 || gdi_after > gdi_before + 2) return 47;
     SendMessageW(host.handle(), WM_VSCROLL, SB_LINEDOWN, 0);
     if (host.hovered_block()) return 11;
 
