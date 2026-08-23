@@ -93,13 +93,23 @@ CommandState CommandDispatcher::query(CommandId command) const noexcept {
         return {markdown && modes.mode() == editor::ViewMode::render,
             modes.inline_active(editor::InlineFormat::strike)};
     case CommandId::format_inline_code:
-    case CommandId::format_quote:
-    case CommandId::format_unordered_list:
-    case CommandId::format_ordered_list:
-    case CommandId::format_task_list:
     case CommandId::format_clear:
-    case CommandId::format_code_block:
         return {markdown && modes.mode() == editor::ViewMode::render, false};
+    case CommandId::format_quote:
+        return {markdown && modes.mode() == editor::ViewMode::render,
+            modes.block_active(editor::BlockFormat::quote)};
+    case CommandId::format_unordered_list:
+        return {markdown && modes.mode() == editor::ViewMode::render,
+            modes.block_active(editor::BlockFormat::unordered_list)};
+    case CommandId::format_ordered_list:
+        return {markdown && modes.mode() == editor::ViewMode::render,
+            modes.block_active(editor::BlockFormat::ordered_list)};
+    case CommandId::format_task_list:
+        return {markdown && modes.mode() == editor::ViewMode::render,
+            modes.block_active(editor::BlockFormat::task_list)};
+    case CommandId::format_code_block:
+        return {markdown && modes.mode() == editor::ViewMode::render,
+            modes.block_active(editor::BlockFormat::code_block)};
     case CommandId::format_body:
     case CommandId::format_heading1:
     case CommandId::format_heading2:

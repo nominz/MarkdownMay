@@ -24,6 +24,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         text.find(L"────────") == std::wstring::npos ||
         text.find(L"```") != std::wstring::npos ||
         text.find(L"> ") != std::wstring::npos || text.find(L"# ") != std::wstring::npos) return 3;
+    FINDTEXTEXW find_quote{{0, -1}, const_cast<wchar_t*>(L"引用"), {}};
+    if (SendMessageW(host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+        reinterpret_cast<LPARAM>(&find_quote)) < 0) return 15;
+    SendMessageW(host.handle(), EM_SETSEL, find_quote.chrgText.cpMin,
+        find_quote.chrgText.cpMin);
+    if (!host.block_active(markdownmay::editor::BlockFormat::quote)) return 16;
 
     SendMessageW(host.handle(), EM_SETSEL, 0, 2);
     CHARFORMAT2W heading{};

@@ -258,6 +258,9 @@ ViewMode ViewModeController::mode() const noexcept { return mode_; }
 bool ViewModeController::inline_active(InlineFormat format) const noexcept {
     return mode_ == ViewMode::render && render_.inline_active(format);
 }
+bool ViewModeController::block_active(BlockFormat format) const noexcept {
+    return mode_ == ViewMode::render && render_.block_active(format);
+}
 std::uint8_t ViewModeController::current_heading_level() const {
     return mode_ == ViewMode::render
         ? const_cast<RichEditHost&>(render_).heading_level() : 0;

@@ -256,7 +256,7 @@ void Toolbar::refresh() {
         SendMessageW(handle_, TB_ENABLEBUTTON, Native(command),
             MAKELONG(state.enabled, 0));
         SendMessageW(handle_, TB_CHECKBUTTON, Native(command),
-            MAKELONG(state.checked, 0));
+            MAKELONG(command != app::CommandId::view_style_yuan_lang && state.checked, 0));
     }
     int selected = 0;
     for (int level = 1; level <= 6; ++level) {

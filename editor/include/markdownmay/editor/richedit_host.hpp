@@ -25,6 +25,10 @@ enum class EditorCommand : std::uint8_t {
     clear_format
 };
 
+enum class BlockFormat : std::uint8_t {
+    quote, code_block, unordered_list, ordered_list, task_list
+};
+
 enum class BlockMenuCommand : std::uint8_t {
     convert_paragraph, convert_h1, convert_h2, convert_h3, convert_h4, convert_h5,
     convert_h6, remove, copy, cut, indent, outdent, add_below
@@ -109,6 +113,7 @@ public:
     [[nodiscard]] ErrorCode execute(EditorCommand command);
     [[nodiscard]] ErrorCode clear_paragraph_formatting();
     [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
+    [[nodiscard]] bool block_active(BlockFormat format) const noexcept;
     [[nodiscard]] std::uint8_t heading_level();
     [[nodiscard]] ErrorCode undo();
     [[nodiscard]] ErrorCode redo();
@@ -117,6 +122,7 @@ public:
     void set_render_style(RenderStyle style);
     [[nodiscard]] RenderStyle render_style() const noexcept;
     void draw_table_grid(HDC dc) const;
+    void draw_quote_guides(HDC dc) const;
     void set_heading_folds(HeadingFoldController* folds);
     void apply_heading_folds();
     void draw_heading_folds(HDC dc) const;

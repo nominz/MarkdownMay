@@ -162,6 +162,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         const auto dc = GetDC(window);
         if (dc) {
             self->draw_table_grid(dc);
+            self->draw_quote_guides(dc);
             self->draw_heading_folds(dc);
             self->draw_block_interaction(dc);
             ReleaseDC(window, dc);
@@ -171,6 +172,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         self->restore_heading_fold_scroll();
     } else if (self && message == WM_PRINTCLIENT) {
         self->draw_table_grid(reinterpret_cast<HDC>(w_param));
+        self->draw_quote_guides(reinterpret_cast<HDC>(w_param));
         self->draw_heading_folds(reinterpret_cast<HDC>(w_param));
         self->draw_block_interaction(reinterpret_cast<HDC>(w_param));
     }
@@ -486,12 +488,17 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
-            ? PFM_TABSTOPS | PFM_SPACEBEFORE | PFM_SPACEAFTER : PFM_STARTINDENT;
+            ? PFM_TABSTOPS | PFM_SPACEBEFORE | PFM_SPACEAFTER :
+            span.kind == document::NodeKind::list_item
+            ? PFM_STARTINDENT | PFM_OFFSET : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote)
             paragraph.dxStartIndent = kBlockGutterTwips + 360;
-        else if (span.kind == document::NodeKind::list_item)
-            paragraph.dxStartIndent = kBlockGutterTwips + 360 +
+        else if (span.kind == document::NodeKind::list_item) {
+            constexpr LONG hanging = 540;
+            paragraph.dxStartIndent = kBlockGutterTwips + hanging +
                 static_cast<LONG>(span.list_depth) * 360;
+            paragraph.dxOffset = -hanging;
+        }
         else if (span.kind == document::NodeKind::table) {
             RECT formatting{};
             SendMessageW(handle, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
@@ -1419,6 +1426,39 @@ void RichEditHost::draw_table_grid(HDC dc) const {
     DeleteObject(pen);
 }
 
+void RichEditHost::draw_quote_guides(HDC dc) const {
+    if (!handle_ || !dc || projection_.spans.empty()) return;
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    TEXTMETRICW metrics{};
+    GetTextMetricsW(dc, &metrics);
+    const auto color = GetRValue(background_color_) < 128
+        ? RGB(118, 118, 122) : RGB(172, 172, 172);
+    const auto pen = CreatePen(PS_SOLID, (std::max)(2, MulDiv(3,
+        static_cast<int>(dpi_), 96)), color);
+    const auto old_pen = SelectObject(dc, pen);
+    RECT client{};
+    GetClientRect(handle_, &client);
+    for (const auto& quote : projection_.spans) {
+        if (quote.kind != document::NodeKind::quote || quote.begin >= utf16.size() ||
+            quote.end >= utf16.size()) continue;
+        POINT begin{}, end{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
+            utf16[static_cast<std::size_t>(quote.begin)]);
+        const auto last = quote.end > quote.begin ? quote.end - 1 : quote.end;
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
+            utf16[static_cast<std::size_t>(last)]);
+        const auto top = static_cast<int>(begin.y);
+        const auto bottom = static_cast<int>(end.y) + metrics.tmHeight;
+        if (bottom < client.top || top > client.bottom) continue;
+        const auto x = static_cast<int>(begin.x) - MulDiv(14,
+            static_cast<int>(dpi_), 96);
+        MoveToEx(dc, x, top, nullptr);
+        LineTo(dc, x, bottom);
+    }
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+}
+
 ErrorCode RichEditHost::show_status_message(std::wstring_view message) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
     projecting_ = true;
@@ -1645,6 +1685,7 @@ ErrorCode RichEditHost::toggle_inline(InlineFormat format) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
     CHARRANGE selected{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    if (selected.cpMin == selected.cpMax) return ErrorCode::ok;
     const auto visible = ReadWide(handle_);
     if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
         static_cast<std::size_t>(selected.cpMax) > visible.size())
@@ -2030,6 +2071,37 @@ bool RichEditHost::inline_active(InlineFormat format) const noexcept {
     SendMessageW(handle_, EM_GETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&value));
     return (value.dwMask & mask) != 0 && (value.dwEffects & effect) != 0;
+}
+
+bool RichEditHost::block_active(BlockFormat format) const noexcept {
+    if (!handle_ || projection_.spans.empty()) return false;
+    CHARRANGE selected{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+    if (selected.cpMin < 0) return false;
+    const auto visible = ReadWide(handle_);
+    if (static_cast<std::size_t>(selected.cpMin) > visible.size()) return false;
+    const auto caret = PrefixUtf8Size(handle_, selected.cpMin,
+        fileio::DetectLineEnding(projection_.text));
+    const auto matches = [format](const ProjectionSpan& span) {
+        switch (format) {
+        case BlockFormat::quote: return span.kind == document::NodeKind::quote;
+        case BlockFormat::code_block: return span.kind == document::NodeKind::code_block;
+        case BlockFormat::task_list:
+            return span.kind == document::NodeKind::list_item && span.task;
+        case BlockFormat::ordered_list:
+            return span.kind == document::NodeKind::list_item && span.ordered && !span.task;
+        case BlockFormat::unordered_list:
+            return span.kind == document::NodeKind::list_item && !span.ordered && !span.task;
+        }
+        return false;
+    };
+    const auto at = [&](std::uint64_t position) {
+        return std::any_of(projection_.spans.begin(), projection_.spans.end(),
+            [position, &matches](const ProjectionSpan& span) {
+                return matches(span) && position >= span.begin && position < span.end;
+            });
+    };
+    return at(caret) || (caret > 0 && at(caret - 1));
 }
 
 std::uint8_t RichEditHost::heading_level() {

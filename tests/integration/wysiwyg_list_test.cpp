@@ -33,6 +33,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         text.find(L"• child") == std::wstring::npos ||
         text.find(L"[x]") != std::wstring::npos) return 3;
 
+    auto first_paragraph = Find(host.handle(), const_cast<wchar_t*>(L"first"));
+    SendMessageW(host.handle(), EM_EXSETSEL, 0,
+        reinterpret_cast<LPARAM>(&first_paragraph));
+    PARAFORMAT2 hanging{};
+    hanging.cbSize = sizeof(hanging);
+    hanging.dwMask = PFM_STARTINDENT | PFM_OFFSET;
+    SendMessageW(host.handle(), EM_GETPARAFORMAT, 0,
+        reinterpret_cast<LPARAM>(&hanging));
+    if ((hanging.dwMask & (PFM_STARTINDENT | PFM_OFFSET)) !=
+            (PFM_STARTINDENT | PFM_OFFSET) || hanging.dxOffset >= 0 ||
+        hanging.dxStartIndent + hanging.dxOffset < 1200) return 37;
+
     auto first = Find(host.handle(), const_cast<wchar_t*>(L"first"));
     const auto inside_first = first.cpMin + 1;
     SendMessageW(host.handle(), EM_SETSEL, inside_first, inside_first);

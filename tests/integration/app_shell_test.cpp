@@ -235,6 +235,51 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (dispatcher.execute(app::CommandId::format_heading1) != ErrorCode::ok) return 43;
     if (session.snapshot().source != "# 段落\n") return 43;
 
+    const auto toolbar_command = [&](app::CommandId command) {
+        SendMessageW(window.handle(), WM_COMMAND,
+            MAKEWPARAM(static_cast<WORD>(command), 0),
+            reinterpret_cast<LPARAM>(window.toolbar()->handle()));
+    };
+    auto format_render = window.document_window().modes().render_view().handle();
+    if (window.document_window().modes().reload("粗体") != ErrorCode::ok) return 82;
+    SendMessageW(format_render, EM_SETSEL, 1, 1);
+    toolbar_command(app::CommandId::format_bold);
+    if (session.snapshot().source != "粗体") return 82;
+    SendMessageW(format_render, EM_SETSEL, 0, 2);
+    toolbar_command(app::CommandId::format_bold);
+    if (session.snapshot().source != "**粗体**" ||
+        !dispatcher.query(app::CommandId::format_bold).checked) return 83;
+    toolbar_command(app::CommandId::format_bold);
+    if (session.snapshot().source != "粗体" ||
+        dispatcher.query(app::CommandId::format_bold).checked) return 84;
+
+    if (window.document_window().modes().reload("代码") != ErrorCode::ok) return 85;
+    SendMessageW(format_render, EM_SETSEL, 0, 2);
+    toolbar_command(app::CommandId::format_code_block);
+    if (session.snapshot().source.find("```") == std::string::npos ||
+        session.snapshot().source.find("代码") == std::string::npos) return 85;
+    if (!dispatcher.query(app::CommandId::format_code_block).checked) return 89;
+    if (window.document_window().modes().reload("段落") != ErrorCode::ok) return 86;
+    SendMessageW(format_render, EM_SETSEL, 2, 2);
+    toolbar_command(app::CommandId::insert_thematic_break);
+    if (session.snapshot().source.find("---") == std::string::npos) return 86;
+
+    struct BlockCase { const char* source; app::CommandId command; };
+    constexpr std::array block_cases{
+        BlockCase{"> 引用", app::CommandId::format_quote},
+        BlockCase{"- 项目", app::CommandId::format_unordered_list},
+        BlockCase{"1. 项目", app::CommandId::format_ordered_list},
+        BlockCase{"- [ ] 项目", app::CommandId::format_task_list}};
+    for (const auto& item : block_cases) {
+        if (window.document_window().modes().reload(item.source) != ErrorCode::ok) return 87;
+        SendMessageW(format_render, EM_SETSEL, 1, 1);
+        if (!dispatcher.query(item.command).checked) return 87;
+    }
+    window.toolbar()->refresh();
+    if ((SendMessageW(window.toolbar()->handle(), TB_GETSTATE,
+            static_cast<WPARAM>(app::CommandId::view_style_yuan_lang), 0) &
+            TBSTATE_CHECKED) != 0) return 88;
+
     if (window.document_window().modes().reload("深色正文\n") != ErrorCode::ok) return 47;
     window.set_theme_preference(ui::ThemePreference::dark);
     const auto dark_palette = ui::PaletteFor(ui::ThemeKind::dark);

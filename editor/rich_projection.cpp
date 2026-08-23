@@ -227,8 +227,10 @@ void Block(const document::Node& node, RichProjection& output,
                 Block(*child, output, source, document_path, static_cast<std::uint8_t>(depth + 1));
             }
             const auto item_end = static_cast<std::uint64_t>(output.text.size());
-            output.spans.push_back({document::NodeKind::list_item, item_begin, item_end,
-                0, depth, detail && detail->task, detail && detail->checked});
+            ProjectionSpan item_span{document::NodeKind::list_item, item_begin, item_end,
+                0, depth, detail && detail->task, detail && detail->checked};
+            item_span.ordered = list && list->ordered;
+            output.spans.push_back(std::move(item_span));
             cursor = item->source.end;
             first = false;
         }

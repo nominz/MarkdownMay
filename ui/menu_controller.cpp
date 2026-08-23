@@ -30,9 +30,9 @@ bool IsKnown(std::uint16_t value) noexcept {
     return (value >= Native(app::CommandId::file_new) &&
             value <= Native(app::CommandId::file_export)) ||
         (value >= Native(app::CommandId::edit_undo) &&
-            value <= Native(app::CommandId::insert_link)) ||
+            value <= Native(app::CommandId::insert_thematic_break)) ||
         (value >= Native(app::CommandId::format_bold) &&
-            value <= Native(app::CommandId::format_clear)) ||
+            value <= Native(app::CommandId::format_code_block)) ||
         (value >= Native(app::CommandId::view_render) &&
             value <= Native(app::CommandId::view_theme_dark)) ||
         (value >= Native(app::CommandId::tools_register_association) &&
@@ -111,6 +111,7 @@ bool MenuController::create(HWND window) {
     AddCommand(format, app::CommandId::format_italic, L"斜体(&I)\tCtrl+I");
     AddCommand(format, app::CommandId::format_strike, L"删除线(&S)");
     AddCommand(format, app::CommandId::format_inline_code, L"行内代码(&C)");
+    AddCommand(format, app::CommandId::format_code_block, L"代码块(&K)");
     AddSeparator(format);
     AddCommand(format, app::CommandId::format_quote, L"引用(&Q)");
     AddCommand(format, app::CommandId::format_unordered_list, L"无序列表(&U)");
@@ -124,6 +125,7 @@ bool MenuController::create(HWND window) {
     AddSeparator(insert);
     AddCommand(insert, app::CommandId::insert_table, L"插入表格(&T)");
     AddCommand(insert, app::CommandId::insert_link, L"插入链接(&L)");
+    AddCommand(insert, app::CommandId::insert_thematic_break, L"插入分隔线(&H)");
 
     AddCommand(view, app::CommandId::view_render, L"渲染模式(&R)\tCtrl+1");
     AddCommand(view, app::CommandId::view_source, L"源码模式(&S)\tCtrl+2");
