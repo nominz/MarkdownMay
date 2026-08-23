@@ -27,6 +27,7 @@ struct ProjectionSpan final {
     std::uint32_t table_column{};
     std::uint32_t table_columns{};
     bool ordered{};
+    std::string language;
 };
 
 struct RichProjection final {

@@ -13,6 +13,12 @@ bool Contains(const markdownmay::document::Node& node,
     for (const auto& child : node.children) if (Contains(*child, kind)) return true;
     return false;
 }
+const markdownmay::document::Node* Find(const markdownmay::document::Node& node,
+              markdownmay::document::NodeKind kind) {
+    if (node.kind == kind) return &node;
+    for (const auto& child : node.children) if (const auto* found = Find(*child, kind)) return found;
+    return nullptr;
+}
 }
 
 int main() {
@@ -64,6 +70,39 @@ int main() {
             session.snapshot().source != "```cpp\r\nint x;\r\n```") return 8;
         if (!Contains(*session.snapshot().semantic->root(), document::NodeKind::code_block)) return 9;
         if (blocks.toggle_code_block() != ErrorCode::ok || session.snapshot().source != "int x;") return 10;
+    }
+    {
+        const std::string heading = "## 标题\n\n";
+        document::DocumentSession session(heading + "第一段\n\n第二段");
+        editor::ParagraphEditor editor(session);
+        editor::BlockFormatter blocks(session, editor);
+        if (editor.set_selection({heading.size(), heading.size() + 9}) != ErrorCode::ok ||
+            blocks.toggle_code_block("python") != ErrorCode::ok ||
+            session.snapshot().source != "## 标题\n\n```python\n第一段\n```\n\n第二段") return 18;
+        const auto* code = Find(*session.snapshot().semantic->root(), document::NodeKind::code_block);
+        const auto* attributes = code ? std::get_if<document::CodeAttributes>(&code->attributes) : nullptr;
+        if (!attributes || attributes->language != "python" || code->text != "第一段\n") return 19;
+    }
+    {
+        document::DocumentSession session("第一段\n\n第二段\n\n第三段");
+        editor::ParagraphEditor editor(session);
+        editor::BlockFormatter blocks(session, editor);
+        if (editor.set_selection({0, 20}) != ErrorCode::ok ||
+            blocks.toggle_code_block() != ErrorCode::ok ||
+            session.snapshot().source != "```\n第一段\n\n第二段\n```\n\n第三段") return 20;
+    }
+    {
+        const std::string content = "**\n##\n[]\n#\n`\n\n    indented";
+        document::DocumentSession session(content);
+        editor::ParagraphEditor editor(session);
+        editor::BlockFormatter blocks(session, editor);
+        if (editor.set_selection({0, content.size()}) != ErrorCode::ok ||
+            blocks.toggle_code_block("text") != ErrorCode::ok) return 21;
+        const auto fenced = session.snapshot().source;
+        document::DocumentSession reopened(fenced);
+        const auto* code = Find(*reopened.snapshot().semantic->root(), document::NodeKind::code_block);
+        const auto* attributes = code ? std::get_if<document::CodeAttributes>(&code->attributes) : nullptr;
+        if (!attributes || attributes->language != "text" || code->text != content + "\n") return 22;
     }
     {
         document::DocumentSession session("");

@@ -123,6 +123,7 @@ public:
     [[nodiscard]] RenderStyle render_style() const noexcept;
     void draw_table_grid(HDC dc) const;
     void draw_quote_guides(HDC dc) const;
+    void draw_code_block_frames(HDC dc) const;
     void set_heading_folds(HeadingFoldController* folds);
     void apply_heading_folds();
     void draw_heading_folds(HDC dc) const;

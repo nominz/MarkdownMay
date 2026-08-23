@@ -3,6 +3,7 @@
 #include "markdownmay/fileio/line_endings.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <string>
 
 namespace markdownmay::editor {
@@ -24,6 +25,58 @@ std::uint64_t LineEnd(std::string_view source, std::uint64_t position) {
 
 std::string_view Ending(std::string_view source) {
     return fileio::DetectLineEnding(source) == fileio::LineEnding::lf ? "\n" : "\r\n";
+}
+
+struct SelectedBlockRange final {
+    std::uint64_t begin{};
+    std::uint64_t end{};
+    document::NodeKind kind{document::NodeKind::paragraph};
+};
+
+std::optional<SelectedBlockRange> SelectedTopLevelBlocks(
+        const document::Document& document, std::string_view source,
+        const TextSelection& selection) {
+    auto selected_begin = (std::min)(selection.anchor, selection.caret);
+    const auto selected_end = (std::max)(selection.anchor, selection.caret);
+    while (selected_begin < selected_end && selected_begin < source.size() &&
+           (source[static_cast<std::size_t>(selected_begin)] == '\r' ||
+            source[static_cast<std::size_t>(selected_begin)] == '\n')) ++selected_begin;
+    const bool caret_only = selected_begin == selected_end;
+    const document::Node* first{};
+    const document::Node* last{};
+    for (const auto& block : document.root()->children) {
+        const auto begin = (std::min)(block->source.begin,
+            static_cast<std::uint64_t>(source.size()));
+        const auto end = (std::min)(block->source.end,
+            static_cast<std::uint64_t>(source.size()));
+        const bool covered = caret_only
+            ? selected_begin >= begin && selected_begin <= end
+            : selected_begin < end && selected_end > begin;
+        if (!covered) continue;
+        if (!first) first = block.get();
+        last = block.get();
+    }
+    if (!first || !last) return std::nullopt;
+    auto first_content = (std::min)(first->source.begin,
+        static_cast<std::uint64_t>(source.size()));
+    while (first_content < first->source.end &&
+           (source[static_cast<std::size_t>(first_content)] == '\r' ||
+            source[static_cast<std::size_t>(first_content)] == '\n')) ++first_content;
+    auto last_content_end = (std::min)(last->source.end,
+        static_cast<std::uint64_t>(source.size()));
+    while (last_content_end > last->source.begin &&
+           (source[static_cast<std::size_t>(last_content_end - 1)] == '\r' ||
+            source[static_cast<std::size_t>(last_content_end - 1)] == '\n')) --last_content_end;
+    return SelectedBlockRange{LineStart(source, first_content),
+        LineEnd(source, last_content_end),
+        first == last ? first->kind : document::NodeKind::document};
+}
+
+std::uint64_t PreviousLineStart(std::string_view source, std::uint64_t line_begin) {
+    if (line_begin == 0) return 0;
+    auto position = line_begin - 1;
+    if (source[static_cast<std::size_t>(position)] == '\n' && position > 0) --position;
+    return LineStart(source, position);
 }
 
 }  // namespace
@@ -94,23 +147,42 @@ ErrorCode BlockFormatter::toggle_code_block(std::string_view language) {
         return ErrorCode::editor_selection_mapping_failed;
     const auto source = session_.snapshot().source;
     const auto selected = editor_.selection();
-    const auto begin = LineStart(source, (std::min)(selected.anchor, selected.caret));
-    const auto end = LineEnd(source, (std::max)(selected.anchor, selected.caret));
-    const auto content = source.substr(static_cast<std::size_t>(begin),
-                                       static_cast<std::size_t>(end - begin));
+    const auto semantic = session_.snapshot().semantic;
+    const auto selected_blocks = semantic
+        ? SelectedTopLevelBlocks(*semantic, source, selected) : std::nullopt;
+    const auto begin = selected_blocks ? selected_blocks->begin :
+        LineStart(source, (std::min)(selected.anchor, selected.caret));
+    const auto end = selected_blocks ? selected_blocks->end :
+        LineEnd(source, (std::max)(selected.anchor, selected.caret));
     const auto eol = Ending(source);
-    if (begin > 0) {
-        const auto opening_begin = LineStart(source, begin - 1);
+    if (selected_blocks && selected_blocks->kind == document::NodeKind::code_block) {
+        const auto opening_begin = PreviousLineStart(source, begin);
         const auto opening_end = LineEnd(source, opening_begin);
-        const auto closing_begin = end + eol.size();
+        auto content_begin = opening_end + eol.size();
+        auto closing_begin = LineStart(source, end);
+        if (closing_begin < content_begin ||
+            source.compare(static_cast<std::size_t>(closing_begin), 3, "```") != 0) {
+            const auto next = source.find('\n', static_cast<std::size_t>(end));
+            closing_begin = next == std::string_view::npos
+                ? static_cast<std::uint64_t>(source.size())
+                : static_cast<std::uint64_t>(next + 1);
+        }
         if (opening_end >= opening_begin + 3 && closing_begin + 3 <= source.size() &&
             source.compare(static_cast<std::size_t>(opening_begin), 3, "```") == 0 &&
             source.compare(static_cast<std::size_t>(closing_begin), 3, "```") == 0) {
             const auto closing_end = LineEnd(source, closing_begin);
+            auto content_end = closing_begin;
+            if (content_end >= eol.size() &&
+                source.substr(static_cast<std::size_t>(content_end - eol.size()), eol.size()) == eol)
+                content_end -= eol.size();
+            const auto content = source.substr(static_cast<std::size_t>(content_begin),
+                static_cast<std::size_t>(content_end - content_begin));
             return editor_.replace_source_range(opening_begin, closing_end, content,
                 {opening_begin, opening_begin + content.size()});
         }
     }
+    const auto content = source.substr(static_cast<std::size_t>(begin),
+                                       static_cast<std::size_t>(end - begin));
     const std::string open = "```" + std::string(language) + std::string(eol);
     const std::string close = std::string(eol) + "```";
     return editor_.replace_source_range(begin, end, open + content + close,

@@ -272,6 +272,10 @@ void Block(const document::Node& node, RichProjection& output,
             level = heading->level;
         ProjectionSpan span{node.kind, begin, end, level, depth, false, false};
         if (node.kind == document::NodeKind::table) span.table_columns = table_columns;
+        if (node.kind == document::NodeKind::code_block) {
+            if (const auto* code = std::get_if<document::CodeAttributes>(&node.attributes))
+                span.language = code->language;
+        }
         output.spans.push_back(std::move(span));
     }
 }

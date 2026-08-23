@@ -163,6 +163,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         if (dc) {
             self->draw_table_grid(dc);
             self->draw_quote_guides(dc);
+            self->draw_code_block_frames(dc);
             self->draw_heading_folds(dc);
             self->draw_block_interaction(dc);
             ReleaseDC(window, dc);
@@ -173,6 +174,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
     } else if (self && message == WM_PRINTCLIENT) {
         self->draw_table_grid(reinterpret_cast<HDC>(w_param));
         self->draw_quote_guides(reinterpret_cast<HDC>(w_param));
+        self->draw_code_block_frames(reinterpret_cast<HDC>(w_param));
         self->draw_heading_folds(reinterpret_cast<HDC>(w_param));
         self->draw_block_interaction(reinterpret_cast<HDC>(w_param));
     }
@@ -481,6 +483,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         }
     }
     if (span.kind == document::NodeKind::quote ||
+        span.kind == document::NodeKind::code_block ||
         span.kind == document::NodeKind::thematic_break ||
         span.kind == document::NodeKind::list_item ||
         span.kind == document::NodeKind::table) {
@@ -489,10 +492,18 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
             ? PFM_TABSTOPS | PFM_SPACEBEFORE | PFM_SPACEAFTER :
+            span.kind == document::NodeKind::code_block
+            ? PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_SPACEBEFORE | PFM_SPACEAFTER :
             span.kind == document::NodeKind::list_item
             ? PFM_STARTINDENT | PFM_OFFSET : PFM_STARTINDENT;
         if (span.kind == document::NodeKind::quote)
             paragraph.dxStartIndent = kBlockGutterTwips + 360;
+        else if (span.kind == document::NodeKind::code_block) {
+            paragraph.dxStartIndent = kBlockGutterTwips + 300;
+            paragraph.dxRightIndent = 300;
+            paragraph.dySpaceBefore = 300;
+            paragraph.dySpaceAfter = 180;
+        }
         else if (span.kind == document::NodeKind::list_item) {
             constexpr LONG hanging = 540;
             paragraph.dxStartIndent = kBlockGutterTwips + hanging +
@@ -1455,6 +1466,47 @@ void RichEditHost::draw_quote_guides(HDC dc) const {
         MoveToEx(dc, x, top, nullptr);
         LineTo(dc, x, bottom);
     }
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+}
+
+void RichEditHost::draw_code_block_frames(HDC dc) const {
+    if (!handle_ || !dc || projection_.spans.empty()) return;
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    TEXTMETRICW metrics{};
+    GetTextMetricsW(dc, &metrics);
+    RECT client{};
+    GetClientRect(handle_, &client);
+    const bool dark = GetRValue(background_color_) < 128;
+    const auto color = dark ? RGB(88, 88, 94) : RGB(214, 214, 218);
+    const auto label_color = dark ? RGB(176, 176, 182) : RGB(104, 104, 110);
+    const auto pen = CreatePen(PS_SOLID, 1, color);
+    const auto old_pen = SelectObject(dc, pen);
+    const auto old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
+    const auto old_mode = SetBkMode(dc, TRANSPARENT);
+    const auto old_color = SetTextColor(dc, label_color);
+    for (const auto& span : projection_.spans) {
+        if (span.kind != document::NodeKind::code_block || span.begin >= utf16.size() ||
+            span.end >= utf16.size()) continue;
+        POINT begin{}, end{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
+            utf16[static_cast<std::size_t>(span.begin)]);
+        const auto last = span.end > span.begin ? span.end - 1 : span.end;
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
+            utf16[static_cast<std::size_t>(last)]);
+        const auto pad = MulDiv(8, static_cast<int>(dpi_), 96);
+        const auto radius = MulDiv(8, static_cast<int>(dpi_), 96);
+        RECT frame{begin.x - pad, begin.y - pad, client.right - pad,
+            end.y + metrics.tmHeight + pad};
+        if (frame.bottom < client.top || frame.top > client.bottom) continue;
+        RoundRect(dc, frame.left, frame.top, frame.right, frame.bottom, radius, radius);
+        const auto label = ToWide(span.language.empty() ? "Plain Text" : span.language);
+        TextOutW(dc, frame.left + pad, frame.top - metrics.tmHeight,
+            label.c_str(), static_cast<int>(label.size()));
+    }
+    SetTextColor(dc, old_color);
+    SetBkMode(dc, old_mode);
+    SelectObject(dc, old_brush);
     SelectObject(dc, old_pen);
     DeleteObject(pen);
 }

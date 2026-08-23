@@ -86,6 +86,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         reinterpret_cast<LPARAM>(L"在"));
     if (empty_host.synchronize_change() != markdownmay::ErrorCode::ok ||
         empty.snapshot().source != "# 在") return 14;
+
+    markdownmay::document::DocumentSession boundary("## 标题\n\n正文\n\n后段");
+    markdownmay::editor::RichEditHost boundary_host(boundary);
+    if (boundary_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 52;
+    FINDTEXTEXW find_body{{0, -1}, const_cast<wchar_t*>(L"正文"), {}};
+    if (SendMessageW(boundary_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_body)) < 0) return 53;
+    SendMessageW(boundary_host.handle(), EM_SETSEL, find_body.chrgText.cpMin,
+        find_body.chrgText.cpMax);
+    if (boundary_host.toggle_code_block("python") != markdownmay::ErrorCode::ok) return 54;
+    if (boundary.snapshot().source != "## 标题\n\n```python\n正文\n```\n\n后段") return 57;
+    find_body.chrg = {0, -1};
+    if (SendMessageW(boundary_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_body)) < 0) return 55;
+    SendMessageW(boundary_host.handle(), EM_SETSEL, find_body.chrgText.cpMin,
+        find_body.chrgText.cpMax);
+    if (!boundary_host.block_active(markdownmay::editor::BlockFormat::code_block)) return 55;
     DestroyWindow(parent);
     return 0;
 }
