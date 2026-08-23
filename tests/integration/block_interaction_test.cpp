@@ -44,7 +44,7 @@ bool HasInk(markdownmay::editor::RichEditHost& host, const RECT& area) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     using namespace markdownmay;
     document::DocumentSession session(
-        "# Heading\n\nparagraph\n\n## Second\nbody\n\n- item\n");
+        "# Heading\n\nparagraph\n\n## Second\nbody\n\n- parent\n- item\n");
     const auto parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
         0, 0, 900, 500, nullptr, nullptr, instance, nullptr);
     editor::RichEditHost host(session);
@@ -120,7 +120,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!list_item || list_item->kind != document::NodeKind::list_item) return 19;
     const auto list_capabilities = host.query_block_menu(*list_item);
     if (list_capabilities.convert || !list_capabilities.indent ||
-        !list_capabilities.outdent || list_capabilities.add_below) return 20;
+        list_capabilities.outdent || list_capabilities.add_below) return 20;
 
     SendMessageW(host.handle(), WM_MOUSELEAVE, 0, 0);
     if (host.hovered_block()) return 8;
@@ -134,6 +134,73 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         scaled_type.right > scaled_handle.left) return 10;
     SendMessageW(host.handle(), WM_VSCROLL, SB_LINEDOWN, 0);
     if (host.hovered_block()) return 11;
+
+    auto command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("Heading")));
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::convert_h3, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.find("### Heading") != 0) return 23;
+    if (host.execute_block_menu(editor::BlockMenuCommand::remove, *command_context) !=
+        ErrorCode::editor_transaction_conflict) return 24;
+    if (host.undo() != ErrorCode::ok || session.snapshot().source.find("# Heading") != 0)
+        return 25;
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("Heading")));
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::convert_paragraph, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.find("Heading") != 0 || host.undo() != ErrorCode::ok)
+        return 37;
+
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("paragraph")));
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::convert_h6, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.find("###### paragraph") == std::string::npos ||
+        host.undo() != ErrorCode::ok) return 38;
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("paragraph")));
+    const auto before_copy = session.snapshot();
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::copy, *command_context) != ErrorCode::ok) return 26;
+    if (session.snapshot().source_revision != before_copy.source_revision ||
+        session.snapshot().source != before_copy.source) return 27;
+    if (!OpenClipboard(parent)) return 28;
+    const auto clipboard_data = GetClipboardData(CF_UNICODETEXT);
+    const auto* clipboard_text = clipboard_data
+        ? static_cast<const wchar_t*>(GlobalLock(clipboard_data)) : nullptr;
+    const auto copied = clipboard_text ? std::wstring(clipboard_text) : std::wstring{};
+    if (clipboard_text) GlobalUnlock(clipboard_data);
+    CloseClipboard();
+    if (copied.find(L"paragraph") == std::wstring::npos) return 29;
+
+    if (host.execute_block_menu(editor::BlockMenuCommand::cut, *command_context) !=
+        ErrorCode::ok || session.snapshot().source.find("paragraph") != std::string::npos)
+        return 30;
+    if (host.undo() != ErrorCode::ok ||
+        session.snapshot().source.find("paragraph") == std::string::npos) return 31;
+
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("Second")));
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::remove, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.find("Second") != std::string::npos) return 32;
+    if (host.undo() != ErrorCode::ok ||
+        session.snapshot().source.find("Second") == std::string::npos) return 33;
+
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("item")));
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::indent, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.find("    - item") == std::string::npos) return 34;
+    command_context = host.block_context_at_source(
+        static_cast<std::uint64_t>(session.snapshot().source.find("item")));
+    if (!command_context || host.execute_block_menu(
+        editor::BlockMenuCommand::outdent, *command_context) != ErrorCode::ok ||
+        session.snapshot().source.find("\n- item") == std::string::npos) return 35;
+    if (host.undo() != ErrorCode::ok ||
+        session.snapshot().source.find("    - item") == std::string::npos ||
+        host.undo() != ErrorCode::ok ||
+        session.snapshot().source.find("\n- item") == std::string::npos) return 36;
 
     document::DocumentSession plain("# plain", document::DocumentKind::plain_text);
     editor::BlockInteractionController plain_controller;

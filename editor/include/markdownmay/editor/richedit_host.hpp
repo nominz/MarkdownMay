@@ -132,6 +132,8 @@ public:
     [[nodiscard]] RECT block_handle_hit_rect() const noexcept;
     [[nodiscard]] BlockMenuCapabilities query_block_menu(
         const BlockCommandContext& context) const noexcept;
+    [[nodiscard]] ErrorCode execute_block_menu(
+        BlockMenuCommand command, const BlockCommandContext& context);
     [[nodiscard]] HMENU create_block_context_menu(
         const BlockCommandContext& context) const;
     void set_block_menu_callback(std::function<void(

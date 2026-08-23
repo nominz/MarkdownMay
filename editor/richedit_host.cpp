@@ -33,6 +33,37 @@ constexpr int kBlockTypeControlId = 6101;
 constexpr int kBlockHandleControlId = 6102;
 constexpr UINT kBlockMenuFirst = 6201;
 
+std::string ConvertBlockSource(std::string source, const std::uint8_t heading_level) {
+    std::size_t marker{};
+    while (marker < source.size() && marker < 6 && source[marker] == '#') ++marker;
+    if (marker > 0 && marker < source.size() && source[marker] == ' ')
+        source.erase(0, marker + 1);
+    if (heading_level > 0)
+        source.insert(0, std::string(heading_level, '#') + " ");
+    return source;
+}
+
+std::string ShiftBlockIndent(std::string_view source, const bool increase) {
+    std::string result;
+    std::size_t cursor{};
+    while (cursor <= source.size()) {
+        const auto next = source.find('\n', cursor);
+        const auto end = next == std::string_view::npos ? source.size() : next;
+        auto line = std::string(source.substr(cursor, end - cursor));
+        if (increase) line.insert(0, "    ");
+        else {
+            std::size_t remove{};
+            while (remove < 4 && remove < line.size() && line[remove] == ' ') ++remove;
+            line.erase(0, remove);
+        }
+        result += line;
+        if (next == std::string_view::npos) break;
+        result.push_back('\n');
+        cursor = next + 1;
+    }
+    return result;
+}
+
 LRESULT CALLBACK BlockButtonSubclass(HWND window, UINT message, WPARAM w_param,
                                      LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
     auto* self = reinterpret_cast<RichEditHost*>(reference);
@@ -1078,7 +1109,113 @@ BlockMenuCapabilities RichEditHost::query_block_menu(
     const auto simple = context.kind == document::NodeKind::paragraph ||
         context.kind == document::NodeKind::heading;
     const auto list = context.kind == document::NodeKind::list_item;
-    return {simple, true, true, true, list, list, simple};
+    const auto safe_range = simple || list;
+    bool can_indent{};
+    bool can_outdent{};
+    if (list && context.source_range.begin < snapshot.source.size()) {
+        auto current = static_cast<std::size_t>(context.source_range.begin);
+        std::size_t indent{};
+        while (current + indent < snapshot.source.size() &&
+            snapshot.source[current + indent] == ' ') ++indent;
+        can_outdent = indent > 0;
+        if (current > 0) {
+            auto previous_end = current - 1;
+            if (snapshot.source[previous_end] == '\n' && previous_end > 0) --previous_end;
+            if (snapshot.source[previous_end] == '\r' && previous_end > 0) --previous_end;
+            const auto previous_break = snapshot.source.rfind('\n', previous_end);
+            const auto previous_begin = previous_break == std::string::npos
+                ? 0 : previous_break + 1;
+            auto marker = previous_begin;
+            while (marker < snapshot.source.size() && snapshot.source[marker] == ' ') ++marker;
+            const auto unordered = marker + 1 < snapshot.source.size() &&
+                (snapshot.source[marker] == '-' || snapshot.source[marker] == '*' ||
+                 snapshot.source[marker] == '+') && snapshot.source[marker + 1] == ' ';
+            auto ordered = marker;
+            while (ordered < snapshot.source.size() &&
+                snapshot.source[ordered] >= '0' && snapshot.source[ordered] <= '9') ++ordered;
+            const auto ordered_marker = ordered > marker && ordered + 1 < snapshot.source.size() &&
+                snapshot.source[ordered] == '.' && snapshot.source[ordered + 1] == ' ';
+            can_indent = unordered || ordered_marker;
+        }
+    }
+    return {simple, safe_range, safe_range, safe_range,
+        can_indent, can_outdent, simple};
+}
+
+ErrorCode RichEditHost::execute_block_menu(
+    const BlockMenuCommand command, const BlockCommandContext& context) {
+    const auto snapshot = session_.snapshot();
+    if (!block_interactions_.validate(context,
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&session_)), snapshot))
+        return ErrorCode::editor_transaction_conflict;
+    const auto capabilities = query_block_menu(context);
+    if (context.source_range.begin > context.source_range.end ||
+        context.source_range.end > snapshot.source.size())
+        return ErrorCode::editor_selection_mapping_failed;
+    const auto source = snapshot.source.substr(
+        static_cast<std::size_t>(context.source_range.begin),
+        static_cast<std::size_t>(context.source_range.end - context.source_range.begin));
+    const auto write_clipboard = [this](const std::string_view utf8) {
+        const auto wide = ToWide(utf8);
+        const auto bytes = (wide.size() + 1) * sizeof(wchar_t);
+        const auto memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (!memory) return false;
+        auto* destination = static_cast<wchar_t*>(GlobalLock(memory));
+        if (!destination) { GlobalFree(memory); return false; }
+        std::copy(wide.begin(), wide.end(), destination);
+        destination[wide.size()] = L'\0';
+        GlobalUnlock(memory);
+        if (!OpenClipboard(handle_)) { GlobalFree(memory); return false; }
+        const auto close = [] { CloseClipboard(); };
+        if (!EmptyClipboard()) { GlobalFree(memory); close(); return false; }
+        if (!SetClipboardData(CF_UNICODETEXT, memory)) {
+            GlobalFree(memory); close(); return false;
+        }
+        close();
+        return true;
+    };
+
+    std::string replacement;
+    switch (command) {
+        case BlockMenuCommand::convert_paragraph:
+        case BlockMenuCommand::convert_h1:
+        case BlockMenuCommand::convert_h2:
+        case BlockMenuCommand::convert_h3:
+        case BlockMenuCommand::convert_h4:
+        case BlockMenuCommand::convert_h5:
+        case BlockMenuCommand::convert_h6: {
+            if (!capabilities.convert) return ErrorCode::editor_unmapped_rich_edit_change;
+            const auto level = command == BlockMenuCommand::convert_paragraph ? 0U :
+                static_cast<unsigned>(command) -
+                    static_cast<unsigned>(BlockMenuCommand::convert_h1) + 1U;
+            replacement = ConvertBlockSource(source, static_cast<std::uint8_t>(level));
+            break;
+        }
+        case BlockMenuCommand::remove:
+            if (!capabilities.remove) return ErrorCode::editor_unmapped_rich_edit_change;
+            break;
+        case BlockMenuCommand::copy:
+            return capabilities.copy && write_clipboard(source)
+                ? ErrorCode::ok : ErrorCode::editor_unmapped_rich_edit_change;
+        case BlockMenuCommand::cut:
+            if (!capabilities.cut || !write_clipboard(source))
+                return ErrorCode::editor_unmapped_rich_edit_change;
+            break;
+        case BlockMenuCommand::indent:
+            if (!capabilities.indent) return ErrorCode::editor_unmapped_rich_edit_change;
+            replacement = ShiftBlockIndent(source, true);
+            break;
+        case BlockMenuCommand::outdent:
+            if (!capabilities.outdent) return ErrorCode::editor_unmapped_rich_edit_change;
+            replacement = ShiftBlockIndent(source, false);
+            break;
+        case BlockMenuCommand::add_below:
+            return ErrorCode::editor_unmapped_rich_edit_change;
+    }
+    const auto next = context.source_range.begin + replacement.size();
+    const auto result = editor_.replace_source_range(context.source_range.begin,
+        context.source_range.end, std::move(replacement), {next, next});
+    return result == ErrorCode::ok ? project() : result;
 }
 
 void RichEditHost::set_block_menu_callback(std::function<void(
@@ -1130,8 +1267,11 @@ bool RichEditHost::show_block_context_menu(
     DestroyMenu(menu);
     SetFocus(handle_);
     if (selected < kBlockMenuFirst || selected > kBlockMenuFirst + 12) return true;
-    if (block_menu_callback_ && query_block_menu(context).copy)
-        block_menu_callback_(static_cast<BlockMenuCommand>(selected - kBlockMenuFirst), context);
+    if (query_block_menu(context).copy) {
+        const auto command = static_cast<BlockMenuCommand>(selected - kBlockMenuFirst);
+        if (block_menu_callback_) block_menu_callback_(command, context);
+        else static_cast<void>(execute_block_menu(command, context));
+    }
     return true;
 }
 

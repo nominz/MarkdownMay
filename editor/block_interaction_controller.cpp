@@ -54,6 +54,21 @@ bool SameRange(const document::SourceRange left, const document::SourceRange rig
     return left.begin == right.begin && left.end == right.end;
 }
 
+document::SourceRange CommandRange(const document::Node& node, std::string_view source) noexcept {
+    auto range = node.source;
+    if (node.kind != document::NodeKind::paragraph &&
+        node.kind != document::NodeKind::heading &&
+        node.kind != document::NodeKind::list_item) return range;
+    const auto begin = source.rfind('\n', range.begin == 0
+        ? 0 : static_cast<std::size_t>(range.begin - 1));
+    range.begin = begin == std::string_view::npos ? 0 : begin + 1;
+    const auto end = source.find('\n', static_cast<std::size_t>(range.end));
+    range.end = end == std::string_view::npos ? source.size() : end;
+    if (range.end > range.begin && source[static_cast<std::size_t>(range.end - 1)] == '\r')
+        --range.end;
+    return range;
+}
+
 }  // namespace
 
 bool BlockInteractionController::refresh(
@@ -86,7 +101,8 @@ bool BlockInteractionController::refresh(
         std::uint8_t level{};
         if (const auto* heading = std::get_if<document::HeadingAttributes>(&node->attributes))
             level = (std::clamp)(heading->level, std::uint8_t{1}, std::uint8_t{6});
-        items_.push_back({node->id, node->kind, node->source, begin, end, level});
+        items_.push_back({node->id, node->kind, CommandRange(*node, snapshot.source),
+            begin, end, level});
     }
     std::sort(items_.begin(), items_.end(), [](const auto& left, const auto& right) {
         if (left.source_range.begin != right.source_range.begin)
@@ -162,12 +178,18 @@ std::optional<BlockScreenRect> BlockInteractionController::layout_rect(
 
 std::optional<BlockCommandContext> BlockInteractionController::context_at_source(
     const std::uint64_t source_offset) const noexcept {
-    const auto found = std::find_if(items_.begin(), items_.end(),
-        [source_offset](const auto& item) {
-            return source_offset >= item.source_range.begin &&
-                source_offset <= item.source_range.end;
-        });
-    if (found == items_.end()) return std::nullopt;
+    const VisibleBlockItem* found{};
+    for (const auto& item : items_) {
+        const auto contains = source_offset >= item.source_range.begin &&
+            (source_offset < item.source_range.end ||
+             (item.source_range.begin == item.source_range.end &&
+              source_offset == item.source_range.begin));
+        if (!contains) continue;
+        if (!found || item.source_range.begin > found->source_range.begin ||
+            (item.source_range.begin == found->source_range.begin &&
+             item.source_range.end < found->source_range.end)) found = &item;
+    }
+    if (!found) return std::nullopt;
     return BlockCommandContext{document_id_, revision_, found->node_id, found->kind,
         found->source_range};
 }
@@ -183,8 +205,9 @@ bool BlockInteractionController::validate(
         snapshot.parsed_revision != snapshot.source_revision ||
         snapshot.semantic->revision() != snapshot.source_revision) return false;
     const auto* node = snapshot.semantic->find(context.node_id);
-    return node && node->kind == context.kind && SameRange(node->source, context.source_range) &&
-        ValidRange(node->source, static_cast<std::uint64_t>(snapshot.source.size()));
+    return node && node->kind == context.kind &&
+        SameRange(CommandRange(*node, snapshot.source), context.source_range) &&
+        ValidRange(context.source_range, static_cast<std::uint64_t>(snapshot.source.size()));
 }
 
 const std::vector<VisibleBlockItem>& BlockInteractionController::items() const noexcept {

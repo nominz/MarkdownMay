@@ -18,6 +18,11 @@ int main() {
 
     const auto heading = controller.items()[0];
     const auto paragraph = controller.items()[1];
+    if (heading.source_range.begin != 0 ||
+        snapshot.source.substr(heading.source_range.begin,
+            heading.source_range.end - heading.source_range.begin) != "# Title" ||
+        snapshot.source.substr(paragraph.source_range.begin,
+            paragraph.source_range.end - paragraph.source_range.begin) != "paragraph") return 15;
     if (!controller.set_visible_layout(snapshot.source_revision, {
             {heading.node_id, {0, 0, 40, 20}},
             {paragraph.node_id, {0, 20, 40, 40}}})) return 4;
