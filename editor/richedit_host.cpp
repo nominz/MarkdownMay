@@ -1814,15 +1814,17 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
     CHARRANGE selected{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
-    const auto visible = ReadWide(handle_);
     const auto line_ending = fileio::DetectLineEnding(projection_.text);
     if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        static_cast<std::size_t>(selected.cpMax) > visible.size())
+        selected.cpMax > GetWindowTextLengthW(handle_))
         return ErrorCode::editor_selection_mapping_failed;
-    const auto begin = fileio::NormalizeLineEndings(
-        ToUtf8(std::wstring_view(visible).substr(0, static_cast<std::size_t>(selected.cpMin))), line_ending).size();
-    const auto end = fileio::NormalizeLineEndings(
-        ToUtf8(std::wstring_view(visible).substr(0, static_cast<std::size_t>(selected.cpMax))), line_ending).size();
+    // RichEdit character positions count a paragraph terminator as one logical
+    // position, while WM_GETTEXT exposes it as CRLF.  Slicing ReadWide() with a
+    // CHARRANGE therefore drifts one character backwards for every preceding
+    // paragraph.  Read the prefix through RichEdit's own range API so cpMin and
+    // cpMax stay in the same coordinate system as the control.
+    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
+    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
     if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
         return ErrorCode::editor_selection_mapping_failed;
     auto source_begin = projection_.source_offsets[begin];

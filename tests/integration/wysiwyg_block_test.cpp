@@ -126,6 +126,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     // long CJK paragraph must not pull the preceding level-two heading into the
     // fenced block.
     markdownmay::document::DocumentSession reported(
+        "# 企业侧写长什么样\n\n"
+        "## ——从\"一张画儿\"到\"一个会长大的东西\"\n\n"
+        "企业管理咨询的前期工作既然叫企业侧写，它就应该是一套过程受控、产出成档、结论有据、证据成链的取证作业。\n\n"
+        "这一篇就来把这件事写死。先拿一个实物开刀。\n\n"
         "## 一、先审判一份现成的侧写\n\n"
         "《十维度企业侧写》**的骨架，先承认，是对的。** 十个维度、三个层次（身份治理 / 经营竞争 / 运营前瞻）、"
         "一百零三个字段，每个字段是\"标签 + 值\"。\n\n"
@@ -143,6 +147,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         find_reported_end.chrgText.cpMax);
     if (reported_host.toggle_code_block() != markdownmay::ErrorCode::ok) return 66;
     if (reported.snapshot().source !=
+            "# 企业侧写长什么样\n\n"
+            "## ——从\"一张画儿\"到\"一个会长大的东西\"\n\n"
+            "企业管理咨询的前期工作既然叫企业侧写，它就应该是一套过程受控、产出成档、结论有据、证据成链的取证作业。\n\n"
+            "这一篇就来把这件事写死。先拿一个实物开刀。\n\n"
             "## 一、先审判一份现成的侧写\n\n"
             "```\n"
             "《十维度企业侧写》**的骨架，先承认，是对的。** 十个维度、三个层次（身份治理 / 经营竞争 / 运营前瞻）、"
