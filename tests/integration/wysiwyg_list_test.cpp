@@ -42,8 +42,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SendMessageW(host.handle(), EM_GETPARAFORMAT, 0,
         reinterpret_cast<LPARAM>(&hanging));
     if ((hanging.dwMask & (PFM_STARTINDENT | PFM_OFFSET)) !=
-            (PFM_STARTINDENT | PFM_OFFSET) || hanging.dxOffset >= 0 ||
-        hanging.dxStartIndent + hanging.dxOffset < 1200) return 37;
+            (PFM_STARTINDENT | PFM_OFFSET) || hanging.dxOffset <= 0 ||
+        hanging.dxStartIndent < 1200 ||
+        hanging.dxStartIndent + hanging.dxOffset <= hanging.dxStartIndent) return 37;
 
     auto first = Find(host.handle(), const_cast<wchar_t*>(L"first"));
     const auto inside_first = first.cpMin + 1;

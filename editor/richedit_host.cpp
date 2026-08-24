@@ -514,9 +514,13 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         }
         else if (span.kind == document::NodeKind::list_item) {
             constexpr LONG hanging = 540;
-            paragraph.dxStartIndent = kBlockGutterTwips + hanging +
+            paragraph.dxStartIndent = kBlockGutterTwips +
                 static_cast<LONG>(span.list_depth) * 360;
-            paragraph.dxOffset = -hanging;
+            // RichEdit interprets dxOffset as the indentation of continuation
+            // lines relative to the first line.  A positive offset therefore
+            // keeps the marker to the left and aligns wrapped text with the
+            // list item's body; a negative value produces a first-line indent.
+            paragraph.dxOffset = hanging;
         }
         else if (span.kind == document::NodeKind::table) {
             RECT formatting{};
