@@ -100,5 +100,28 @@ int main() {
         *bare_ordered_document, bare_ordered_source, {});
     if (bare_ordered_projection.text.find("1.") == std::string::npos ||
         HasSpan(bare_ordered_projection, NodeKind::list_item)) return 19;
+
+    const std::string semantic_spacing_source = "first\n\nsecond\n\n\nthird\n";
+    const auto semantic_spacing_document = markdown::ParseMarkdown(
+        semantic_spacing_source, 20);
+    if (!semantic_spacing_document) return 20;
+    const auto semantic_spacing_projection = editor::BuildInlineProjection(
+        *semantic_spacing_document, semantic_spacing_source, {});
+    if (semantic_spacing_projection.text != "first\nsecond\n\nthird\n") return 21;
+    const auto first_gap = semantic_spacing_projection.text.find('\n');
+    if (first_gap == std::string::npos ||
+        semantic_spacing_projection.source_offsets[first_gap] != 5 ||
+        semantic_spacing_projection.source_offsets[first_gap + 1] != 7) return 22;
+    const auto extra_gap = semantic_spacing_projection.text.find('\n', first_gap + 1);
+    if (extra_gap == std::string::npos ||
+        semantic_spacing_projection.source_offsets[extra_gap + 1] != 14 ||
+        semantic_spacing_projection.source_offsets[extra_gap + 2] != 16) return 26;
+    const std::string crlf_spacing_source = "first\r\n\r\nsecond";
+    const auto crlf_spacing_document = markdown::ParseMarkdown(crlf_spacing_source, 21);
+    if (!crlf_spacing_document) return 24;
+    const auto crlf_spacing_projection = editor::BuildInlineProjection(
+        *crlf_spacing_document, crlf_spacing_source, {});
+    if (crlf_spacing_projection.text != "first\r\nsecond" ||
+        crlf_spacing_projection.source_offsets[7] != 9) return 25;
     return 0;
 }

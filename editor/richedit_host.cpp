@@ -482,7 +482,8 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             SysFreeString(text);
         }
     }
-    if (span.kind == document::NodeKind::quote ||
+    if (span.kind == document::NodeKind::heading ||
+        span.kind == document::NodeKind::quote ||
         span.kind == document::NodeKind::code_block ||
         span.kind == document::NodeKind::thematic_break ||
         span.kind == document::NodeKind::list_item ||
@@ -495,8 +496,15 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             span.kind == document::NodeKind::code_block
             ? PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_SPACEBEFORE | PFM_SPACEAFTER :
             span.kind == document::NodeKind::list_item
-            ? PFM_STARTINDENT | PFM_OFFSET : PFM_STARTINDENT;
-        if (span.kind == document::NodeKind::quote)
+            ? PFM_STARTINDENT | PFM_OFFSET :
+            span.kind == document::NodeKind::heading
+            ? PFM_SPACEBEFORE | PFM_SPACEAFTER : PFM_STARTINDENT;
+        if (span.kind == document::NodeKind::heading) {
+            const auto index = (std::clamp)(span.heading_level,
+                std::uint8_t{1}, std::uint8_t{6}) - 1;
+            paragraph.dySpaceBefore = profile.heading_space_before[index];
+            paragraph.dySpaceAfter = profile.heading_space_after[index];
+        } else if (span.kind == document::NodeKind::quote)
             paragraph.dxStartIndent = kBlockGutterTwips + 360;
         else if (span.kind == document::NodeKind::code_block) {
             paragraph.dxStartIndent = kBlockGutterTwips + 300;
@@ -526,6 +534,21 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));
     }
+}
+
+void ApplyBaseParagraph(HWND handle, const RenderStyleProfile& profile) {
+    PARAFORMAT2 paragraph{};
+    paragraph.cbSize = sizeof(paragraph);
+    paragraph.dwMask = PFM_STARTINDENT | PFM_LINESPACING |
+        PFM_SPACEBEFORE | PFM_SPACEAFTER;
+    paragraph.dxStartIndent = kBlockGutterTwips;
+    paragraph.bLineSpacingRule = 4;
+    paragraph.dyLineSpacing = profile.minimum_line_spacing;
+    paragraph.dySpaceBefore = profile.paragraph_space_before;
+    paragraph.dySpaceAfter = profile.paragraph_space_after;
+    SendMessageW(handle, EM_SETSEL, 0, -1);
+    SendMessageW(handle, EM_SETPARAFORMAT, 0,
+        reinterpret_cast<LPARAM>(&paragraph));
 }
 
 }  // namespace
@@ -597,6 +620,11 @@ ErrorCode RichEditHost::project() {
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     POINT scroll{};
     SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+    const auto event_mask = static_cast<DWORD_PTR>(
+        SendMessageW(handle_, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(handle_, EM_SETEVENTMASK, 0,
+        static_cast<LPARAM>(event_mask & ~static_cast<DWORD_PTR>(
+            ENM_CHANGE | ENM_SELCHANGE)));
     SendMessageW(handle_, WM_SETREDRAW, FALSE, 0);
     RichEditFreeze freeze(handle_);
     projection_ = BuildInlineProjection(*snapshot.semantic, snapshot.source, document_path_);
@@ -609,6 +637,7 @@ ErrorCode RichEditHost::project() {
         projection_.text, fileio::LineEnding::crlf));
     const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
     if (!success) {
+        SendMessageW(handle_, EM_SETEVENTMASK, 0, static_cast<LPARAM>(event_mask));
         SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
@@ -625,6 +654,7 @@ ErrorCode RichEditHost::project() {
     selection.cpMax = (std::min)(selection.cpMax, length);
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     SendMessageW(handle_, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+    SendMessageW(handle_, EM_SETEVENTMASK, 0, static_cast<LPARAM>(event_mask));
     projecting_ = false;
     SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(handle_, nullptr, TRUE);
@@ -660,12 +690,7 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     SendMessageW(handle_, EM_SETSEL, 0, -1);
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&base));
-    PARAFORMAT2 base_paragraph{};
-    base_paragraph.cbSize = sizeof(base_paragraph);
-    base_paragraph.dwMask = PFM_STARTINDENT;
-    base_paragraph.dxStartIndent = kBlockGutterTwips;
-    SendMessageW(handle_, EM_SETPARAFORMAT, 0,
-        reinterpret_cast<LPARAM>(&base_paragraph));
+    ApplyBaseParagraph(handle_, profile);
     const auto utf16_positions = BuildUtf16Positions(projection_.text);
     for (const auto& span : projection_.spans)
         ApplySpan(handle_, span, utf16_positions,
@@ -920,7 +945,13 @@ bool RichEditHost::update_block_hover(const POINT point) {
     const auto next = block_interactions_.hit_test(point.x, point.y);
     const auto unchanged = next.has_value() == hovered_block_.has_value() &&
         (!next || next->node_id == hovered_block_->node_id);
-    if (unchanged) return next.has_value();
+    if (unchanged) {
+        if (next && (!IsWindowVisible(block_handle_window_) ||
+            (next->kind == document::NodeKind::heading &&
+             !IsWindowVisible(block_type_window_))))
+            update_block_accessible_windows();
+        return next.has_value();
+    }
     hovered_block_ = next;
     RECT dirty{};
     GetClientRect(handle_, &dirty);

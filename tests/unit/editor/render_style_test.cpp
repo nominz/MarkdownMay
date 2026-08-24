@@ -26,5 +26,13 @@ int main() {
         if (!(song.heading_sizes[level] <= yuan.heading_sizes[level] &&
               yuan.heading_sizes[level] <= ming.heading_sizes[level] &&
               ming.heading_sizes[level] <= qing.heading_sizes[level])) return 3;
+    if (song.minimum_line_spacing != 345 || song.paragraph_space_after != 120 ||
+        yuan.minimum_line_spacing != 319 || yuan.paragraph_space_after != 120 ||
+        ming.minimum_line_spacing != 330 || ming.paragraph_space_after != 140 ||
+        qing.minimum_line_spacing != 352 || qing.paragraph_space_after != 160) return 5;
+    if (song.heading_space_before.front() != 360 ||
+        yuan.heading_space_before.front() != 380 ||
+        ming.heading_space_before.front() != 400 ||
+        qing.heading_space_before.front() != 440) return 6;
     return 0;
 }

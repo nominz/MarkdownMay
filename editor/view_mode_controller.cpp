@@ -362,20 +362,23 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
     }
     if (message == WM_COMMAND &&
         reinterpret_cast<HWND>(l_param) == self->render_.handle() &&
-        HIWORD(w_param) == EN_CHANGE && !self->switching_mode_) {
+        HIWORD(w_param) == EN_CHANGE && !self->switching_mode_ &&
+        !self->render_.is_projecting() && !self->synchronization_pending_) {
+        self->synchronization_pending_ = true;
         PostMessageW(window, kSynchronizeRenderMessage, 0, 0);
         return 0;
     }
     if (message == WM_NOTIFY) {
         const auto* notification = reinterpret_cast<const NMHDR*>(l_param);
         if (notification && notification->hwndFrom == self->render_.handle() &&
-            notification->code == EN_SELCHANGE) {
+            notification->code == EN_SELCHANGE && !self->render_.is_projecting()) {
             PostMessageW(GetAncestor(window, GA_ROOT), kRefreshChromeMessage, 0, 0);
         }
     }
     if (message == kSynchronizeRenderMessage) {
         if (!self->switching_mode_ && self->mode_ == ViewMode::render)
             static_cast<void>(self->render_.synchronize_change());
+        self->synchronization_pending_ = false;
         return 0;
     }
     if (message == WM_NCDESTROY) {

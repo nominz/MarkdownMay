@@ -62,6 +62,7 @@ public:
     [[nodiscard]] ErrorCode select_source_range(TextSelection selection);
     void align_selection_to_top();
     [[nodiscard]] ErrorCode synchronize_change();
+    [[nodiscard]] bool is_projecting() const noexcept { return projecting_; }
     [[nodiscard]] ErrorCode complete_thematic_break();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);
     [[nodiscard]] ErrorCode set_link(std::string_view target, std::string_view title = {});

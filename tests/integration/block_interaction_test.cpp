@@ -50,6 +50,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     editor::RichEditHost host(session);
     RECT bounds{0, 0, 900, 500};
     if (!parent || host.create(parent, bounds) != ErrorCode::ok) return 1;
+    ShowWindow(host.handle(), SW_SHOW);
     ShowWindow(parent, SW_SHOW);
     UpdateWindow(parent);
 

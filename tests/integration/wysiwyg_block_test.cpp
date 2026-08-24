@@ -51,6 +51,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                  reinterpret_cast<LPARAM>(&body));
     const std::wstring body_face(body.szFaceName);
     if (body.yHeight != 230 || (body_face != L"SimSun" && body_face != L"宋体")) return 41;
+    PARAFORMAT2 heading_paragraph{};
+    heading_paragraph.cbSize = sizeof(heading_paragraph);
+    heading_paragraph.dwMask = PFM_LINESPACING | PFM_SPACEBEFORE | PFM_SPACEAFTER;
+    SendMessageW(host.handle(), EM_SETSEL, 0, 1);
+    SendMessageW(host.handle(), EM_GETPARAFORMAT, 0,
+        reinterpret_cast<LPARAM>(&heading_paragraph));
+    if (heading_paragraph.bLineSpacingRule != 4 ||
+        heading_paragraph.dyLineSpacing != 345 ||
+        heading_paragraph.dySpaceBefore != 360 ||
+        heading_paragraph.dySpaceAfter != 180) return 42;
 
     FINDTEXTEXW find_code{{0, -1}, const_cast<wchar_t*>(L"代码"), {}};
     if (SendMessageW(host.handle(), EM_FINDTEXTEXW, FR_DOWN,
@@ -104,9 +114,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         find_body.chrgText.cpMax);
     if (!boundary_host.block_active(markdownmay::editor::BlockFormat::code_block)) return 55;
 
-    // Mouse drags can include one or both invisible paragraph separators before
-    // the first visible glyph. They must not make the preceding heading selected.
-    for (LONG leading_separators = 1; leading_separators <= 2; ++leading_separators) {
+    // The standard Markdown blank separator is collapsed to one visual paragraph
+    // break. Including that break must not select the preceding heading.
+    for (LONG leading_separators = 1; leading_separators <= 1; ++leading_separators) {
         markdownmay::document::DocumentSession separator_boundary(
             "## Heading\n\nParagraph A\n\nParagraph B");
         markdownmay::editor::RichEditHost separator_host(separator_boundary);
@@ -121,6 +131,33 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 "## Heading\n\n```\nParagraph A\n```\n\nParagraph B")
             return static_cast<int>(60 + leading_separators);
     }
+
+    markdownmay::document::DocumentSession collapsed_gap("first\n\nsecond");
+    markdownmay::editor::RichEditHost collapsed_host(collapsed_gap);
+    if (collapsed_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 68;
+    FINDTEXTEXW find_second{{0, -1}, const_cast<wchar_t*>(L"second"), {}};
+    if (SendMessageW(collapsed_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_second)) < 0) return 69;
+    SendMessageW(collapsed_host.handle(), EM_SETSEL,
+        find_second.chrgText.cpMin - 1, find_second.chrgText.cpMin);
+    SendMessageW(collapsed_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L""));
+    if (collapsed_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        collapsed_gap.snapshot().source != "firstsecond") return 70;
+
+    markdownmay::document::DocumentSession extra_gap("first\n\n\nsecond");
+    markdownmay::editor::RichEditHost extra_host(extra_gap);
+    if (extra_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 71;
+    find_second.chrg = {0, -1};
+    if (SendMessageW(extra_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_second)) < 0) return 72;
+    SendMessageW(extra_host.handle(), EM_SETSEL,
+        find_second.chrgText.cpMin - 2, find_second.chrgText.cpMin - 1);
+    SendMessageW(extra_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L""));
+    if (extra_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        extra_gap.snapshot().source == "first\n\n\nsecond" ||
+        extra_gap.snapshot().source.find("\n\n\n") != std::string::npos) return 73;
 
     // Regression fixture matching the reported document: inline emphasis in a
     // long CJK paragraph must not pull the preceding level-two heading into the

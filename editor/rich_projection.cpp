@@ -136,6 +136,40 @@ void AppendNewlines(RichProjection& output, std::string_view source,
     }
 }
 
+void AppendBlockGap(RichProjection& output, std::string_view source,
+                    std::uint64_t begin, std::uint64_t end) {
+    end = (std::min)(end, static_cast<std::uint64_t>(source.size()));
+    struct LineEnding final { std::uint64_t begin; std::uint64_t end; };
+    std::vector<LineEnding> endings;
+    for (auto offset = begin; offset < end;) {
+        const auto value = source[static_cast<std::size_t>(offset)];
+        if (value == '\r') {
+            const auto line_begin = offset++;
+            if (offset < end && source[static_cast<std::size_t>(offset)] == '\n') ++offset;
+            endings.push_back({line_begin, offset});
+        } else if (value == '\n') {
+            endings.push_back({offset, offset + 1U});
+            ++offset;
+        } else {
+            ++offset;
+        }
+    }
+    if (endings.empty()) return;
+    const auto append_ending = [&](const LineEnding& ending, std::uint64_t source_end) {
+        AppendMappedRange(output,
+            source.substr(static_cast<std::size_t>(ending.begin),
+                static_cast<std::size_t>(ending.end - ending.begin)),
+            ending.begin, source_end);
+    };
+    if (endings.size() == 1U) {
+        append_ending(endings.front(), endings.front().end);
+        return;
+    }
+    for (std::size_t index = 0; index + 2 < endings.size(); ++index)
+        append_ending(endings[index], endings[index].end);
+    append_ending(endings[endings.size() - 2], endings.back().end);
+}
+
 void AppendSynthetic(RichProjection& output, std::string_view text,
                      std::uint64_t source_begin, std::uint64_t source_end) {
     if (output.source_offsets.empty()) output.source_offsets.push_back(source_begin);
@@ -172,7 +206,7 @@ void Block(const document::Node& node, RichProjection& output,
         bool first = true;
         for (const auto& child : node.children) {
             if (!first && child->source.begin > cursor)
-                AppendNewlines(output, source, cursor, child->source.begin);
+                AppendBlockGap(output, source, cursor, child->source.begin);
             Block(*child, output, source, document_path, depth);
             cursor = child->source.end;
             first = false;
@@ -290,7 +324,7 @@ RichProjection BuildInlineProjection(
     std::uint64_t source_cursor{};
     for (const auto& block : document.root()->children) {
         if (!output.text.empty() && block->source.begin > source_cursor)
-            AppendNewlines(output, source, source_cursor, block->source.begin);
+            AppendBlockGap(output, source, source_cursor, block->source.begin);
         Block(*block, output, source, document_path);
         source_cursor = block->source.end;
     }
