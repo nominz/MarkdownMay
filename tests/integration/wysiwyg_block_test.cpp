@@ -103,6 +103,52 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SendMessageW(boundary_host.handle(), EM_SETSEL, find_body.chrgText.cpMin,
         find_body.chrgText.cpMax);
     if (!boundary_host.block_active(markdownmay::editor::BlockFormat::code_block)) return 55;
+
+    // Mouse drags can include one or both invisible paragraph separators before
+    // the first visible glyph. They must not make the preceding heading selected.
+    for (LONG leading_separators = 1; leading_separators <= 2; ++leading_separators) {
+        markdownmay::document::DocumentSession separator_boundary(
+            "## Heading\n\nParagraph A\n\nParagraph B");
+        markdownmay::editor::RichEditHost separator_host(separator_boundary);
+        if (separator_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 58;
+        FINDTEXTEXW find_a{{0, -1}, const_cast<wchar_t*>(L"Paragraph A"), {}};
+        if (SendMessageW(separator_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+                reinterpret_cast<LPARAM>(&find_a)) < 0) return 59;
+        SendMessageW(separator_host.handle(), EM_SETSEL,
+            find_a.chrgText.cpMin - leading_separators, find_a.chrgText.cpMax);
+        if (separator_host.toggle_code_block() != markdownmay::ErrorCode::ok) return 60;
+        if (separator_boundary.snapshot().source !=
+                "## Heading\n\n```\nParagraph A\n```\n\nParagraph B")
+            return static_cast<int>(60 + leading_separators);
+    }
+
+    // Regression fixture matching the reported document: inline emphasis in a
+    // long CJK paragraph must not pull the preceding level-two heading into the
+    // fenced block.
+    markdownmay::document::DocumentSession reported(
+        "## 一、先审判一份现成的侧写\n\n"
+        "《十维度企业侧写》**的骨架，先承认，是对的。** 十个维度、三个层次（身份治理 / 经营竞争 / 运营前瞻）、"
+        "一百零三个字段，每个字段是\"标签 + 值\"。\n\n"
+        "但接下来是三个死穴。");
+    markdownmay::editor::RichEditHost reported_host(reported);
+    if (reported_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 63;
+    FINDTEXTEXW find_reported{{0, -1}, const_cast<wchar_t*>(L"《十维度企业侧写》"), {}};
+    if (SendMessageW(reported_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_reported)) < 0) return 64;
+    FINDTEXTEXW find_reported_end{{find_reported.chrgText.cpMin, -1},
+        const_cast<wchar_t*>(L"标签 + 值\"。"), {}};
+    if (SendMessageW(reported_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_reported_end)) < 0) return 65;
+    SendMessageW(reported_host.handle(), EM_SETSEL, find_reported.chrgText.cpMin,
+        find_reported_end.chrgText.cpMax);
+    if (reported_host.toggle_code_block() != markdownmay::ErrorCode::ok) return 66;
+    if (reported.snapshot().source !=
+            "## 一、先审判一份现成的侧写\n\n"
+            "```\n"
+            "《十维度企业侧写》**的骨架，先承认，是对的。** 十个维度、三个层次（身份治理 / 经营竞争 / 运营前瞻）、"
+            "一百零三个字段，每个字段是\"标签 + 值\"。\n"
+            "```\n\n"
+            "但接下来是三个死穴。") return 67;
     DestroyWindow(parent);
     return 0;
 }
