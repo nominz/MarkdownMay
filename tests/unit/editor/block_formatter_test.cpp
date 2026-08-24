@@ -92,6 +92,53 @@ int main() {
             session.snapshot().source != "```\n第一段\n\n第二段\n```\n\n第三段") return 20;
     }
     {
+        const std::string source =
+            "## Heading\n\n"
+            "Paragraph A **bold text** tail.\n\n"
+            "Paragraph B";
+        document::DocumentSession session(source);
+        editor::ParagraphEditor editor(session);
+        editor::BlockFormatter blocks(session, editor);
+        const auto projection = editor::BuildInlineProjection(
+            *session.snapshot().semantic, session.snapshot().source);
+        const auto visible_begin = projection.text.find("Paragraph A");
+        const auto visible_end = projection.text.find(" tail.") + 6;
+        const auto source_begin = source.find("Paragraph A");
+        const auto source_end = source.find("\n\nParagraph B");
+        if (visible_begin == std::string::npos || visible_end == std::string::npos ||
+            projection.source_offsets[visible_begin] != source_begin ||
+            projection.source_offsets[visible_end] != source_end) return 23;
+        if (editor.set_selection({projection.source_offsets[visible_begin],
+                projection.source_offsets[visible_end]}) != ErrorCode::ok ||
+            blocks.toggle_code_block() != ErrorCode::ok ||
+            session.snapshot().source !=
+                "## Heading\n\n```\nParagraph A **bold text** tail.\n```\n\nParagraph B") return 24;
+    }
+    {
+        const std::string source =
+            "## Heading\n\nParagraph A\n\nParagraph B";
+        const auto paragraph_a = source.find("Paragraph A");
+        const auto paragraph_b = source.find("Paragraph B");
+        {
+            document::DocumentSession session(source);
+            editor::ParagraphEditor editor(session);
+            editor::BlockFormatter blocks(session, editor);
+            if (editor.set_selection({paragraph_b + 11, paragraph_b}) != ErrorCode::ok ||
+                blocks.toggle_code_block() != ErrorCode::ok ||
+                session.snapshot().source !=
+                    "## Heading\n\nParagraph A\n\n```\nParagraph B\n```") return 25;
+        }
+        {
+            document::DocumentSession session(source);
+            editor::ParagraphEditor editor(session);
+            editor::BlockFormatter blocks(session, editor);
+            if (editor.set_selection({paragraph_a, source.size()}) != ErrorCode::ok ||
+                blocks.toggle_code_block() != ErrorCode::ok ||
+                session.snapshot().source !=
+                    "## Heading\n\n```\nParagraph A\n\nParagraph B\n```") return 26;
+        }
+    }
+    {
         const std::string content = "**\n##\n[]\n#\n`\n\n    indented";
         document::DocumentSession session(content);
         editor::ParagraphEditor editor(session);

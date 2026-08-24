@@ -1825,8 +1825,21 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
         ToUtf8(std::wstring_view(visible).substr(0, static_cast<std::size_t>(selected.cpMax))), line_ending).size();
     if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
         return ErrorCode::editor_selection_mapping_failed;
-    auto result = editor_.set_selection(
-        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    auto source_begin = projection_.source_offsets[begin];
+    const auto source_end = projection_.source_offsets[end];
+    // A projection boundary can still be owned by the preceding hidden Markdown
+    // block.  For a non-empty visual selection, identify the first selected block
+    // from the first actual UTF-8 character inside the selection, not that boundary.
+    if (begin < end && begin < projection_.text.size()) {
+        const auto first = static_cast<unsigned char>(projection_.text[begin]);
+        std::size_t bytes = 1;
+        if ((first & 0xf8U) == 0xf0U) bytes = 4;
+        else if ((first & 0xf0U) == 0xe0U) bytes = 3;
+        else if ((first & 0xe0U) == 0xc0U) bytes = 2;
+        const auto inside = (std::min)(begin + bytes, end);
+        source_begin = projection_.source_offsets[inside];
+    }
+    auto result = editor_.set_selection({source_begin, source_end});
     if (result == ErrorCode::ok) result = block_formatter_.toggle_code_block(language);
     return result == ErrorCode::ok ? project() : result;
 }

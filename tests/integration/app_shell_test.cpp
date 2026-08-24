@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <windows.h>
 #include <richedit.h>
+#include <commdlg.h>
 
 #include <string>
 #include <chrono>
@@ -50,6 +51,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     bool export_requested{};
     bool insert_requested{};
     bool split_requested{};
+    CHARRANGE selection_at_toolbar_dispatch{-1, -1};
     app::CommandDispatcher dispatcher(window.document_window(),
         [&exit_requested] { exit_requested = true; }, {
             [&session] { return !session.is_dirty(); },
@@ -68,7 +70,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         });
     window.set_command_callbacks(
         [&dispatcher](app::CommandId command) { return dispatcher.query(command); },
-        [&dispatcher](app::CommandId command) {
+        [&dispatcher, &window, &selection_at_toolbar_dispatch](app::CommandId command) {
+            if (command == app::CommandId::format_code_block) {
+                SendMessageW(window.document_window().modes().render_view().handle(),
+                    EM_EXGETSEL, 0,
+                    reinterpret_cast<LPARAM>(&selection_at_toolbar_dispatch));
+            }
             static_cast<void>(dispatcher.execute(command));
         });
     std::filesystem::path dropped_path;
@@ -259,6 +266,32 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (session.snapshot().source.find("```") == std::string::npos ||
         session.snapshot().source.find("代码") == std::string::npos) return 85;
     if (!dispatcher.query(app::CommandId::format_code_block).checked) return 89;
+
+    const std::string boundary_source =
+        "## Heading\n\n"
+        "Paragraph A **bold text** tail.\n\n"
+        "Paragraph B";
+    if (window.document_window().modes().reload(boundary_source) != ErrorCode::ok) return 90;
+    FINDTEXTEXW find_paragraph{{0, -1}, const_cast<wchar_t*>(L"Paragraph A bold text tail."), {}};
+    if (SendMessageW(format_render, EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_paragraph)) < 0) return 91;
+    SendMessageW(format_render, EM_SETSEL, find_paragraph.chrgText.cpMin,
+        find_paragraph.chrgText.cpMax);
+    SetFocus(format_render);
+    CHARRANGE before_toolbar{};
+    SendMessageW(format_render, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&before_toolbar));
+    RECT code_button{};
+    if (!SendMessageW(window.toolbar()->handle(), TB_GETRECT,
+            static_cast<WPARAM>(app::CommandId::format_code_block),
+            reinterpret_cast<LPARAM>(&code_button))) return 92;
+    const auto click = MAKELPARAM((code_button.left + code_button.right) / 2,
+        (code_button.top + code_button.bottom) / 2);
+    SendMessageW(window.toolbar()->handle(), WM_LBUTTONDOWN, MK_LBUTTON, click);
+    SendMessageW(window.toolbar()->handle(), WM_LBUTTONUP, 0, click);
+    if (selection_at_toolbar_dispatch.cpMin != before_toolbar.cpMin ||
+        selection_at_toolbar_dispatch.cpMax != before_toolbar.cpMax) return 93;
+    if (session.snapshot().source !=
+            "## Heading\n\n```\nParagraph A **bold text** tail.\n```\n\nParagraph B") return 94;
     if (window.document_window().modes().reload("段落") != ErrorCode::ok) return 86;
     SendMessageW(format_render, EM_SETSEL, 2, 2);
     toolbar_command(app::CommandId::insert_thematic_break);
