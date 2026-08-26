@@ -1,4 +1,5 @@
 #include "markdownmay/editor/richedit_host.hpp"
+#include "markdownmay/editor/table_layout.hpp"
 
 #include "markdownmay/fileio/line_endings.hpp"
 
@@ -190,6 +191,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         formatting.right -= inset;
         formatting.bottom -= inset;
         SendMessageW(window, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
+        if (self) self->refresh_layout_after_resize();
     }
     return result;
 }
@@ -330,7 +332,8 @@ bool HasSameFormattingStructure(const RichProjection& left,
             a.image_width != b.image_width || a.image_height != b.image_height ||
             a.image_display_percent != b.image_display_percent ||
             a.image_path != b.image_path || a.table_row != b.table_row ||
-            a.table_column != b.table_column || a.table_columns != b.table_columns) return false;
+            a.table_column != b.table_column || a.table_columns != b.table_columns ||
+            a.node_id != b.node_id || a.table_id != b.table_id) return false;
     }
     return true;
 }
@@ -385,7 +388,8 @@ int HeadingVerticalCenter(HWND handle, ITextDocument2* document, LONG position,
 
 void ApplySpan(HWND handle, const ProjectionSpan& span,
         std::span<const LONG> utf16_positions, COLORREF text_color,
-        COLORREF background_color, bool insert_image, const RenderStyleProfile& profile) {
+        COLORREF background_color, bool insert_image,
+        const RenderStyleProfile& profile, UINT layout_dpi) {
     const bool dark = GetRValue(background_color) + GetGValue(background_color) +
         GetBValue(background_color) < 384;
     const auto begin = utf16_positions[(std::min)(
@@ -492,7 +496,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
             ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
-            ? PFM_TABSTOPS | PFM_SPACEBEFORE | PFM_SPACEAFTER :
+            ? PFM_TABSTOPS | PFM_STARTINDENT | PFM_SPACEBEFORE | PFM_SPACEAFTER :
             span.kind == document::NodeKind::code_block
             ? PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_SPACEBEFORE | PFM_SPACEAFTER :
             span.kind == document::NodeKind::list_item
@@ -526,12 +530,20 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             RECT formatting{};
             SendMessageW(handle, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
             const auto columns = (std::max)(1L, static_cast<LONG>(span.table_columns));
+            const auto dpi = layout_dpi ? layout_dpi : GetDpiForWindow(handle);
+            const auto padding_pixels = TableHorizontalPadding(dpi);
+            const auto padding_twips = static_cast<LONG>(MulDiv(
+                padding_pixels, 1440, static_cast<int>(dpi)));
             const auto width_twips = (std::max)(1440L, static_cast<LONG>(MulDiv(
                 formatting.right - formatting.left, 1440,
-                static_cast<int>(GetDpiForWindow(handle)))));
+                static_cast<int>(dpi))));
+            paragraph.dxStartIndent = kBlockGutterTwips + padding_twips;
             paragraph.cTabCount = static_cast<SHORT>((std::min)(columns, 31L));
-            for (LONG index = 0; index < paragraph.cTabCount; ++index)
-                paragraph.rgxTabs[index] = (index + 1) * width_twips / columns;
+            for (LONG index = 0; index < paragraph.cTabCount; ++index) {
+                const auto boundary = (index + 1) * width_twips / columns;
+                paragraph.rgxTabs[index] = boundary +
+                    (index + 1 < columns ? padding_twips : 0);
+            }
             paragraph.dySpaceBefore = 100;
             paragraph.dySpaceAfter = 100;
         } else paragraph.wAlignment = PFA_CENTER;
@@ -649,7 +661,7 @@ ErrorCode RichEditHost::project() {
     for (const auto& span : projection_.spans) {
         if (span.kind == document::NodeKind::image)
             ApplySpan(handle_, span, utf16_positions,
-                text_color_, background_color_, true, ProfileFor(render_style_));
+                text_color_, background_color_, true, ProfileFor(render_style_), dpi_);
     }
     apply_appearance(text_color_, background_color_, dpi_);
     apply_heading_folds();
@@ -698,7 +710,7 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     const auto utf16_positions = BuildUtf16Positions(projection_.text);
     for (const auto& span : projection_.spans)
         ApplySpan(handle_, span, utf16_positions,
-            text_color_, background_color_, false, profile);
+            text_color_, background_color_, false, profile, dpi_);
     apply_heading_folds();
     invalidate_block_layout();
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
@@ -713,6 +725,23 @@ void RichEditHost::set_render_style(RenderStyle style) {
 }
 
 RenderStyle RichEditHost::render_style() const noexcept { return render_style_; }
+
+void RichEditHost::refresh_layout_after_resize() {
+    if (!handle_ || projecting_ || projection_.spans.empty()) return;
+    projecting_ = true;
+    RichEditFreeze freeze(handle_);
+    CHARRANGE selection{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    const auto utf16 = BuildUtf16Positions(projection_.text);
+    for (const auto& span : projection_.spans) {
+        if (span.kind == document::NodeKind::table)
+            ApplySpan(handle_, span, utf16, text_color_, background_color_,
+                false, ProfileFor(render_style_), dpi_);
+    }
+    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    projecting_ = false;
+    InvalidateRect(handle_, nullptr, TRUE);
+}
 
 void RichEditHost::set_heading_folds(HeadingFoldController* folds) {
     folds_ = folds;
@@ -1378,10 +1407,6 @@ std::optional<BlockCommandContext> RichEditHost::block_context_at_source(
 
 void RichEditHost::draw_table_grid(HDC dc) const {
     if (!handle_ || !dc || projection_.spans.empty()) return;
-    const auto utf16 = BuildUtf16Positions(projection_.text);
-    TEXTMETRICW metrics{};
-    GetTextMetricsW(dc, &metrics);
-    const auto padding = MulDiv(5, static_cast<int>(dpi_), 96);
     const auto line_color = GetRValue(background_color_) < 128
         ? RGB(112, 112, 116) : RGB(176, 176, 176);
     const auto pen = CreatePen(PS_SOLID, (std::max)(1, MulDiv(1,
@@ -1390,82 +1415,30 @@ void RichEditHost::draw_table_grid(HDC dc) const {
     RECT client{};
     GetClientRect(handle_, &client);
 
-    for (const auto& table : projection_.spans) {
-        if (table.kind != document::NodeKind::table) continue;
-        const auto table_index = (std::min)(static_cast<std::size_t>(table.begin),
-            projection_.source_offsets.empty() ? std::size_t{} :
-                projection_.source_offsets.size() - 1U);
-        const auto table_source = projection_.source_offsets.empty()
-            ? std::uint64_t{} : projection_.source_offsets[table_index];
-        const auto hidden_by_fold = folds_ && std::any_of(folds_->items().begin(),
-            folds_->items().end(), [table_source](const auto& item) {
-                return item.collapsed && table_source >= item.body_range.begin &&
-                    table_source < item.body_range.end;
-            });
+    const auto snapshot = session_.snapshot();
+    for (const auto& layout : BuildTableLayouts(handle_, projection_,
+            snapshot.source_revision, dpi_)) {
+        const auto* table_node = snapshot.semantic
+            ? snapshot.semantic->find(layout.table_id) : nullptr;
+        const auto hidden_by_fold = table_node && folds_ &&
+            std::any_of(folds_->items().begin(), folds_->items().end(),
+                [table_node](const auto& item) {
+                    return item.collapsed &&
+                        table_node->source.begin >= item.body_range.begin &&
+                        table_node->source.begin < item.body_range.end;
+                });
         if (hidden_by_fold) continue;
-        std::uint32_t rows{}, columns{};
-        for (const auto& cell : projection_.spans) {
-            if (cell.kind != document::NodeKind::table_cell ||
-                cell.begin < table.begin || cell.end > table.end) continue;
-            rows = (std::max)(rows, cell.table_row + 1);
-            columns = (std::max)(columns, cell.table_column + 1);
+        if (layout.table_rect.bottom < client.top ||
+            layout.table_rect.top > client.bottom) continue;
+        for (const auto x : layout.column_boundaries) {
+            MoveToEx(dc, x, layout.table_rect.top, nullptr);
+            LineTo(dc, x, layout.table_rect.bottom);
         }
-        if (!rows || !columns) continue;
-        std::vector<int> verticals(columns + 1, INT_MIN);
-        std::vector<int> text_tops(rows, INT_MAX);
-        std::vector<int> text_bottoms(rows, INT_MIN);
-        for (const auto& cell : projection_.spans) {
-            if (cell.kind != document::NodeKind::table_cell ||
-                cell.begin < table.begin || cell.end > table.end ||
-                cell.begin >= utf16.size() || cell.end >= utf16.size()) continue;
-            POINT begin{}, end{};
-            SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
-                utf16[static_cast<std::size_t>(cell.begin)]);
-            SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
-                utf16[static_cast<std::size_t>(cell.end)]);
-            const auto column = static_cast<std::size_t>(cell.table_column);
-            const auto row = static_cast<std::size_t>(cell.table_row);
-            const auto left = static_cast<int>(begin.x) - padding;
-            verticals[column] = verticals[column] == INT_MIN
-                ? left : (std::min)(verticals[column], left);
-            verticals[columns] = (std::max)(verticals[columns],
-                static_cast<int>(end.x) + padding);
-            text_tops[row] = (std::min)(text_tops[row], static_cast<int>(begin.y));
-            text_bottoms[row] = (std::max)(text_bottoms[row],
-                static_cast<int>(begin.y + metrics.tmHeight));
-        }
-        for (std::size_t column = 1; column < columns; ++column) {
-            if (verticals[column] == INT_MIN)
-                verticals[column] = verticals[column - 1] + MulDiv(96,
-                    static_cast<int>(dpi_), 96);
-        }
-        if (verticals[0] == INT_MIN || verticals[columns] == INT_MIN) continue;
-        for (std::size_t column = 1; column <= columns; ++column)
-            verticals[column] = (std::max)(verticals[column], verticals[column - 1] + padding * 2);
-        const auto paragraph_space = (std::max)(1, MulDiv(100,
-            static_cast<int>(dpi_), 1440));
-        std::vector<int> boundaries(rows + 1, INT_MIN);
-        boundaries.front() = text_tops.front() - paragraph_space;
-        for (std::size_t row = 1; row < rows; ++row) {
-            if (text_bottoms[row - 1] == INT_MIN || text_tops[row] == INT_MAX) continue;
-            boundaries[row] = text_bottoms[row - 1] +
-                (text_tops[row] - text_bottoms[row - 1]) / 2;
-        }
-        boundaries.back() = text_bottoms.back() + paragraph_space;
-        const auto top = boundaries.front();
-        const auto bottom = boundaries.back();
-        if (top == INT_MAX || bottom == INT_MIN || bottom < client.top || top > client.bottom)
-            continue;
-        for (const auto x : verticals) {
-            MoveToEx(dc, x, top, nullptr);
-            LineTo(dc, x, bottom);
-        }
-        MoveToEx(dc, verticals.front(), top, nullptr);
-        LineTo(dc, verticals.back(), top);
-        for (const auto boundary : boundaries) {
-            if (boundary == INT_MIN) continue;
-            MoveToEx(dc, verticals.front(), boundary, nullptr);
-            LineTo(dc, verticals.back(), boundary);
+        MoveToEx(dc, layout.table_rect.left, layout.table_rect.top, nullptr);
+        LineTo(dc, layout.table_rect.right, layout.table_rect.top);
+        for (const auto& row : layout.row_rects) {
+            MoveToEx(dc, layout.table_rect.left, row.bottom, nullptr);
+            LineTo(dc, layout.table_rect.right, row.bottom);
         }
     }
     SelectObject(dc, old_pen);

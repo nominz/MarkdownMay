@@ -28,6 +28,8 @@ struct ProjectionSpan final {
     std::uint32_t table_columns{};
     bool ordered{};
     std::string language;
+    document::NodeId node_id{};
+    document::NodeId table_id{};
 };
 
 struct RichProjection final {

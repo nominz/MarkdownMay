@@ -1,4 +1,5 @@
 #include "markdownmay/editor/richedit_host.hpp"
+#include "markdownmay/editor/table_layout.hpp"
 
 #include <windows.h>
 #include <richedit.h>
@@ -120,6 +121,66 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (!table || host.remove_table(table->id) != ErrorCode::ok ||
         !session.snapshot().source.empty()) return 9;
     if (host.undo() != ErrorCode::ok || !Table(*session.snapshot().semantic->root())) return 10;
+
+    const std::string sample =
+        "| 项目 | 值 |\n"
+        "| --- | --- |\n"
+        "| 服务器 | 示例云 ECS |\n"
+        "| 公网 IP | 192.0.2.18 |\n"
+        "| SSH 登录 | demo-user |\n"
+        "| SSH 口令 | example-only |\n"
+        "| 管理面板 | 示例面板 |\n"
+        "| 面板地址 | https://example.com |\n"
+        "| 说明 | 这是一段比较长的中文内容，用来检查 RichEdit 在表格中的实际排版几何 |\n"
+        "| 面板账号 | demo |\n"
+        "| 面板口令 | example-only |";
+    document::DocumentSession sample_session(sample);
+    editor::RichEditHost sample_host(sample_session);
+    if (sample_host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok) return 90;
+    auto sample_projection = editor::BuildInlineProjection(
+        *sample_session.snapshot().semantic, sample_session.snapshot().source);
+    auto layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
+        sample_session.snapshot().source_revision, 96);
+    if (layouts.size() != 1 || layouts[0].row_rects.size() != 10 ||
+        layouts[0].column_boundaries.size() != 3 || layouts[0].cells.size() != 20)
+        return 91;
+    const auto& layout = layouts[0];
+    if (layout.table_rect.left != layout.column_boundaries.front() ||
+        layout.table_rect.right != layout.column_boundaries.back() ||
+        layout.table_rect.top != layout.row_rects.front().top ||
+        layout.table_rect.bottom != layout.row_rects.back().bottom) return 92;
+    const auto padding = editor::TableHorizontalPadding(96);
+    for (const auto& cell : layout.cells) {
+        if (cell.row >= layout.row_rects.size() ||
+            cell.column + 1 >= layout.column_boundaries.size() ||
+            cell.rect.left != layout.column_boundaries[cell.column] ||
+            cell.rect.right != layout.column_boundaries[cell.column + 1] ||
+            cell.rect.top != layout.row_rects[cell.row].top ||
+            cell.rect.bottom != layout.row_rects[cell.row].bottom ||
+            cell.content_rect.left - cell.rect.left != padding ||
+            cell.rect.right - cell.content_rect.right != padding) return 93;
+    }
+    for (std::size_t row = 1; row < layout.row_rects.size(); ++row) {
+        if (layout.row_rects[row - 1].bottom != layout.row_rects[row].top ||
+            layout.row_rects[row].bottom <= layout.row_rects[row].top) return 94;
+    }
+    if (layout.row_rects[7].bottom - layout.row_rects[7].top <=
+        layout.row_rects[8].bottom - layout.row_rects[8].top) return 97;
+
+    const auto old_right = layout.table_rect.right;
+    const auto old_middle = layout.column_boundaries[1];
+    MoveWindow(sample_host.handle(), 0, 0, 600, 560, TRUE);
+    layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
+        sample_session.snapshot().source_revision, 96);
+    if (layouts.size() != 1 || layouts[0].table_rect.right >= old_right ||
+        layouts[0].column_boundaries[1] >= old_middle) return 95;
+
+    sample_host.apply_appearance(RGB(32, 32, 32), RGB(255, 255, 255), 144);
+    layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
+        sample_session.snapshot().source_revision, 144);
+    if (layouts.size() != 1 || layouts[0].cells.empty() ||
+        layouts[0].cells.front().content_rect.left -
+            layouts[0].cells.front().rect.left != editor::TableHorizontalPadding(144)) return 96;
     DestroyWindow(parent);
     return 0;
 }

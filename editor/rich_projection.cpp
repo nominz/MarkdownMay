@@ -283,9 +283,12 @@ void Block(const document::Node& node, RichProjection& output,
                         Inline(*child, output, source, document_path);
                     AppendSynthetic(output, "\t", cell->source.end, cell->source.end);
                     const auto cell_end = static_cast<std::uint64_t>(output.text.size());
-                    output.spans.push_back({document::NodeKind::table_cell, cell_begin, cell_end,
+                    ProjectionSpan cell_span{document::NodeKind::table_cell, cell_begin, cell_end,
                         0, 0, false, false, ImageDisplayState::missing, 0, 0, 100, {},
-                        row_index, column_index});
+                        row_index, column_index};
+                    cell_span.node_id = cell->id;
+                    cell_span.table_id = node.id;
+                    output.spans.push_back(std::move(cell_span));
                     ++column_index;
                 }
                 table_columns = (std::max)(table_columns, column_index);
@@ -305,7 +308,10 @@ void Block(const document::Node& node, RichProjection& output,
         if (const auto* heading = std::get_if<document::HeadingAttributes>(&node.attributes))
             level = heading->level;
         ProjectionSpan span{node.kind, begin, end, level, depth, false, false};
-        if (node.kind == document::NodeKind::table) span.table_columns = table_columns;
+        if (node.kind == document::NodeKind::table) {
+            span.table_columns = table_columns;
+            span.node_id = node.id;
+        }
         if (node.kind == document::NodeKind::code_block) {
             if (const auto* code = std::get_if<document::CodeAttributes>(&node.attributes))
                 span.language = code->language;
