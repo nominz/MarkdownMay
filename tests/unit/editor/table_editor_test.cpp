@@ -64,7 +64,8 @@ int main() {
     const auto projection = editor::BuildInlineProjection(
         *session.snapshot().semantic, session.snapshot().source);
     if (!table || projection.text.find("---") != std::string::npos ||
-        projection.text.find('\t') == std::string::npos ||
+        projection.text.find('\t') != std::string::npos ||
+        projection.text.find('\a') == std::string::npos || projection.tables.size() != 1 ||
         projection.text.find("甲|乙") == std::string::npos) return 9;
     std::size_t cells{};
     for (const auto& span : projection.spans)

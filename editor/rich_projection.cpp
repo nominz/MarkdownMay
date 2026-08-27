@@ -269,20 +269,44 @@ void Block(const document::Node& node, RichProjection& output,
             first = false;
         }
     } else if (node.kind == document::NodeKind::table) {
+        TableProjection table_projection;
+        table_projection.table_id = node.id;
+        table_projection.source_range = node.source;
+        table_projection.begin = output.text.size();
         std::uint32_t row_index{};
-        bool first_row = true;
         for (const auto& section : node.children) {
             for (const auto& row : section->children) {
                 if (row->kind != document::NodeKind::table_row) continue;
-                if (!first_row) AppendSynthetic(output, "\n", row->source.begin, row->source.begin);
+                TableRowProjection row_projection;
+                row_projection.row = row_index;
+                AppendSynthetic(output, "\xEF\xBF\xB9\n", row->source.begin, row->source.begin);
                 std::uint32_t column_index{};
                 for (const auto& cell : row->children) {
                     if (cell->kind != document::NodeKind::table_cell) continue;
                     const auto cell_begin = static_cast<std::uint64_t>(output.text.size());
+                    const auto span_begin = output.spans.size();
                     for (const auto& child : cell->children)
                         Inline(*child, output, source, document_path);
-                    AppendSynthetic(output, "\t", cell->source.end, cell->source.end);
                     const auto cell_end = static_cast<std::uint64_t>(output.text.size());
+                    TableCellProjection cell_projection;
+                    cell_projection.table_id = node.id;
+                    cell_projection.cell_id = cell->id;
+                    cell_projection.row = row_index;
+                    cell_projection.column = column_index;
+                    cell_projection.source_range = cell->source;
+                    cell_projection.begin = cell_begin;
+                    cell_projection.end = cell_end;
+                    cell_projection.text = output.text.substr(
+                        static_cast<std::size_t>(cell_begin),
+                        static_cast<std::size_t>(cell_end - cell_begin));
+                    cell_projection.source_offsets.assign(
+                        output.source_offsets.begin() + static_cast<std::ptrdiff_t>(cell_begin),
+                        output.source_offsets.begin() + static_cast<std::ptrdiff_t>(cell_end + 1U));
+                    cell_projection.inline_spans.assign(
+                        output.spans.begin() + static_cast<std::ptrdiff_t>(span_begin),
+                        output.spans.end());
+                    row_projection.cells.push_back(std::move(cell_projection));
+                    AppendSynthetic(output, "\a", cell->source.end, cell->source.end);
                     ProjectionSpan cell_span{document::NodeKind::table_cell, cell_begin, cell_end,
                         0, 0, false, false, ImageDisplayState::missing, 0, 0, 100, {},
                         row_index, column_index};
@@ -291,11 +315,14 @@ void Block(const document::Node& node, RichProjection& output,
                     output.spans.push_back(std::move(cell_span));
                     ++column_index;
                 }
+                AppendSynthetic(output, "\xEF\xBF\xBB\n", row->source.end, row->source.end);
+                table_projection.rows.push_back(std::move(row_projection));
                 table_columns = (std::max)(table_columns, column_index);
                 ++row_index;
-                first_row = false;
             }
         }
+        table_projection.end = output.text.size();
+        output.tables.push_back(std::move(table_projection));
     }
     const auto end = static_cast<std::uint64_t>(output.text.size());
     if (node.kind == document::NodeKind::heading ||

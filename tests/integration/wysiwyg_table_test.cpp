@@ -21,6 +21,11 @@ markdownmay::editor::TablePosition LastCell(const markdownmay::document::Node& t
     }
     return {rows - 1, columns - 1};
 }
+LONG Utf16Offset(std::string_view text, std::uint64_t bytes) {
+    return MultiByteToWideChar(CP_UTF8, 0, text.data(),
+        static_cast<int>((std::min)(bytes, static_cast<std::uint64_t>(text.size()))),
+        nullptr, 0);
+}
 }
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
@@ -59,64 +64,41 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (next.value().row != last.row + 1 || next.value().column != 0) return 71;
     std::wstring visible(static_cast<std::size_t>(GetWindowTextLengthW(host.handle())) + 1, L'\0');
     GetWindowTextW(host.handle(), visible.data(), static_cast<int>(visible.size()));
-    if (visible.find(L'|') != std::wstring::npos || visible.find(L'\t') == std::wstring::npos ||
-        visible.find(L'┌') != std::wstring::npos || visible.find(L'│') != std::wstring::npos ||
-        visible.find(L"数据") == std::wstring::npos) return 8;
-    const auto first_tab = visible.find(L'\t');
-    POINT first_cell{}, second_cell{}, first_row{}, second_row{};
-    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&first_cell), 0);
-    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&second_cell),
-        static_cast<LPARAM>(first_tab + 1));
-    const auto first_newline = visible.find(L'\n');
-    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&first_row), 0);
-    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&second_row),
-        static_cast<LPARAM>(first_newline + 1));
-    if (second_cell.x - first_cell.x < 200 || second_row.y - first_row.y < 24) return 82;
+    if (visible.find(L'|') != std::wstring::npos) return 80;
+    if (visible.find(L'\t') == std::wstring::npos) return 85;
+    const auto physical_length = GetWindowTextLengthW(host.handle());
+    std::wstring physical(static_cast<std::size_t>(physical_length) + 1U, L'\0');
+    TEXTRANGEW physical_range{{0, physical_length}, physical.data()};
+    const auto physical_copied = static_cast<LONG>(SendMessageW(host.handle(),
+        EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&physical_range)));
+    physical.resize(static_cast<std::size_t>((std::max)(0L, physical_copied)));
+    if (visible.find(L'┌') != std::wstring::npos || visible.find(L'│') != std::wstring::npos)
+        return 88;
+    if (visible.find(L"数据") == std::wstring::npos) return 89;
+    const auto native_projection = editor::BuildInlineProjection(
+        *session.snapshot().semantic, session.snapshot().source);
+    auto native_layouts = editor::BuildTableLayouts(host.handle(), native_projection,
+        session.snapshot().source_revision, 96);
+    if (native_layouts.size() != 1 || native_layouts[0].cells.empty()) return 82;
     CHARFORMAT2W header_format{};
     header_format.cbSize = sizeof(header_format);
-    CHARRANGE header_range{0, 1};
+    const auto header_cp = Utf16Offset(native_projection.text,
+        native_projection.tables.front().rows.front().cells.front().begin);
+    CHARRANGE header_range{header_cp, header_cp + 1};
     SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&header_range));
     SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&header_format));
     if ((header_format.dwEffects & CFE_BOLD) == 0) return 83;
-    const auto second_newline = visible.find(L'\n', first_newline + 1);
-    if (second_newline == std::wstring::npos) return 84;
-    CHARFORMAT2W odd_format{}, even_format{};
-    odd_format.cbSize = sizeof(odd_format);
-    even_format.cbSize = sizeof(even_format);
-    CHARRANGE odd_range{static_cast<LONG>(first_newline + 1),
-        static_cast<LONG>(first_newline + 2)};
-    CHARRANGE even_range{static_cast<LONG>(second_newline + 1),
-        static_cast<LONG>(second_newline + 2)};
-    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&odd_range));
-    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
-        reinterpret_cast<LPARAM>(&odd_format));
-    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&even_range));
-    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
-        reinterpret_cast<LPARAM>(&even_format));
-    if (odd_format.crBackColor == even_format.crBackColor) return 84;
-    const auto screen = GetDC(host.handle());
-    const auto memory = CreateCompatibleDC(screen);
-    const auto bitmap = CreateCompatibleBitmap(screen, 760, 560);
-    const auto old_bitmap = SelectObject(memory, bitmap);
-    RECT canvas{0, 0, 760, 560};
-    FillRect(memory, &canvas, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-    host.draw_table_grid(memory);
-    int longest{};
-    for (int y = 0; y < 560; ++y) {
-        int run{};
-        for (int x = 0; x < 760; ++x) {
-            if (GetPixel(memory, x, y) != RGB(255, 255, 255)) {
-                run++;
-                longest = (std::max)(longest, run);
-            } else run = 0;
-        }
-    }
-    SelectObject(memory, old_bitmap);
-    DeleteObject(bitmap);
-    DeleteDC(memory);
-    ReleaseDC(host.handle(), screen);
-    if (longest < 100) return 81;
+    const auto* data_cell = &native_projection.tables.front().rows[1].cells.front();
+    const auto data_at = Utf16Offset(native_projection.text, data_cell->begin);
+    CHARRANGE data_range{data_at, data_at + 2};
+    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&data_range));
+    SendMessageW(host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"中文 English"));
+    if (host.synchronize_change() != ErrorCode::ok ||
+        session.snapshot().source.find("中文 English") == std::string::npos) return 99;
+    if (host.undo() != ErrorCode::ok ||
+        session.snapshot().source.find("数据") == std::string::npos) return 100;
     table = Table(*session.snapshot().semantic->root());
     if (!table || host.remove_table(table->id) != ErrorCode::ok ||
         !session.snapshot().source.empty()) return 9;
@@ -131,7 +113,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         "| SSH 口令 | example-only |\n"
         "| 管理面板 | 示例面板 |\n"
         "| 面板地址 | https://example.com |\n"
-        "| 说明 | 这是一段比较长的中文内容，用来检查 RichEdit 在表格中的实际排版几何 |\n"
+        "| 说明 | 这是一段非常非常长的中文内容，用来检查 RichEdit 原生单元格中的实际排版几何；"
+        "折行后的文字必须继续留在第二列内部，不能回到第一列；这里继续追加足够多的中文字符以确保发生自动折行 |\n"
         "| 面板账号 | demo |\n"
         "| 面板口令 | example-only |";
     document::DocumentSession sample_session(sample);
@@ -160,12 +143,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             cell.content_rect.left - cell.rect.left != padding ||
             cell.rect.right - cell.content_rect.right != padding) return 93;
     }
-    for (std::size_t row = 1; row < layout.row_rects.size(); ++row) {
-        if (layout.row_rects[row - 1].bottom != layout.row_rects[row].top ||
-            layout.row_rects[row].bottom <= layout.row_rects[row].top) return 94;
-    }
-    if (layout.row_rects[7].bottom - layout.row_rects[7].top <=
-        layout.row_rects[8].bottom - layout.row_rects[8].top) return 97;
+    for (const auto& row : layout.row_rects)
+        if (row.bottom <= row.top) return 94;
+    const auto& wrapped_cell = sample_projection.tables.front().rows[7].cells[1];
+    const auto wrapped_begin = Utf16Offset(sample_projection.text, wrapped_cell.begin);
+    const auto wrapped_end = Utf16Offset(sample_projection.text, wrapped_cell.end);
+    POINT wrapped_first{}, wrapped_last{};
+    SendMessageW(sample_host.handle(), EM_POSFROMCHAR,
+        reinterpret_cast<WPARAM>(&wrapped_first), wrapped_begin);
+    SendMessageW(sample_host.handle(), EM_POSFROMCHAR,
+        reinterpret_cast<WPARAM>(&wrapped_last), wrapped_end - 1);
+    if (wrapped_last.y <= wrapped_first.y ||
+        wrapped_last.x < layout.column_boundaries[1] ||
+        wrapped_last.x >= layout.column_boundaries[2]) return 97;
 
     const auto old_right = layout.table_rect.right;
     const auto old_middle = layout.column_boundaries[1];
@@ -181,6 +171,47 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (layouts.size() != 1 || layouts[0].cells.empty() ||
         layouts[0].cells.front().content_rect.left -
             layouts[0].cells.front().rect.left != editor::TableHorizontalPadding(144)) return 96;
+
+    const std::string wrap_source =
+        "表格前普通段落\n\n"
+        "| 第一列 | 第二列 | 第三列 |\n"
+        "| --- | --- | --- |\n"
+        "| 短 | 短 | 非常非常长的第三列中文文字，必须在第三列内部连续自动折行，不能回到第一列区域；"
+        "继续追加中文 English mixed text 以确保发生多次折行 |\n"
+        "| 非常非常长的第一列中文文字，必须在第一列内部自动折行；继续追加足够多的字符确认边界；"
+        "第一列继续追加中文 English mixed text，确保发生多次自动折行 | 短 | 短 |\n"
+        "| 短 | 非常非常长的第二列 **粗体中文** 和 `inline code`，必须只在第二列内部自动折行；"
+        "第二列继续追加中文 English mixed text，确保发生多次自动折行 | 短 |\n"
+        "| 三列都是很长的第一列文本，继续继续继续追加中文确保折行，再追加 English mixed text 和更多中文内容 | 三列都是很长的第二列文本，继续继续继续追加中文确保折行，再追加 English mixed text 和更多中文内容 | 三列都是很长的第三列文本，继续继续继续追加中文确保折行，再追加 English mixed text 和更多中文内容 |\n"
+        "\n表格后普通段落\n\n"
+        "| A | B |\n| --- | --- |\n| second table | value |";
+    document::DocumentSession wrap_session(wrap_source);
+    editor::RichEditHost wrap_host(wrap_session);
+    if (wrap_host.create(parent, {0, 0, 600, 560}) != ErrorCode::ok) return 101;
+    const auto wrap_projection = editor::BuildInlineProjection(
+        *wrap_session.snapshot().semantic, wrap_session.snapshot().source);
+    const auto wrap_layouts = editor::BuildTableLayouts(wrap_host.handle(), wrap_projection,
+        wrap_session.snapshot().source_revision, 96);
+    if (wrap_projection.tables.size() != 2 || wrap_layouts.size() != 2 ||
+        wrap_layouts.front().column_boundaries.size() != 4) return 102;
+    const auto verify_wrap = [&](std::size_t row, std::size_t column) {
+        const auto& cell = wrap_projection.tables.front().rows[row].cells[column];
+        const auto begin = Utf16Offset(wrap_projection.text, cell.begin);
+        const auto end = Utf16Offset(wrap_projection.text, cell.end);
+        POINT first{}, last{};
+        SendMessageW(wrap_host.handle(), EM_POSFROMCHAR,
+            reinterpret_cast<WPARAM>(&first), begin);
+        SendMessageW(wrap_host.handle(), EM_POSFROMCHAR,
+            reinterpret_cast<WPARAM>(&last), end - 1);
+        return last.y > first.y;
+    };
+    if (!verify_wrap(1, 2)) return 105;
+    if (!verify_wrap(2, 0)) return 106;
+    if (!verify_wrap(3, 1)) return 107;
+    if (!verify_wrap(4, 0)) return 108;
+    if (!verify_wrap(4, 1)) return 109;
+    if (!verify_wrap(4, 2)) return 110;
+    if (wrap_projection.tables.front().rows[3].cells[1].inline_spans.size() < 2) return 104;
     DestroyWindow(parent);
     return 0;
 }

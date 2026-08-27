@@ -32,10 +32,41 @@ struct ProjectionSpan final {
     document::NodeId table_id{};
 };
 
+struct TableCellProjection final {
+    document::NodeId table_id{};
+    document::NodeId cell_id{};
+    std::uint32_t row{};
+    std::uint32_t column{};
+    document::SourceRange source_range{};
+    std::uint64_t begin{};
+    std::uint64_t end{};
+    long physical_begin{-1};
+    long physical_end{-1};
+    std::string text;
+    std::vector<std::uint64_t> source_offsets;
+    std::vector<ProjectionSpan> inline_spans;
+};
+
+struct TableRowProjection final {
+    std::uint32_t row{};
+    std::vector<TableCellProjection> cells;
+};
+
+struct TableProjection final {
+    document::NodeId table_id{};
+    document::SourceRange source_range{};
+    std::uint64_t begin{};
+    std::uint64_t end{};
+    long physical_begin{-1};
+    long physical_end{-1};
+    std::vector<TableRowProjection> rows;
+};
+
 struct RichProjection final {
     std::string text;
     std::vector<std::uint64_t> source_offsets;
     std::vector<ProjectionSpan> spans;
+    std::vector<TableProjection> tables;
 };
 
 [[nodiscard]] RichProjection BuildInlineProjection(

@@ -53,24 +53,26 @@ Microsoft::WRL::ComPtr<ITextDocument2> TextDocumentFor(HWND handle) {
     return document;
 }
 
-bool CharacterLineBounds(ITextDocument2* document, LONG begin, LONG end,
-                         LONG& top, LONG& bottom) {
-    if (!document || begin < 0 || end <= begin) return false;
-    Microsoft::WRL::ComPtr<ITextRange2> first;
-    Microsoft::WRL::ComPtr<ITextRange2> last;
-    long unused{};
-    if (FAILED(document->Range2(begin, begin + 1, &first)) || !first ||
-        FAILED(document->Range2(end - 1, end, &last)) || !last ||
-        FAILED(first->GetPoint(tomStart | tomClientCoord | tomAllowOffClient |
-            TA_TOP, &unused, &top)) ||
-        FAILED(last->GetPoint(tomEnd | tomClientCoord | tomAllowOffClient |
-            TA_BOTTOM, &unused, &bottom))) return false;
-    return bottom > top;
-}
-
-bool CharacterStart(HWND handle, LONG position, POINT& point) {
-    return SendMessageW(handle, EM_POSFROMCHAR,
-        reinterpret_cast<WPARAM>(&point), position) != -1;
+bool NativeCellBounds(ITextDocument2* document, LONG position, RECT& bounds) {
+    if (!document || position < 0) return false;
+    Microsoft::WRL::ComPtr<ITextRange2> range;
+    long delta{};
+    if (FAILED(document->Range2(position, position, &range)) || !range ||
+        FAILED(range->Expand(tomCell, &delta))) return false;
+    LONG left{}, top{}, right{}, bottom{};
+    LONG hit{};
+    if (SUCCEEDED(range->GetRect(tomClientCoord | tomAllowOffClient | tomCell,
+            &left, &top, &right, &bottom, &hit)) && right > left && bottom > top) {
+        bounds = {left, top, right, bottom};
+        return true;
+    }
+    if (FAILED(range->GetPoint(tomStart | tomClientCoord | tomAllowOffClient |
+            TA_LEFT | TA_TOP, &left, &top)) ||
+        FAILED(range->GetPoint(tomEnd | tomClientCoord | tomAllowOffClient |
+            TA_RIGHT | TA_BOTTOM, &right, &bottom)) || right <= left || bottom <= top)
+        return false;
+    bounds = {left, top, right, bottom};
+    return true;
 }
 
 }  // namespace
@@ -107,63 +109,58 @@ std::vector<TableLayout> BuildTableLayouts(HWND rich_edit,
         TableLayout layout;
         layout.table_id = table.node_id;
         layout.revision = revision;
-        layout.row_rects.assign(rows, RECT{0, INT_MAX, 0, INT_MIN});
+        layout.row_rects.assign(rows, RECT{INT_MAX, INT_MAX, INT_MIN, INT_MIN});
         layout.column_boundaries.assign(columns + 1U, LONG_MIN);
 
         for (const auto& cell : projection.spans) {
             if (cell.kind != document::NodeKind::table_cell ||
-                cell.table_id != table.node_id || cell.begin >= utf16.size() ||
-                cell.end >= utf16.size()) continue;
-            const auto begin = utf16[static_cast<std::size_t>(cell.begin)];
-            const auto end = utf16[static_cast<std::size_t>(cell.end)];
-            LONG top{}, bottom{};
-            POINT start{};
-            if (!CharacterLineBounds(document.Get(), begin, end, top, bottom) ||
-                !CharacterStart(rich_edit, begin, start)) continue;
+                cell.table_id != table.node_id) continue;
+            const auto projected_table = std::find_if(projection.tables.begin(),
+                projection.tables.end(), [&cell](const auto& candidate) {
+                    return candidate.table_id == cell.table_id;
+                });
+            if (projected_table == projection.tables.end()) continue;
+            const TableCellProjection* projected_cell{};
+            for (const auto& projected_row : projected_table->rows)
+                for (const auto& candidate : projected_row.cells)
+                    if (candidate.cell_id == cell.node_id) projected_cell = &candidate;
+            if (!projected_cell) continue;
+            const auto begin = projected_cell->physical_begin >= 0
+                ? projected_cell->physical_begin
+                : utf16[static_cast<std::size_t>(projected_cell->begin)];
+            RECT native{};
+            if (!NativeCellBounds(document.Get(), begin, native)) continue;
             auto& row = layout.row_rects[cell.table_row];
-            row.top = (std::min)(row.top, top);
-            row.bottom = (std::max)(row.bottom, bottom);
+            row.left = (std::min)(row.left, native.left);
+            row.right = (std::max)(row.right, native.right);
+            row.top = (std::min)(row.top, native.top);
+            row.bottom = (std::max)(row.bottom, native.bottom);
             auto& boundary = layout.column_boundaries[cell.table_column];
-            const auto observed = static_cast<LONG>(start.x) - padding;
+            const auto observed = native.left - padding;
             boundary = boundary == LONG_MIN ? observed : (std::min)(boundary, observed);
+            layout.column_boundaries.back() = (std::max)(
+                layout.column_boundaries.back(), native.right + padding);
         }
 
         if (layout.column_boundaries.front() == LONG_MIN) continue;
-        layout.column_boundaries.back() = formatting.right;
-        for (std::size_t column = 1; column < columns; ++column) {
-            if (layout.column_boundaries[column] == LONG_MIN) continue;
-            layout.column_boundaries[column] = (std::max)(
-                layout.column_boundaries[column],
-                layout.column_boundaries[column - 1] + padding * 2);
-        }
+        static_cast<void>(formatting);
         bool complete = std::all_of(layout.row_rects.begin(), layout.row_rects.end(),
             [](const RECT& row) { return row.top != INT_MAX && row.bottom != INT_MIN; });
         complete = complete && std::none_of(layout.column_boundaries.begin(),
             layout.column_boundaries.end(), [](LONG value) { return value == LONG_MIN; });
         if (!complete) continue;
 
-        std::vector<LONG> row_boundaries(rows + 1U);
-        row_boundaries.front() = layout.row_rects.front().top - vertical_space;
-        for (std::size_t row = 1; row < rows; ++row)
-            row_boundaries[row] = layout.row_rects[row - 1].bottom +
-                (layout.row_rects[row].top - layout.row_rects[row - 1].bottom) / 2;
-        row_boundaries.back() = layout.row_rects.back().bottom + vertical_space;
-        for (std::size_t row{}; row < rows; ++row) {
-            layout.row_rects[row].left = layout.column_boundaries.front();
-            layout.row_rects[row].right = layout.column_boundaries.back();
-            layout.row_rects[row].top = row_boundaries[row];
-            layout.row_rects[row].bottom = row_boundaries[row + 1U];
-        }
-        layout.table_rect = {layout.column_boundaries.front(), row_boundaries.front(),
-            layout.column_boundaries.back(), row_boundaries.back()};
+        static_cast<void>(vertical_space);
+        layout.table_rect = {layout.column_boundaries.front(), layout.row_rects.front().top,
+            layout.column_boundaries.back(), layout.row_rects.back().bottom};
         for (const auto& cell : projection.spans) {
             if (cell.kind != document::NodeKind::table_cell ||
                 cell.table_id != table.node_id || cell.table_row >= rows ||
                 cell.table_column >= columns) continue;
             const RECT rect{layout.column_boundaries[cell.table_column],
-                row_boundaries[cell.table_row],
+                layout.row_rects[cell.table_row].top,
                 layout.column_boundaries[cell.table_column + 1U],
-                row_boundaries[cell.table_row + 1U]};
+                layout.row_rects[cell.table_row].bottom};
             RECT content = rect;
             content.left += padding;
             content.right -= padding;

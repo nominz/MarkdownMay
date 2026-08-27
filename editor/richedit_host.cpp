@@ -221,8 +221,10 @@ std::string ToUtf8(std::wstring_view value) {
 std::string ReadUtf8(HWND handle, fileio::LineEnding target) {
     const auto length = GetWindowTextLengthW(handle);
     std::wstring value(static_cast<std::size_t>(length) + 1U, L'\0');
-    const auto copied = GetWindowTextW(handle, value.data(), length + 1);
-    value.resize(static_cast<std::size_t>((std::max)(copied, 0)));
+    TEXTRANGEW range{{0, length}, value.data()};
+    const auto copied = static_cast<LONG>(SendMessageW(
+        handle, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&range)));
+    value.resize(static_cast<std::size_t>((std::max)(copied, 0L)));
     return fileio::NormalizeLineEndings(ToUtf8(value), target);
 }
 
@@ -273,6 +275,148 @@ std::vector<LONG> BuildUtf16Positions(std::string_view text) {
     return positions;
 }
 
+std::vector<LONG> BuildPhysicalPositions(const RichProjection& projection) {
+    const auto logical = BuildUtf16Positions(projection.text);
+    auto physical = logical;
+    LONG delta{};
+    std::size_t cursor{};
+    for (const auto& table : projection.tables) {
+        const auto table_begin = static_cast<std::size_t>(table.begin);
+        const auto table_end = static_cast<std::size_t>(table.end);
+        for (; cursor <= table_begin && cursor < physical.size(); ++cursor)
+            physical[cursor] = logical[cursor] + delta;
+        const auto actual_begin = table.physical_begin >= 0
+            ? table.physical_begin : logical[table_begin] + delta;
+        for (; cursor <= table_end && cursor < physical.size(); ++cursor)
+            physical[cursor] = actual_begin + (logical[cursor] - logical[table_begin]);
+        for (const auto& row : table.rows) for (const auto& cell : row.cells) {
+            if (cell.physical_begin < 0) continue;
+            for (auto offset = static_cast<std::size_t>(cell.begin);
+                    offset <= static_cast<std::size_t>(cell.end) && offset < physical.size();
+                    ++offset)
+                physical[offset] = cell.physical_begin +
+                    (logical[offset] - logical[static_cast<std::size_t>(cell.begin)]);
+        }
+        if (table.physical_end >= 0)
+            delta = table.physical_end - logical[table_end];
+    }
+    for (; cursor < physical.size(); ++cursor) physical[cursor] = logical[cursor] + delta;
+    return physical;
+}
+
+Microsoft::WRL::ComPtr<ITextDocument2> TextDocumentFor(HWND handle);
+
+bool SetNativeTableParameters(HWND handle, RichProjection& projection,
+        COLORREF background, UINT dpi, bool insert) {
+    if (!handle) return false;
+    const auto positions = BuildPhysicalPositions(projection);
+    RECT formatting{};
+    SendMessageW(handle, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
+    const auto effective_dpi = dpi ? dpi : 96U;
+    const auto margin = static_cast<LONG>(MulDiv(
+        TableHorizontalPadding(effective_dpi), 1440, static_cast<int>(effective_dpi)));
+    const bool dark = GetRValue(background) + GetGValue(background) +
+        GetBValue(background) < 384;
+    const auto border = dark ? RGB(112, 112, 116) : RGB(176, 176, 176);
+
+    LONG physical_delta{};
+    for (auto& table : projection.tables) {
+        if (table.rows.empty() || table.rows.front().cells.empty() ||
+            table.begin >= positions.size() || table.end >= positions.size()) return false;
+        const auto rows = table.rows.size();
+        const auto columns = table.rows.front().cells.size();
+        if (rows > 255U || columns > 100U) return false;
+        const auto begin = positions[static_cast<std::size_t>(table.begin)] +
+            (insert ? physical_delta : 0L);
+        const auto end = positions[static_cast<std::size_t>(table.end)] +
+            (insert ? physical_delta : 0L);
+        const auto available_pixels = (std::max)(1L, formatting.right - formatting.left);
+        const auto available_twips = (std::max)(1440L, static_cast<LONG>(MulDiv(
+            available_pixels, 1440, static_cast<int>(effective_dpi))));
+        const auto width = (std::max)(240L, available_twips / static_cast<LONG>(columns));
+
+        std::vector<TABLECELLPARMS> cells(columns);
+        for (std::size_t column{}; column < cells.size(); ++column) {
+            auto& cell = cells[column];
+            // RichEdit stores the RTF \cellx right boundary, not a per-cell delta.
+            cell.dxWidth = static_cast<LONG>(column + 1U) * width;
+            cell.dxBrdrLeft = cell.dyBrdrTop = cell.dxBrdrRight = cell.dyBrdrBottom = 10;
+            cell.crBrdrLeft = cell.crBrdrTop = cell.crBrdrRight = cell.crBrdrBottom = border;
+            cell.crBackPat = background;
+            cell.crForePat = background;
+        }
+        TABLEROWPARMS row{};
+        row.cbRow = sizeof(row);
+        row.cbCell = sizeof(TABLECELLPARMS);
+        row.cCell = static_cast<BYTE>(columns);
+        row.cRow = static_cast<BYTE>(rows);
+        row.dxCellMargin = margin;
+        row.dxIndent = kBlockGutterTwips;
+        row.nAlignment = PFA_LEFT;
+        row.fIdentCells = FALSE;
+        row.cpStartRow = insert ? -1 : begin;
+
+        if (insert) {
+            CHARRANGE replace{begin, end};
+            SendMessageW(handle, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&replace));
+            SendMessageW(handle, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(L""));
+            const auto result = static_cast<HRESULT>(SendMessageW(handle, EM_INSERTTABLE,
+                reinterpret_cast<WPARAM>(&row), reinterpret_cast<LPARAM>(cells.data())));
+            if (FAILED(result)) return false;
+            CHARRANGE selected{};
+            SendMessageW(handle, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
+            static_cast<void>(selected);
+            LONG cursor = begin + 2;
+            table.physical_begin = begin;
+            for (std::size_t row_index{}; row_index < rows; ++row_index) {
+                auto& projected_row = table.rows[row_index];
+                if (projected_row.cells.size() != columns) return false;
+                for (std::size_t column{}; column < columns; ++column) {
+                    projected_row.cells[column].physical_begin = cursor;
+                    CHARRANGE target{cursor, cursor};
+                    SendMessageW(handle, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&target));
+                    const auto value = ToWide(projected_row.cells[column].text);
+                    SendMessageW(handle, EM_REPLACESEL, FALSE,
+                        reinterpret_cast<LPARAM>(value.c_str()));
+                    cursor += static_cast<LONG>(value.size()) + 1;
+                    projected_row.cells[column].physical_end = cursor - 1;
+                }
+                cursor += 4;
+            }
+            Microsoft::WRL::ComPtr<ITextDocument2> document = TextDocumentFor(handle);
+            Microsoft::WRL::ComPtr<ITextRange2> table_range;
+            long expanded{};
+            long table_start{}, table_end{};
+            if (!document || FAILED(document->Range2(table.physical_begin,
+                    table.physical_begin, &table_range)) || !table_range ||
+                FAILED(table_range->Expand(tomTable, &expanded)) ||
+                FAILED(table_range->GetStart(&table_start)) ||
+                FAILED(table_range->GetEnd(&table_end))) return false;
+            table.physical_begin = table_start;
+            table.physical_end = table_end;
+            physical_delta += (table_end - table_start) - (end - begin);
+        } else {
+            row.cRow = 1;
+            for (std::size_t row_index{}; row_index < rows; ++row_index) {
+                const auto row_background = row_index == 0
+                    ? (dark ? RGB(54, 61, 68) : RGB(232, 232, 232))
+                    : row_index % 2 == 0
+                    ? (dark ? RGB(44, 44, 47) : RGB(242, 242, 242)) : background;
+                for (auto& cell : cells) {
+                    cell.crBackPat = row_background;
+                    cell.crForePat = row_background;
+                }
+                row.cpStartRow = table.rows[row_index].cells.front().physical_begin - 2;
+                const auto result = static_cast<HRESULT>(SendMessageW(handle,
+                    EM_SETTABLEPARMS, reinterpret_cast<WPARAM>(&row),
+                    reinterpret_cast<LPARAM>(cells.data())));
+                if (FAILED(result)) return false;
+            }
+        }
+    }
+    return true;
+}
+
 std::size_t PrefixUtf8Size(HWND handle, LONG position, fileio::LineEnding target) {
     if (position <= 0) return 0;
     std::wstring buffer(static_cast<std::size_t>(position) * 2U + 2U, L'\0');
@@ -283,6 +427,95 @@ std::size_t PrefixUtf8Size(HWND handle, LONG position, fileio::LineEnding target
     return fileio::NormalizeLineEndings(ToUtf8(buffer), target).size();
 }
 
+struct NativeCellEdit final {
+    const TableCellProjection* cell{};
+    std::string text;
+    std::size_t selection_begin{};
+    std::size_t selection_end{};
+};
+
+struct LinearProjection final {
+    std::string text;
+    std::vector<std::uint64_t> source_offsets;
+};
+
+LinearProjection BuildLinearProjection(const RichProjection& projection) {
+    LinearProjection result;
+    const auto append_range = [&](std::uint64_t begin, std::uint64_t end) {
+        if (result.source_offsets.empty())
+            result.source_offsets.push_back(projection.source_offsets[begin]);
+        for (auto offset = begin; offset < end; ++offset) {
+            result.text.push_back(projection.text[static_cast<std::size_t>(offset)]);
+            result.source_offsets.push_back(projection.source_offsets[static_cast<std::size_t>(offset + 1U)]);
+        }
+    };
+    const auto append_synthetic = [&](char value, std::uint64_t source) {
+        if (result.source_offsets.empty()) result.source_offsets.push_back(source);
+        result.text.push_back(value);
+        result.source_offsets.push_back(source);
+    };
+    std::uint64_t cursor{};
+    for (const auto& table : projection.tables) {
+        append_range(cursor, table.begin);
+        for (const auto& row : table.rows) {
+            for (const auto& cell : row.cells) {
+                append_range(cell.begin, cell.end);
+                append_synthetic('\t', cell.source_range.end);
+            }
+            append_synthetic('\n', table.source_range.end);
+        }
+        cursor = table.end;
+    }
+    append_range(cursor, projection.text.size());
+    if (result.source_offsets.empty()) result.source_offsets = projection.source_offsets;
+    return result;
+}
+
+std::optional<NativeCellEdit> ReadNativeCellEdit(HWND handle,
+        const RichProjection& projection, CHARRANGE selection) {
+    const auto document = TextDocumentFor(handle);
+    if (!document || selection.cpMin < 0 || selection.cpMax < selection.cpMin) return std::nullopt;
+    Microsoft::WRL::ComPtr<ITextRange2> range;
+    long expanded{};
+    if (FAILED(document->Range2(selection.cpMin, selection.cpMin, &range)) || !range ||
+        FAILED(range->Expand(tomCell, &expanded))) return std::nullopt;
+    long start{}, end{};
+    if (FAILED(range->GetStart(&start)) || FAILED(range->GetEnd(&end)) || end <= start)
+        return std::nullopt;
+    const TableCellProjection* projected{};
+    for (const auto& table : projection.tables) {
+        for (const auto& row : table.rows) {
+            for (const auto& cell : row.cells) {
+                if (cell.physical_begin == start) {
+                    projected = &cell;
+                    break;
+                }
+            }
+            if (projected) break;
+        }
+        if (projected) break;
+    }
+    if (!projected) return std::nullopt;
+    BSTR value{};
+    if (FAILED(range->GetText(&value)) || !value) return std::nullopt;
+    std::wstring wide(value, SysStringLen(value));
+    SysFreeString(value);
+    while (!wide.empty() && (wide.back() == L'\a' || wide.back() == L'\t' ||
+            wide.back() == L'\r' || wide.back() == L'\n')) wide.pop_back();
+    const auto bounded_begin = (std::clamp)(selection.cpMin - start, 0L,
+        static_cast<LONG>(wide.size()));
+    const auto bounded_end = (std::clamp)(selection.cpMax - start, bounded_begin,
+        static_cast<LONG>(wide.size()));
+    NativeCellEdit result;
+    result.cell = projected;
+    result.text = ToUtf8(wide);
+    result.selection_begin = ToUtf8(std::wstring_view(wide).substr(
+        0, static_cast<std::size_t>(bounded_begin))).size();
+    result.selection_end = ToUtf8(std::wstring_view(wide).substr(
+        0, static_cast<std::size_t>(bounded_end))).size();
+    return result;
+}
+
 ErrorCode MapControlSelection(HWND handle, const RichProjection& projection,
                               ParagraphEditor& editor) {
     CHARRANGE selected{};
@@ -290,9 +523,14 @@ ErrorCode MapControlSelection(HWND handle, const RichProjection& projection,
     if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
         selected.cpMax > GetWindowTextLengthW(handle))
         return ErrorCode::editor_selection_mapping_failed;
-    const auto line_ending = fileio::DetectLineEnding(projection.text);
-    const auto begin = PrefixUtf8Size(handle, selected.cpMin, line_ending);
-    const auto end = PrefixUtf8Size(handle, selected.cpMax, line_ending);
+    const auto positions = BuildPhysicalPositions(projection);
+    const auto projected_offset = [&positions](LONG cp) {
+        const auto found = std::lower_bound(positions.begin(), positions.end(), cp);
+        return static_cast<std::size_t>(found == positions.end()
+            ? positions.size() - 1U : std::distance(positions.begin(), found));
+    };
+    const auto begin = projected_offset(selected.cpMin);
+    const auto end = projected_offset(selected.cpMax);
     if (begin >= projection.source_offsets.size() || end >= projection.source_offsets.size())
         return ErrorCode::editor_selection_mapping_failed;
     return editor.set_selection(
@@ -316,7 +554,8 @@ void SelectSourceRange(HWND handle, const RichProjection& projection, TextSelect
     };
     const auto begin = nearest(source.anchor);
     const auto end = nearest(source.caret);
-    CHARRANGE selected{Utf16Length(projection.text, begin), Utf16Length(projection.text, end)};
+    const auto positions = BuildPhysicalPositions(projection);
+    CHARRANGE selected{positions[begin], positions[end]};
     SendMessageW(handle, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selected));
 }
 
@@ -390,6 +629,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         std::span<const LONG> utf16_positions, COLORREF text_color,
         COLORREF background_color, bool insert_image,
         const RenderStyleProfile& profile, UINT layout_dpi) {
+    static_cast<void>(layout_dpi);
     const bool dark = GetRValue(background_color) + GetGValue(background_color) +
         GetBValue(background_color) < 384;
     const auto begin = utf16_positions[(std::min)(
@@ -490,13 +730,11 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         span.kind == document::NodeKind::quote ||
         span.kind == document::NodeKind::code_block ||
         span.kind == document::NodeKind::thematic_break ||
-        span.kind == document::NodeKind::list_item ||
-        span.kind == document::NodeKind::table) {
+        span.kind == document::NodeKind::list_item) {
         PARAFORMAT2 paragraph{};
         paragraph.cbSize = sizeof(paragraph);
         paragraph.dwMask = span.kind == document::NodeKind::thematic_break
-            ? PFM_ALIGNMENT : span.kind == document::NodeKind::table
-            ? PFM_TABSTOPS | PFM_STARTINDENT | PFM_SPACEBEFORE | PFM_SPACEAFTER :
+            ? PFM_ALIGNMENT :
             span.kind == document::NodeKind::code_block
             ? PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_SPACEBEFORE | PFM_SPACEAFTER :
             span.kind == document::NodeKind::list_item
@@ -526,27 +764,7 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             // list item's body; a negative value produces a first-line indent.
             paragraph.dxOffset = hanging;
         }
-        else if (span.kind == document::NodeKind::table) {
-            RECT formatting{};
-            SendMessageW(handle, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
-            const auto columns = (std::max)(1L, static_cast<LONG>(span.table_columns));
-            const auto dpi = layout_dpi ? layout_dpi : GetDpiForWindow(handle);
-            const auto padding_pixels = TableHorizontalPadding(dpi);
-            const auto padding_twips = static_cast<LONG>(MulDiv(
-                padding_pixels, 1440, static_cast<int>(dpi)));
-            const auto width_twips = (std::max)(1440L, static_cast<LONG>(MulDiv(
-                formatting.right - formatting.left, 1440,
-                static_cast<int>(dpi))));
-            paragraph.dxStartIndent = kBlockGutterTwips + padding_twips;
-            paragraph.cTabCount = static_cast<SHORT>((std::min)(columns, 31L));
-            for (LONG index = 0; index < paragraph.cTabCount; ++index) {
-                const auto boundary = (index + 1) * width_twips / columns;
-                paragraph.rgxTabs[index] = boundary +
-                    (index + 1 < columns ? padding_twips : 0);
-            }
-            paragraph.dySpaceBefore = 100;
-            paragraph.dySpaceAfter = 100;
-        } else paragraph.wAlignment = PFA_CENTER;
+        else paragraph.wAlignment = PFA_CENTER;
         SendMessageW(handle, EM_SETPARAFORMAT, 0,
                      reinterpret_cast<LPARAM>(&paragraph));
     }
@@ -648,7 +866,6 @@ ErrorCode RichEditHost::project() {
         static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(&session_)),
         snapshot, projection_));
     block_layout_valid_ = false;
-    const auto utf16_positions = BuildUtf16Positions(projection_.text);
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
     const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
@@ -658,6 +875,13 @@ ErrorCode RichEditHost::project() {
         projecting_ = false;
         return ErrorCode::editor_render_projection_failed;
     }
+    if (!SetNativeTableParameters(handle_, projection_, background_color_, dpi_, true)) {
+        SendMessageW(handle_, EM_SETEVENTMASK, 0, static_cast<LPARAM>(event_mask));
+        SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
+        projecting_ = false;
+        return ErrorCode::editor_render_projection_failed;
+    }
+    const auto utf16_positions = BuildPhysicalPositions(projection_);
     for (const auto& span : projection_.spans) {
         if (span.kind == document::NodeKind::image)
             ApplySpan(handle_, span, utf16_positions,
@@ -665,7 +889,7 @@ ErrorCode RichEditHost::project() {
     }
     apply_appearance(text_color_, background_color_, dpi_);
     apply_heading_folds();
-    const auto length = static_cast<LONG>(rich_text.size());
+    const auto length = static_cast<LONG>(GetWindowTextLengthW(handle_));
     selection.cpMin = (std::min)(selection.cpMin, length);
     selection.cpMax = (std::min)(selection.cpMax, length);
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
@@ -707,10 +931,12 @@ void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi
     SendMessageW(handle_, EM_SETCHARFORMAT, SCF_SELECTION,
         reinterpret_cast<LPARAM>(&base));
     ApplyBaseParagraph(handle_, profile);
-    const auto utf16_positions = BuildUtf16Positions(projection_.text);
+    const auto utf16_positions = BuildPhysicalPositions(projection_);
     for (const auto& span : projection_.spans)
         ApplySpan(handle_, span, utf16_positions,
             text_color_, background_color_, false, profile, dpi_);
+    static_cast<void>(SetNativeTableParameters(
+        handle_, projection_, background_color_, dpi_, false));
     apply_heading_folds();
     invalidate_block_layout();
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
@@ -728,16 +954,18 @@ RenderStyle RichEditHost::render_style() const noexcept { return render_style_; 
 
 void RichEditHost::refresh_layout_after_resize() {
     if (!handle_ || projecting_ || projection_.spans.empty()) return;
+    if (!projection_.tables.empty()) {
+        // Native table cellx values are part of the RichEdit table structure;
+        // rebuilding the derived projection is the reliable way to reflow them.
+        static_cast<void>(project());
+        return;
+    }
     projecting_ = true;
     RichEditFreeze freeze(handle_);
     CHARRANGE selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-    const auto utf16 = BuildUtf16Positions(projection_.text);
-    for (const auto& span : projection_.spans) {
-        if (span.kind == document::NodeKind::table)
-            ApplySpan(handle_, span, utf16, text_color_, background_color_,
-                false, ProfileFor(render_style_), dpi_);
-    }
+    static_cast<void>(SetNativeTableParameters(
+        handle_, projection_, background_color_, dpi_, false));
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = false;
     InvalidateRect(handle_, nullptr, TRUE);
@@ -770,7 +998,7 @@ void RichEditHost::apply_heading_folds() {
         set_hidden(0, static_cast<LONG>(GetWindowTextLengthW(handle_)), tomFalse);
         if (document && folds_ &&
             folds_->revision() == session_.snapshot().source_revision) {
-            const auto utf16 = BuildUtf16Positions(projection_.text);
+            const auto utf16 = BuildPhysicalPositions(projection_);
             for (const auto& item : folds_->items()) {
                 if (!item.collapsed) continue;
                 const auto begin_it = std::lower_bound(projection_.source_offsets.begin(),
@@ -804,7 +1032,7 @@ void RichEditHost::restore_heading_fold_scroll() {
 
 void RichEditHost::draw_heading_folds(HDC dc) const {
     if (!handle_ || !dc || !folds_) return;
-    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto utf16 = BuildPhysicalPositions(projection_);
     const auto size = (std::max)(8, MulDiv(10, static_cast<int>(dpi_), 96));
     const auto color = GetRValue(background_color_) < 128
         ? RGB(220, 220, 220) : RGB(70, 70, 70);
@@ -855,7 +1083,7 @@ bool RichEditHost::handle_heading_fold_click(POINT point) {
     const auto left = MulDiv(kSelectionMarginDips, static_cast<int>(dpi_), 96);
     const auto right = MulDiv(kFoldHitRightDips, static_cast<int>(dpi_), 96);
     if (!handle_ || !folds_ || point.x < left || point.x > right) return false;
-    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto utf16 = BuildPhysicalPositions(projection_);
     const auto tolerance = MulDiv(10, static_cast<int>(dpi_), 96);
     const auto document = TextDocumentFor(handle_);
     for (const auto& item : folds_->items()) {
@@ -901,7 +1129,7 @@ bool RichEditHost::refresh_block_layout() {
     if (!handle_ || block_interactions_.revision() != session_.snapshot().source_revision)
         return false;
     if (block_layout_valid_) return true;
-    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto utf16 = BuildPhysicalPositions(projection_);
     RECT client{};
     GetClientRect(handle_, &client);
     const auto line_height = (std::max)(18, MulDiv(22, static_cast<int>(dpi_), 96));
@@ -1406,48 +1634,14 @@ std::optional<BlockCommandContext> RichEditHost::block_context_at_source(
 }
 
 void RichEditHost::draw_table_grid(HDC dc) const {
-    if (!handle_ || !dc || projection_.spans.empty()) return;
-    const auto line_color = GetRValue(background_color_) < 128
-        ? RGB(112, 112, 116) : RGB(176, 176, 176);
-    const auto pen = CreatePen(PS_SOLID, (std::max)(1, MulDiv(1,
-        static_cast<int>(dpi_), 96)), line_color);
-    const auto old_pen = SelectObject(dc, pen);
-    RECT client{};
-    GetClientRect(handle_, &client);
-
-    const auto snapshot = session_.snapshot();
-    for (const auto& layout : BuildTableLayouts(handle_, projection_,
-            snapshot.source_revision, dpi_)) {
-        const auto* table_node = snapshot.semantic
-            ? snapshot.semantic->find(layout.table_id) : nullptr;
-        const auto hidden_by_fold = table_node && folds_ &&
-            std::any_of(folds_->items().begin(), folds_->items().end(),
-                [table_node](const auto& item) {
-                    return item.collapsed &&
-                        table_node->source.begin >= item.body_range.begin &&
-                        table_node->source.begin < item.body_range.end;
-                });
-        if (hidden_by_fold) continue;
-        if (layout.table_rect.bottom < client.top ||
-            layout.table_rect.top > client.bottom) continue;
-        for (const auto x : layout.column_boundaries) {
-            MoveToEx(dc, x, layout.table_rect.top, nullptr);
-            LineTo(dc, x, layout.table_rect.bottom);
-        }
-        MoveToEx(dc, layout.table_rect.left, layout.table_rect.top, nullptr);
-        LineTo(dc, layout.table_rect.right, layout.table_rect.top);
-        for (const auto& row : layout.row_rects) {
-            MoveToEx(dc, layout.table_rect.left, row.bottom, nullptr);
-            LineTo(dc, layout.table_rect.right, row.bottom);
-        }
-    }
-    SelectObject(dc, old_pen);
-    DeleteObject(pen);
+    static_cast<void>(dc);
+    // Native RichEdit table cells own their borders and backgrounds.  GDI is
+    // intentionally reserved for interaction overlays, not table structure.
 }
 
 void RichEditHost::draw_quote_guides(HDC dc) const {
     if (!handle_ || !dc || projection_.spans.empty()) return;
-    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto utf16 = BuildPhysicalPositions(projection_);
     TEXTMETRICW metrics{};
     GetTextMetricsW(dc, &metrics);
     const auto color = GetRValue(background_color_) < 128
@@ -1480,7 +1674,7 @@ void RichEditHost::draw_quote_guides(HDC dc) const {
 
 void RichEditHost::draw_code_block_frames(HDC dc) const {
     if (!handle_ || !dc || projection_.spans.empty()) return;
-    const auto utf16 = BuildUtf16Positions(projection_.text);
+    const auto utf16 = BuildPhysicalPositions(projection_);
     TEXTMETRICW metrics{};
     GetTextMetricsW(dc, &metrics);
     RECT client{};
@@ -1593,8 +1787,53 @@ ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
+    if (const auto native = ReadNativeCellEdit(handle_, projection_, control_selection)) {
+        const auto& before_cell = native->cell->text;
+        const auto& after_cell = native->text;
+        if (before_cell != after_cell) {
+            std::size_t prefix{};
+            while (prefix < before_cell.size() && prefix < after_cell.size() &&
+                before_cell[prefix] == after_cell[prefix]) ++prefix;
+            while (prefix > 0 && prefix < before_cell.size() &&
+                (static_cast<unsigned char>(before_cell[prefix]) & 0xc0U) == 0x80U) --prefix;
+            std::size_t old_suffix = before_cell.size();
+            std::size_t new_suffix = after_cell.size();
+            while (old_suffix > prefix && new_suffix > prefix &&
+                before_cell[old_suffix - 1] == after_cell[new_suffix - 1]) {
+                --old_suffix;
+                --new_suffix;
+            }
+            if (old_suffix >= native->cell->source_offsets.size()) {
+                static_cast<void>(project());
+                return ErrorCode::editor_selection_mapping_failed;
+            }
+            const auto source_begin = native->cell->source_offsets[prefix];
+            const auto source_end = native->cell->source_offsets[old_suffix];
+            auto visible_replacement = after_cell.substr(prefix, new_suffix - prefix);
+            std::string markdown_replacement;
+            for (const auto value : visible_replacement) {
+                if (value == '\r' || value == '\n' || value == '\t') markdown_replacement.push_back(' ');
+                else {
+                    if (value == '|') markdown_replacement.push_back('\\');
+                    markdown_replacement.push_back(value);
+                }
+            }
+            const auto next = source_begin + markdown_replacement.size();
+            const auto result = editor_.replace_source_range(source_begin, source_end,
+                std::move(markdown_replacement), {next, next});
+            if (result != ErrorCode::ok) {
+                static_cast<void>(project());
+                return result;
+            }
+            const auto projected = project();
+            if (projected == ErrorCode::ok)
+                SelectSourceRange(handle_, projection_, editor_.selection());
+            return projected;
+        }
+    }
     const auto source = session_.snapshot().source;
-    const auto before = projection_.text;
+    const auto linear_projection = BuildLinearProjection(projection_);
+    const auto& before = linear_projection.text;
     const auto line_ending = fileio::DetectLineEnding(source);
     const auto after = ReadUtf8(
         handle_, line_ending == fileio::LineEnding::mixed ? fileio::LineEnding::crlf : line_ending);
@@ -1616,13 +1855,13 @@ ErrorCode RichEditHost::synchronize_change() {
     while (new_suffix < after.size() &&
            (static_cast<unsigned char>(after[new_suffix]) & 0xC0U) == 0x80U) ++new_suffix;
 
-    if (prefix >= projection_.source_offsets.size() ||
-        old_suffix >= projection_.source_offsets.size()) {
+    if (prefix >= linear_projection.source_offsets.size() ||
+        old_suffix >= linear_projection.source_offsets.size()) {
         static_cast<void>(project());
         return ErrorCode::editor_selection_mapping_failed;
     }
-    auto source_begin = projection_.source_offsets[prefix];
-    auto source_end = projection_.source_offsets[old_suffix];
+    auto source_begin = linear_projection.source_offsets[prefix];
+    auto source_end = linear_projection.source_offsets[old_suffix];
     auto replacement = after.substr(prefix, new_suffix - prefix);
     const auto expected_eol = line_ending == fileio::LineEnding::lf ? "\n" : "\r\n";
     if (replacement == expected_eol && control_selection.cpMin == control_selection.cpMax) {
@@ -1631,8 +1870,8 @@ ErrorCode RichEditHost::synchronize_change() {
         const auto caret_after = PrefixUtf8Size(handle_, control_selection.cpMin, target_ending);
         if (caret_after >= replacement.size()) {
             const auto visual_insertion = caret_after - replacement.size();
-            if (visual_insertion < projection_.source_offsets.size()) {
-                source_begin = projection_.source_offsets[visual_insertion];
+            if (visual_insertion < linear_projection.source_offsets.size()) {
+                source_begin = linear_projection.source_offsets[visual_insertion];
                 source_end = source_begin;
             }
         }
@@ -1702,7 +1941,7 @@ ErrorCode RichEditHost::synchronize_change() {
     if (updated.semantic) {
         auto next_projection = BuildInlineProjection(
             *updated.semantic, updated.source, document_path_);
-        if (next_projection.text == after &&
+        if (BuildLinearProjection(next_projection).text == after &&
             HasSameFormattingStructure(projection_, next_projection)) {
             projection_ = std::move(next_projection);
             apply_heading_folds();
