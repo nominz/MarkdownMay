@@ -41,6 +41,7 @@ public:
     [[nodiscard]] ErrorCode change_document_kind(document::DocumentKind kind);
     [[nodiscard]] bool supports_markdown_commands() const noexcept;
     void set_document_path(std::filesystem::path path);
+    void set_read_only(bool read_only);
     [[nodiscard]] bool can_undo() const noexcept;
     [[nodiscard]] bool can_redo() const noexcept;
     [[nodiscard]] ViewMode mode() const noexcept;
@@ -95,6 +96,7 @@ private:
     bool applying_history_{};
     bool switching_mode_{};
     bool synchronization_pending_{};
+    bool read_only_{};
     std::uint64_t next_transaction_{1};
 };
 

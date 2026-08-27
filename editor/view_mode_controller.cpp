@@ -69,7 +69,7 @@ ErrorCode ViewModeController::create(HWND parent, const RECT& bounds) {
     RECT child{0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top};
     if (render_.create(host_, child) != ErrorCode::ok ||
         split_.create(host_, child) != ErrorCode::ok) return ErrorCode::editor_split_control_failed;
-    render_.set_read_only(false);
+    set_read_only(read_only_);
     ShowWindow(split_.handle(), SW_HIDE);
     ShowWindow(render_.handle(), SW_SHOW);
     mode_ = ViewMode::render;
@@ -100,7 +100,7 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
     } else if (target == ViewMode::render) {
         const auto result = render_.project();
         if (result != ErrorCode::ok) return result;
-        render_.set_read_only(false);
+        render_.set_read_only(read_only_);
     }
 
     ShowWindow(render_.handle(), target == ViewMode::render ? SW_SHOW : SW_HIDE);
@@ -211,7 +211,7 @@ ErrorCode ViewModeController::reload(std::string source, document::DocumentKind 
         render_.reset_to_start();
         if (render_.project() != ErrorCode::ok) return ErrorCode::editor_render_projection_failed;
         render_.reset_to_start();
-        render_.set_read_only(false);
+        render_.set_read_only(read_only_);
         ShowWindow(split_.handle(), SW_HIDE);
         ShowWindow(render_.handle(), SW_SHOW);
         mode_ = ViewMode::render;
@@ -250,6 +250,14 @@ ErrorCode ViewModeController::refresh_after_session_edit() {
 void ViewModeController::set_document_path(std::filesystem::path path) {
     render_.set_document_path(path);
     split_.render_view().set_document_path(std::move(path));
+}
+
+void ViewModeController::set_read_only(bool read_only) {
+    read_only_ = read_only;
+    render_.set_read_only(read_only_);
+    split_.source_view().set_read_only(read_only_);
+    // The split render pane is always a derived, non-editable projection.
+    split_.render_view().set_read_only(true);
 }
 
 bool ViewModeController::can_undo() const noexcept { return !undo_.empty(); }
@@ -437,7 +445,7 @@ ErrorCode ViewModeController::RefreshActive() {
     ErrorCode result{};
     if (mode_ == ViewMode::render) {
         result = render_.project();
-        render_.set_read_only(false);
+        render_.set_read_only(read_only_);
     } else {
         result = split_.project();
         split_.set_source_only(mode_ == ViewMode::source);

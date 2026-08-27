@@ -45,6 +45,7 @@ public:
         WPARAM w_param, LPARAM l_param, UINT_PTR id, DWORD_PTR data);
 
 private:
+    document::DocumentSession& session_;
     editor::ViewModeController modes_;
     FindReplaceBar find_replace_;
     OutlineView outline_;

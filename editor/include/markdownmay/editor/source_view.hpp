@@ -41,6 +41,7 @@ public:
     [[nodiscard]] ErrorCode copy();
     [[nodiscard]] ErrorCode paste();
     [[nodiscard]] ErrorCode select_all();
+    void set_read_only(bool read_only);
     void set_synchronized_callback(std::function<void(ErrorCode)> callback);
     void set_scroll_callback(std::function<void(std::uint64_t, std::uint64_t)> callback);
     void set_heading_folds(HeadingFoldController* folds);
@@ -61,6 +62,7 @@ private:
     HWND host_{};
     HWND editor_{};
     bool projecting_{};
+    bool read_only_{};
     std::uint64_t pending_since_{};
     ErrorCode last_error_{ErrorCode::ok};
     std::function<void(ErrorCode)> synchronized_callback_;

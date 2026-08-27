@@ -18,7 +18,7 @@ document::DocumentKind KindForPath(const std::filesystem::path& path) {
 }
 
 DocumentWindow::DocumentWindow(document::DocumentSession& session)
-    : modes_(session), find_replace_(modes_), outline_(session, modes_) {}
+    : session_(session), modes_(session), find_replace_(modes_), outline_(session, modes_) {}
 
 ErrorCode DocumentWindow::create(HWND parent, const RECT& bounds) {
     bounds_ = bounds;
@@ -95,14 +95,31 @@ ErrorCode DocumentWindow::new_document() {
     read_only_ = false;
     disk_source_.clear();
     modes_.set_document_path({});
+    modes_.set_read_only(false);
     return ErrorCode::ok;
 }
 
 ErrorCode DocumentWindow::open_document(const std::filesystem::path& path) {
     const auto loaded = fileio::LoadTextFile(path);
     if (!loaded.is_ok()) return loaded.error();
+    const auto old_snapshot = session_.snapshot();
+    const auto old_source = old_snapshot.source;
+    const auto old_kind = old_snapshot.kind;
+    const auto old_path = path_;
+    const auto old_encoding = encoding_;
+    const auto old_line_ending = line_ending_;
+    const auto old_read_only = read_only_;
     const auto result = modes_.reload(loaded.value().source, KindForPath(path));
-    if (result != ErrorCode::ok) return result;
+    if (result != ErrorCode::ok) {
+        static_cast<void>(modes_.reload(old_source, old_kind));
+        path_ = old_path;
+        encoding_ = old_encoding;
+        line_ending_ = old_line_ending;
+        read_only_ = old_read_only;
+        modes_.set_document_path(path_);
+        modes_.set_read_only(read_only_);
+        return result;
+    }
     path_ = loaded.value().path;
     encoding_ = loaded.value().encoding;
     line_ending_ = loaded.value().line_ending;
@@ -111,6 +128,7 @@ ErrorCode DocumentWindow::open_document(const std::filesystem::path& path) {
         (attributes & FILE_ATTRIBUTE_READONLY) != 0;
     disk_source_ = loaded.value().source;
     modes_.set_document_path(path_);
+    modes_.set_read_only(read_only_);
     return ErrorCode::ok;
 }
 
@@ -129,6 +147,7 @@ ErrorCode DocumentWindow::save_document_as(const std::filesystem::path& path) {
     read_only_ = false;
     acknowledge_external_change();
     modes_.set_document_path(path_);
+    modes_.set_read_only(false);
     const auto kind_result = modes_.change_document_kind(KindForPath(path_));
     if (kind_result != ErrorCode::ok) return kind_result;
     return ErrorCode::ok;

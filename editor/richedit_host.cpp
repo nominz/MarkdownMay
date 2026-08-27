@@ -954,12 +954,10 @@ RenderStyle RichEditHost::render_style() const noexcept { return render_style_; 
 
 void RichEditHost::refresh_layout_after_resize() {
     if (!handle_ || projecting_ || projection_.spans.empty()) return;
-    if (!projection_.tables.empty()) {
-        // Native table cellx values are part of the RichEdit table structure;
-        // rebuilding the derived projection is the reliable way to reflow them.
-        static_cast<void>(project());
-        return;
-    }
+    // WM_SIZE runs inside RichEdit's own layout pass. Replacing the document and
+    // issuing EM_INSERTTABLE here can leave the plain projection installed when
+    // native table insertion is rejected as re-entrant. Resize the existing
+    // native rows in place instead; the Markdown projection remains untouched.
     projecting_ = true;
     RichEditFreeze freeze(handle_);
     CHARRANGE selection{};

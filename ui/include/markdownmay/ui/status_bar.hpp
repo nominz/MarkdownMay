@@ -23,6 +23,7 @@ public:
     void refresh();
     void set_file_format(fileio::TextEncoding encoding,
                          fileio::LineEnding line_ending);
+    void set_read_only(bool read_only);
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] int height() const noexcept;
     void apply_appearance(COLORREF text, COLORREF background, UINT dpi);
@@ -39,6 +40,7 @@ private:
     int height_{24};
     fileio::TextEncoding encoding_{fileio::TextEncoding::utf8};
     fileio::LineEnding line_ending_{fileio::LineEnding::crlf};
+    bool read_only_{};
     HFONT font_{};
     COLORREF text_color_{RGB(70, 70, 70)};
     COLORREF background_color_{RGB(249, 249, 249)};

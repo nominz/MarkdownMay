@@ -85,7 +85,7 @@ void StatusBar::refresh() {
     const auto characters = CountCharacters(snapshot.source);
     const auto count = std::to_wstring(characters) + L" 字";
     labels_ = {snapshot.kind == document::DocumentKind::plain_text ? L"纯文本" : L"大纲",
-        session_.is_dirty() ? L"未保存" : L"已保存",
+        read_only_ ? L"只读" : (session_.is_dirty() ? L"未保存" : L"已保存"),
         std::wstring(L"编码方式：") + EncodingName(encoding_),
         std::wstring(L"换行方式：") + LineEndingName(line_ending_), count,
         snapshot.kind == document::DocumentKind::plain_text ? L"纯文本" : ModeName(modes_.mode())};
@@ -93,6 +93,11 @@ void StatusBar::refresh() {
         SendMessageW(handle_, SB_SETTEXTW, index,
             reinterpret_cast<LPARAM>(labels_[index].c_str()));
     InvalidateRect(handle_, nullptr, FALSE);
+}
+
+void StatusBar::set_read_only(bool read_only) {
+    read_only_ = read_only;
+    refresh();
 }
 
 void StatusBar::set_file_format(fileio::TextEncoding encoding,

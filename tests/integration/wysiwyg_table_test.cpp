@@ -159,6 +159,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     const auto old_right = layout.table_rect.right;
     const auto old_middle = layout.column_boundaries[1];
+    MoveWindow(sample_host.handle(), 0, 0, 1800, 900, TRUE);
+    auto maximized_layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
+        sample_session.snapshot().source_revision, 96);
+    std::wstring after_maximize(
+        static_cast<std::size_t>(GetWindowTextLengthW(sample_host.handle())) + 1U, L'\0');
+    GetWindowTextW(sample_host.handle(), after_maximize.data(),
+        static_cast<int>(after_maximize.size()));
+    if (maximized_layouts.size() != 1 || maximized_layouts[0].cells.size() != 20 ||
+        after_maximize.find(L"示例云 ECS") == std::wstring::npos ||
+        after_maximize.find(L"非常非常长的中文内容") == std::wstring::npos) return 111;
     MoveWindow(sample_host.handle(), 0, 0, 600, 560, TRUE);
     layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
         sample_session.snapshot().source_revision, 96);

@@ -78,19 +78,27 @@ ErrorCode SourceView::create(HWND parent, const RECT& bounds) {
         return ErrorCode::editor_source_control_failed;
     }
     Configure();
+    SendEditor(editor_, SCI_SETREADONLY, read_only_ ? 1 : 0);
     if (!SetWindowSubclass(editor_, SourceEditorSubclass, 1,
             reinterpret_cast<DWORD_PTR>(this)))
         return ErrorCode::editor_source_control_failed;
     return project();
 }
 
+void SourceView::set_read_only(bool read_only) {
+    read_only_ = read_only;
+    if (editor_) SendEditor(editor_, SCI_SETREADONLY, read_only ? 1 : 0);
+}
+
 ErrorCode SourceView::project() {
     if (!editor_) return ErrorCode::editor_source_control_failed;
     projecting_ = true;
     const auto source = session_.snapshot().source;
+    SendEditor(editor_, SCI_SETREADONLY, 0);
     SendEditor(editor_, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(source.c_str()));
     SendEditor(editor_, SCI_EMPTYUNDOBUFFER);
     SendEditor(editor_, SCI_SETSAVEPOINT);
+    SendEditor(editor_, SCI_SETREADONLY, read_only_ ? 1 : 0);
     projecting_ = false;
     ApplyStyles();
     ApplyDiagnostics();

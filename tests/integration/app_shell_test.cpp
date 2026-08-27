@@ -694,6 +694,31 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
         DestroyWindow(window.handle()); CoUninitialize(); return 23;
     }
+    window.refresh_document_chrome();
+    const auto read_only_title_length = GetWindowTextLengthW(window.handle());
+    std::wstring read_only_title(static_cast<std::size_t>(read_only_title_length) + 1U, L'\0');
+    GetWindowTextW(window.handle(), read_only_title.data(), read_only_title_length + 1);
+    read_only_title.resize(static_cast<std::size_t>(read_only_title_length));
+    if (read_only_title.find(L"[只读]") == std::wstring::npos) {
+        SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
+        DestroyWindow(window.handle()); CoUninitialize(); return 45;
+    }
+    wchar_t read_only_status[32]{};
+    SendMessageW(window.status_bar().handle(), SB_GETTEXTW, 1,
+        reinterpret_cast<LPARAM>(read_only_status));
+    if (std::wstring(read_only_status) != L"只读") {
+        SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
+        DestroyWindow(window.handle()); CoUninitialize(); return 46;
+    }
+    const auto read_only_source = session.snapshot().source;
+    const auto read_only_rich = window.document_window().modes().render_view().handle();
+    SendMessageW(read_only_rich, EM_SETSEL, 0, 0);
+    SendMessageW(read_only_rich, EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"禁止写入"));
+    if (session.snapshot().source != read_only_source) {
+        SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
+        DestroyWindow(window.handle()); CoUninitialize(); return 47;
+    }
     SetFileAttributesW(second.c_str(), FILE_ATTRIBUTE_NORMAL);
     if (window.document_window().new_document() != ErrorCode::ok) {
         DestroyWindow(window.handle()); CoUninitialize(); return 28;
