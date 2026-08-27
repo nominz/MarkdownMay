@@ -996,9 +996,12 @@ bool RichEditHost::is_native_table_column_boundary(POINT point) const {
         3, static_cast<int>(dpi_ ? dpi_ : 96), 96)));
     for (const auto& layout : layouts) {
         if (point.y < layout.table_rect.top || point.y >= layout.table_rect.bottom ||
-            layout.column_boundaries.size() < 3U) continue;
-        for (std::size_t column = 1; column + 1U < layout.column_boundaries.size(); ++column)
-            if (std::labs(point.x - layout.column_boundaries[column]) <= tolerance)
+            layout.column_boundaries.size() < 2U) continue;
+        // RichEdit exposes resize tracking not only on internal separators but also
+        // on the table's left/right outer edges. The right edge is normally hidden
+        // against a narrow formatting rectangle and becomes draggable after maximize.
+        for (const auto boundary : layout.column_boundaries)
+            if (std::labs(point.x - boundary) <= tolerance)
                 return true;
     }
     return false;

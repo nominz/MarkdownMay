@@ -184,6 +184,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (after_drag_layouts.size() != 1 || after_drag_layouts[0].cells.size() != 20 ||
         after_drag_layouts[0].column_boundaries[1] != boundary_x ||
         sample_session.snapshot().source != sample) return 113;
+    const auto outer_right = after_drag_layouts[0].column_boundaries.back();
+    if (!sample_host.is_native_table_column_boundary({outer_right, boundary_y})) return 114;
+    SendMessageW(sample_host.handle(), WM_LBUTTONDOWN, MK_LBUTTON,
+        MAKELPARAM(outer_right, boundary_y));
+    SendMessageW(sample_host.handle(), WM_MOUSEMOVE, MK_LBUTTON,
+        MAKELPARAM(outer_right + 180, boundary_y));
+    SendMessageW(sample_host.handle(), WM_LBUTTONUP, 0,
+        MAKELPARAM(outer_right + 180, boundary_y));
+    const auto after_outer_drag = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
+        sample_session.snapshot().source_revision, 96);
+    if (after_outer_drag.size() != 1 || after_outer_drag[0].cells.size() != 20 ||
+        after_outer_drag[0].column_boundaries.back() != outer_right ||
+        sample_session.snapshot().source != sample) return 115;
     MoveWindow(sample_host.handle(), 0, 0, 600, 560, TRUE);
     layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
         sample_session.snapshot().source_revision, 96);
