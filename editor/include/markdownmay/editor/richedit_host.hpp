@@ -123,6 +123,7 @@ public:
     void set_render_style(RenderStyle style);
     [[nodiscard]] RenderStyle render_style() const noexcept;
     void refresh_layout_after_resize();
+    [[nodiscard]] bool is_native_table_column_boundary(POINT point) const;
     void draw_table_grid(HDC dc) const;
     void draw_quote_guides(HDC dc) const;
     void draw_code_block_frames(HDC dc) const;

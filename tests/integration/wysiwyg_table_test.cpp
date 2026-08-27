@@ -169,6 +169,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (maximized_layouts.size() != 1 || maximized_layouts[0].cells.size() != 20 ||
         after_maximize.find(L"示例云 ECS") == std::wstring::npos ||
         after_maximize.find(L"非常非常长的中文内容") == std::wstring::npos) return 111;
+    const auto boundary_x = maximized_layouts[0].column_boundaries[1];
+    const auto boundary_y = (maximized_layouts[0].table_rect.top +
+        maximized_layouts[0].table_rect.bottom) / 2;
+    if (!sample_host.is_native_table_column_boundary({boundary_x, boundary_y})) return 112;
+    SendMessageW(sample_host.handle(), WM_LBUTTONDOWN, MK_LBUTTON,
+        MAKELPARAM(boundary_x, boundary_y));
+    SendMessageW(sample_host.handle(), WM_MOUSEMOVE, MK_LBUTTON,
+        MAKELPARAM(boundary_x + 120, boundary_y));
+    SendMessageW(sample_host.handle(), WM_LBUTTONUP, 0,
+        MAKELPARAM(boundary_x + 120, boundary_y));
+    auto after_drag_layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
+        sample_session.snapshot().source_revision, 96);
+    if (after_drag_layouts.size() != 1 || after_drag_layouts[0].cells.size() != 20 ||
+        after_drag_layouts[0].column_boundaries[1] != boundary_x ||
+        sample_session.snapshot().source != sample) return 113;
     MoveWindow(sample_host.handle(), 0, 0, 600, 560, TRUE);
     layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
         sample_session.snapshot().source_revision, 96);

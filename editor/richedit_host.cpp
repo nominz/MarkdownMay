@@ -100,6 +100,25 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
     if (message == WM_LBUTTONDOWN && self &&
         self->handle_block_handle_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
         return 0;
+    if ((message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) && self &&
+        self->is_native_table_column_boundary(
+            {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)})) {
+        // RichEdit's native table ruler mutates RTF-only cell widths outside the
+        // DocumentSession transaction model. Markdown has no portable column-width
+        // syntax, so suppress that private mutation until an application-owned
+        // view-state resize interaction is introduced.
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        return 0;
+    }
+    if (message == WM_SETCURSOR && self && LOWORD(l_param) == HTCLIENT) {
+        POINT point{};
+        GetCursorPos(&point);
+        ScreenToClient(window, &point);
+        if (self->is_native_table_column_boundary(point)) {
+            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            return TRUE;
+        }
+    }
     if (message == WM_MOUSEMOVE && self)
         static_cast<void>(self->update_block_hover(
             {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}));
@@ -967,6 +986,22 @@ void RichEditHost::refresh_layout_after_resize() {
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = false;
     InvalidateRect(handle_, nullptr, TRUE);
+}
+
+bool RichEditHost::is_native_table_column_boundary(POINT point) const {
+    if (!handle_ || projection_.tables.empty()) return false;
+    const auto revision = session_.snapshot().source_revision;
+    const auto layouts = BuildTableLayouts(handle_, projection_, revision, dpi_);
+    const auto tolerance = (std::max)(2L, static_cast<LONG>(MulDiv(
+        3, static_cast<int>(dpi_ ? dpi_ : 96), 96)));
+    for (const auto& layout : layouts) {
+        if (point.y < layout.table_rect.top || point.y >= layout.table_rect.bottom ||
+            layout.column_boundaries.size() < 3U) continue;
+        for (std::size_t column = 1; column + 1U < layout.column_boundaries.size(); ++column)
+            if (std::labs(point.x - layout.column_boundaries[column]) <= tolerance)
+                return true;
+    }
+    return false;
 }
 
 void RichEditHost::set_heading_folds(HeadingFoldController* folds) {
