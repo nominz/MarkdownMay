@@ -602,6 +602,37 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         dispatcher.execute(app::CommandId::view_render) != ErrorCode::ok) {
         DestroyWindow(window.handle()); CoUninitialize(); return 96;
     }
+    const auto pump_mode_messages = [] {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    };
+    const auto toolbar = window.toolbar()->handle();
+    SendMessageW(window.handle(), WM_COMMAND,
+        MAKEWPARAM(static_cast<WORD>(app::CommandId::view_source), 0),
+        reinterpret_cast<LPARAM>(toolbar));
+    pump_mode_messages();
+    if (window.document_window().modes().mode() != editor::ViewMode::source ||
+        !IsWindowVisible(window.document_window().modes().split_view().handle()) ||
+        IsWindowVisible(rich) ||
+        IsWindowVisible(window.document_window().modes().split_view().render_view().handle()))
+        return 97;
+    SendMessageW(window.handle(), WM_COMMAND,
+        MAKEWPARAM(static_cast<WORD>(app::CommandId::view_render), 0),
+        reinterpret_cast<LPARAM>(toolbar));
+    pump_mode_messages();
+    SendMessageW(window.handle(), WM_COMMAND,
+        MAKEWPARAM(static_cast<WORD>(app::CommandId::view_source), 0),
+        reinterpret_cast<LPARAM>(toolbar));
+    pump_mode_messages();
+    if (window.document_window().modes().mode() != editor::ViewMode::source ||
+        !IsWindowVisible(window.document_window().modes().split_view().handle()) ||
+        IsWindowVisible(rich) ||
+        IsWindowVisible(window.document_window().modes().split_view().render_view().handle()))
+        return 98;
+    if (dispatcher.execute(app::CommandId::view_render) != ErrorCode::ok) return 99;
     SendMessageW(rich, EM_SETSEL, static_cast<WPARAM>(-1), static_cast<LPARAM>(-1));
     SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"追加\r"));
     if (window.document_window().save_document() != ErrorCode::ok) {

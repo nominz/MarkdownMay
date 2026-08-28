@@ -284,8 +284,12 @@ LRESULT CALLBACK MainWindow::WindowProcedure(HWND window, UINT message,
                 DestroyWindow(window);
             return 0;
         case WM_SETFOCUS:
-            if (self->document_window_.handle())
-                SetFocus(self->document_window_.modes().render_view().handle());
+            if (self->document_window_.handle()) {
+                auto& modes = self->document_window_.modes();
+                SetFocus(modes.mode() == editor::ViewMode::render
+                    ? modes.render_view().handle()
+                    : modes.source_view().handle());
+            }
             return 0;
         case WM_DPICHANGED: {
             self->dpi_ = HIWORD(w_param);

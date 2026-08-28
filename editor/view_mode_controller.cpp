@@ -14,6 +14,7 @@ namespace {
 
 constexpr wchar_t kModeHostClass[] = L"MarkdownMay.ViewMode.Host";
 constexpr UINT kSynchronizeRenderMessage = WM_APP + 1;
+constexpr UINT kReconcileModeVisibilityMessage = WM_APP + 2;
 constexpr UINT kRefreshChromeMessage = WM_APP + 18;
 
 struct SwitchingGuard final {
@@ -119,6 +120,7 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
 
     mode_ = target;
     ApplyModeVisibility(mode_);
+    PostMessageW(host_, kReconcileModeVisibilityMessage, 0, 0);
     RestoreSelection(selection);
     if (mode_ == ViewMode::render)
         render_.scroll_to_fraction(scroll.first, scroll.second);
@@ -457,6 +459,10 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
         if (!self->switching_mode_ && self->mode_ == ViewMode::render)
             static_cast<void>(self->render_.synchronize_change());
         self->synchronization_pending_ = false;
+        return 0;
+    }
+    if (message == kReconcileModeVisibilityMessage) {
+        self->ApplyModeVisibility(self->mode_);
         return 0;
     }
     if (message == WM_NCDESTROY) {
