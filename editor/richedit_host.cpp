@@ -25,6 +25,7 @@ namespace {
 
 constexpr int kSelectionMarginDips = 8;
 constexpr LONG kBlockGutterTwips = 1200;
+constexpr LONG kMaxNativeTableWidthTwips = 14400;
 constexpr int kFoldCenterDips = 16;
 constexpr int kFoldHitRightDips = 30;
 constexpr int kBlockTypeLeftDips = 31;
@@ -150,7 +151,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
             " capture=" + std::to_string(GetCapture() == window));
     }
     if (message == kReprojectNativeTableMessage && self) {
-        static_cast<void>(self->project());
+        static_cast<void>(self->run_deferred_reproject());
         return 0;
     }
     if (message == WM_KEYDOWN && w_param == VK_OEM_4 &&
@@ -427,8 +428,14 @@ bool SetNativeTableParameters(HWND handle, RichProjection& projection,
         const auto end = positions[static_cast<std::size_t>(table.end)] +
             (insert ? physical_delta : 0L);
         const auto available_pixels = (std::max)(1L, formatting.right - formatting.left);
-        const auto available_twips = (std::max)(1440L, static_cast<LONG>(MulDiv(
-            available_pixels, 1440, static_cast<int>(effective_dpi))));
+        // RichEdit's native table row/cell positions have a practical width
+        // ceiling.  Feeding a maximized 2K/4K formatting rectangle directly into
+        // cumulative cellx makes both EM_SETTABLEPARMS and a later EM_INSERTTABLE
+        // fail. Markdown carries no viewport-filling column width, so cap the
+        // visual table at ten logical inches and let narrower windows contract it.
+        const auto available_twips = (std::clamp)(static_cast<LONG>(MulDiv(
+            available_pixels, 1440, static_cast<int>(effective_dpi))),
+            1440L, kMaxNativeTableWidthTwips);
         const auto width = (std::max)(240L, available_twips / static_cast<LONG>(columns));
 
         std::vector<TABLECELLPARMS> cells(columns);
@@ -1059,6 +1066,11 @@ ErrorCode RichEditHost::project() {
     return ErrorCode::ok;
 }
 
+ErrorCode RichEditHost::run_deferred_reproject() {
+    deferred_reproject_pending_ = false;
+    return project();
+}
+
 void RichEditHost::apply_appearance(COLORREF text, COLORREF background, UINT dpi) {
     text_color_ = text; background_color_ = background; dpi_ = dpi ? dpi : 96;
     if (!handle_) return;
@@ -1117,20 +1129,19 @@ void RichEditHost::refresh_layout_after_resize() {
     TraceTable("resize refresh begin width=" + std::to_string(client.right) +
         " height=" + std::to_string(client.bottom) + " tables=" +
         std::to_string(projection_.tables.size()));
-    // WM_SIZE runs inside RichEdit's own layout pass. Replacing the document and
-    // issuing EM_INSERTTABLE here can leave the plain projection installed when
-    // native table insertion is rejected as re-entrant. Resize the existing
-    // native rows in place instead; the Markdown projection remains untouched.
-    projecting_ = true;
-    RichEditFreeze freeze(handle_);
-    CHARRANGE selection{};
-    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-    const auto table_result = SetNativeTableParameters(
-        handle_, projection_, background_color_, dpi_, false);
-    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-    projecting_ = false;
-    InvalidateRect(handle_, nullptr, TRUE);
-    TraceTable("resize refresh end result=" + std::to_string(table_result));
+    // The real maximized-window trace proved EM_SETTABLEPARMS fails here because
+    // WM_SIZE is still inside RichEdit's layout stack and cached cpStartRow values
+    // no longer identify valid rows.  Coalesce a clean rebuild after WM_SIZE
+    // returns; the empty-RTF reset discards the stale native table tree first.
+    if (!projection_.tables.empty() && !deferred_reproject_pending_) {
+        reset_native_table_structure_ = true;
+        deferred_reproject_pending_ = true;
+        PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
+        TraceTable("resize refresh queued full reproject");
+    } else {
+        TraceTable("resize refresh skipped pending=" +
+            std::to_string(deferred_reproject_pending_));
+    }
 }
 
 bool RichEditHost::begin_native_table_pointer_gesture(POINT point) {

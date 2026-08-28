@@ -53,6 +53,7 @@ public:
 
     [[nodiscard]] ErrorCode create(HWND parent, const RECT& bounds);
     [[nodiscard]] ErrorCode project();
+    [[nodiscard]] ErrorCode run_deferred_reproject();
     [[nodiscard]] ErrorCode show_status_message(std::wstring_view message);
     void set_read_only(bool read_only);
     void scroll_to_fraction(std::uint64_t numerator, std::uint64_t denominator);
@@ -180,6 +181,7 @@ private:
     bool native_table_pointer_read_only_{};
     bool native_table_pointer_was_read_only_{};
     bool native_table_format_change_pending_{};
+    bool deferred_reproject_pending_{};
     RichProjection projection_;
     COLORREF text_color_{RGB(32, 32, 32)};
     COLORREF background_color_{RGB(255, 255, 255)};

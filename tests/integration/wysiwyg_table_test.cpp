@@ -45,6 +45,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     const auto parent = CreateWindowExW(0, class_name, L"", WS_OVERLAPPEDWINDOW,
         0, 0, 800, 600, nullptr, nullptr, instance, nullptr);
     if (!parent) return 1;
+    const auto pump_messages = [] {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    };
     document::DocumentSession session("");
     editor::RichEditHost host(session);
     if (host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok ||
@@ -166,6 +173,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     const auto old_right = layout.table_rect.right;
     const auto old_middle = layout.column_boundaries[1];
     MoveWindow(sample_host.handle(), 0, 0, 1800, 900, TRUE);
+    pump_messages();
     auto maximized_layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
         sample_session.snapshot().source_revision, 96);
     std::wstring after_maximize(
@@ -204,6 +212,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         after_outer_drag[0].column_boundaries.back() != outer_right ||
         sample_session.snapshot().source != sample) return 115;
     MoveWindow(sample_host.handle(), 0, 0, 600, 560, TRUE);
+    pump_messages();
     layouts = editor::BuildTableLayouts(sample_host.handle(), sample_projection,
         sample_session.snapshot().source_revision, 96);
     if (layouts.size() != 1 || layouts[0].table_rect.right >= old_right ||
@@ -223,6 +232,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     editor::RichEditHost format_host(format_session);
     if (format_host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok) return 116;
     MoveWindow(format_host.handle(), 0, 0, 1800, 900, TRUE);
+    pump_messages();
     auto format_projection = editor::BuildInlineProjection(
         *format_session.snapshot().semantic, format_session.snapshot().source);
     auto format_layouts = editor::BuildTableLayouts(format_host.handle(), format_projection,
@@ -302,6 +312,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     auto v04_layouts = editor::BuildTableLayouts(v04_host.handle(), v04_projection,
         v04_session.snapshot().source_revision, 96);
     if (v04_layouts.size() != 9) return 126;
+    MoveWindow(v04_host.handle(), 0, 0, 2539, 1268, TRUE);
+    pump_messages();
+    if (v04_session.snapshot().source != v04_source) return 131;
+    v04_projection = editor::BuildInlineProjection(
+        *v04_session.snapshot().semantic, v04_session.snapshot().source);
+    v04_layouts = editor::BuildTableLayouts(v04_host.handle(), v04_projection,
+        v04_session.snapshot().source_revision, 96);
+    if (v04_layouts.size() != 9) return 132;
 
     const std::string wrap_source =
         "表格前普通段落\n\n"
