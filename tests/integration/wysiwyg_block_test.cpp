@@ -194,6 +194,38 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             "一百零三个字段，每个字段是\"标签 + 值\"。\n"
             "```\n\n"
             "但接下来是三个死穴。") return 67;
+
+    // Regression for a CRLF document whose first rendered paragraph is
+    // selected from the first visible character.
+    markdownmay::document::DocumentSession first_crlf(
+        "这篇稿子表面上在讲分析，但真正讲的是工作方法。\r\n\r\n"
+        "## 一、第一节\r\n\r\n正文一。\r\n\r\n"
+        "## 二、第二节\r\n\r\n正文二。\r\n");
+    markdownmay::editor::RichEditHost first_crlf_host(first_crlf);
+    if (first_crlf_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 74;
+    FINDTEXTEXW find_first{{0, -1}, const_cast<wchar_t*>(L"这篇稿子表面上在讲分析，但真正讲的是工作方法。"), {}};
+    if (SendMessageW(first_crlf_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_first)) < 0) return 75;
+    SendMessageW(first_crlf_host.handle(), EM_SETSEL,
+        find_first.chrgText.cpMin, find_first.chrgText.cpMax);
+    if (first_crlf_host.toggle_code_block() != markdownmay::ErrorCode::ok) return 76;
+    if (first_crlf.snapshot().source !=
+            "```\r\n这篇稿子表面上在讲分析，但真正讲的是工作方法。\r\n```\r\n\r\n"
+            "## 一、第一节\r\n\r\n正文一。\r\n\r\n"
+            "## 二、第二节\r\n\r\n正文二。\r\n") return 77;
+
+    markdownmay::document::DocumentSession trailing_gap(
+        "首段。\r\n\r\n## 标题\r\n\r\n后段。\r\n");
+    markdownmay::editor::RichEditHost trailing_gap_host(trailing_gap);
+    if (trailing_gap_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 78;
+    FINDTEXTEXW find_trailing_heading{{0, -1}, const_cast<wchar_t*>(L"标题"), {}};
+    if (SendMessageW(trailing_gap_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_trailing_heading)) < 0) return 79;
+    SendMessageW(trailing_gap_host.handle(), EM_SETSEL, 0, find_trailing_heading.chrgText.cpMin);
+    if (trailing_gap_host.toggle_code_block() != markdownmay::ErrorCode::ok) return 80;
+    if (trailing_gap.snapshot().source !=
+            "```\r\n首段。\r\n```\r\n\r\n## 标题\r\n\r\n后段。\r\n") return 81;
+
     DestroyWindow(parent);
     return 0;
 }

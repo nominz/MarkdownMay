@@ -2410,7 +2410,7 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
     if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
         return ErrorCode::editor_selection_mapping_failed;
     auto source_begin = projection_.source_offsets[begin];
-    const auto source_end = projection_.source_offsets[end];
+    auto source_end = projection_.source_offsets[end];
     // A projection boundary can still be owned by the preceding hidden Markdown
     // block.  For a non-empty visual selection, identify the first selected block
     // from the first actual UTF-8 character inside the selection, not that boundary.
@@ -2422,6 +2422,19 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
         else if ((first & 0xe0U) == 0xc0U) bytes = 2;
         const auto inside = (std::min)(begin + bytes, end);
         source_begin = projection_.source_offsets[inside];
+
+        // The boundary immediately after a mouse selection can belong to a
+        // following hidden Markdown separator.  On a long projection that
+        // synthetic boundary may carry the document-end source offset, making
+        // a selected paragraph look like a selection through EOF.  Anchor the
+        // end in the final byte that is actually selected; BlockFormatter will
+        // expand that interior point to the complete semantic block.
+        const auto snapshot = session_.snapshot();
+        if (snapshot.semantic && end > 0) {
+            const auto last_inside = projection_.source_offsets[end - 1U];
+            source_end = (std::min)(static_cast<std::uint64_t>(snapshot.source.size()),
+                (std::max)(source_begin + 1U, last_inside + 1U));
+        }
     }
     auto result = editor_.set_selection({source_begin, source_end});
     if (result == ErrorCode::ok) result = block_formatter_.toggle_code_block(language);
