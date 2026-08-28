@@ -233,6 +233,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             format_layouts[0].cells.front().content_rect.right) / 2,
         (format_layouts[0].cells.front().content_rect.top +
             format_layouts[0].cells.front().content_rect.bottom) / 2};
+    if (!format_host.begin_native_table_pointer_gesture(format_point) ||
+        (GetWindowLongPtrW(format_host.handle(), GWL_STYLE) & ES_READONLY) == 0)
+        return 129;
+    format_host.end_native_table_pointer_gesture();
+    if ((GetWindowLongPtrW(format_host.handle(), GWL_STYLE) & ES_READONLY) != 0)
+        return 130;
     SendMessageW(format_host.handle(), WM_LBUTTONDOWN, MK_LBUTTON,
         MAKELPARAM(format_point.x, format_point.y));
     SendMessageW(format_host.handle(), WM_LBUTTONUP, 0,

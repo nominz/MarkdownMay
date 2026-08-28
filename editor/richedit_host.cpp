@@ -142,6 +142,16 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         SetCursor(LoadCursorW(nullptr, IDC_ARROW));
         return 0;
     }
+    if ((message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) && self)
+        static_cast<void>(self->begin_native_table_pointer_gesture(
+            {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}));
+    if (message == WM_LBUTTONUP && self) {
+        const auto result = DefSubclassProc(window, message, w_param, l_param);
+        self->end_native_table_pointer_gesture();
+        return result;
+    }
+    if (message == WM_CAPTURECHANGED && self)
+        self->end_native_table_pointer_gesture();
     if (message == WM_SETCURSOR && self && LOWORD(l_param) == HTCLIENT) {
         POINT point{};
         GetCursorPos(&point);
@@ -1075,6 +1085,40 @@ void RichEditHost::refresh_layout_after_resize() {
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = false;
     InvalidateRect(handle_, nullptr, TRUE);
+}
+
+bool RichEditHost::begin_native_table_pointer_gesture(POINT point) {
+    if (!handle_ || projection_.tables.empty()) return false;
+    POINTL native_point{point.x, point.y};
+    const auto cp = static_cast<LONG>(SendMessageW(handle_, EM_CHARFROMPOS, 0,
+        reinterpret_cast<LPARAM>(&native_point)));
+    const auto document = TextDocumentFor(handle_);
+    Microsoft::WRL::ComPtr<ITextRange2> cell;
+    long expanded{};
+    if (cp < 0 || !document || FAILED(document->Range2(cp, cp, &cell)) || !cell ||
+        FAILED(cell->Expand(tomCell, &expanded)) || expanded <= 0) return false;
+
+    LONG left{}, top{}, right{}, bottom{}, hit{};
+    if (FAILED(cell->GetRect(tomClientCoord | tomAllowOffClient | tomCell,
+            &left, &top, &right, &bottom, &hit)) ||
+        point.x < left || point.x > right || point.y < top || point.y >= bottom)
+        return false;
+
+    if (!native_table_pointer_read_only_) {
+        native_table_pointer_was_read_only_ =
+            (GetWindowLongPtrW(handle_, GWL_STYLE) & ES_READONLY) != 0;
+        SendMessageW(handle_, EM_SETREADONLY, TRUE, 0);
+        native_table_pointer_read_only_ = true;
+    }
+    return true;
+}
+
+void RichEditHost::end_native_table_pointer_gesture() {
+    if (!handle_ || !native_table_pointer_read_only_) return;
+    if (!native_table_pointer_was_read_only_)
+        SendMessageW(handle_, EM_SETREADONLY, FALSE, 0);
+    native_table_pointer_read_only_ = false;
+    native_table_pointer_was_read_only_ = false;
 }
 
 bool RichEditHost::is_native_table_column_boundary(POINT point) const {

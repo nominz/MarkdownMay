@@ -123,6 +123,8 @@ public:
     void set_render_style(RenderStyle style);
     [[nodiscard]] RenderStyle render_style() const noexcept;
     void refresh_layout_after_resize();
+    [[nodiscard]] bool begin_native_table_pointer_gesture(POINT point);
+    void end_native_table_pointer_gesture();
     [[nodiscard]] bool is_native_table_column_boundary(POINT point) const;
     void draw_table_grid(HDC dc) const;
     void draw_quote_guides(HDC dc) const;
@@ -173,6 +175,8 @@ private:
     HMODULE rich_edit_module_{};
     bool projecting_{};
     bool reset_native_table_structure_{};
+    bool native_table_pointer_read_only_{};
+    bool native_table_pointer_was_read_only_{};
     RichProjection projection_;
     COLORREF text_color_{RGB(32, 32, 32)};
     COLORREF background_color_{RGB(255, 255, 255)};
