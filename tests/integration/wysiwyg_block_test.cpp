@@ -255,6 +255,47 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         after_table_code.snapshot().source !=
             "| A | B |\n| --- | --- |\n| x | y |\n\n```\n目标段落。\n```\n\n后段。") return 87;
 
+    markdownmay::document::DocumentSession quote_enter("> 第一行\n> 第二行");
+    markdownmay::editor::RichEditHost quote_enter_host(quote_enter);
+    if (quote_enter_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 88;
+    FINDTEXTEXW find_quote_enter{{0, -1}, const_cast<wchar_t*>(L"第一行"), {}};
+    if (SendMessageW(quote_enter_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_quote_enter)) < 0) return 90;
+    SendMessageW(quote_enter_host.handle(), EM_SETSEL,
+        find_quote_enter.chrgText.cpMax, find_quote_enter.chrgText.cpMax);
+    SendMessageW(quote_enter_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"\r\n"));
+    if (quote_enter_host.synchronize_change() != markdownmay::ErrorCode::ok ||
+        quote_enter.snapshot().source != "> 第一行\n> \n> 第二行") return 89;
+
+    find_quote_enter.chrg = {0, -1};
+    if (SendMessageW(quote_enter_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_quote_enter)) < 0) return 90;
+    POINT quote_point{};
+    SendMessageW(quote_enter_host.handle(), EM_POSFROMCHAR,
+        reinterpret_cast<WPARAM>(&quote_point), find_quote_enter.chrgText.cpMin);
+    if (!quote_enter_host.update_block_hover({200, quote_point.y + 2})) return 91;
+    const auto handle_rect = quote_enter_host.block_handle_hit_rect();
+    const auto screen = GetDC(quote_enter_host.handle());
+    const auto memory = CreateCompatibleDC(screen);
+    const auto bitmap = CreateCompatibleBitmap(screen, 500, 400);
+    const auto old_bitmap = SelectObject(memory, bitmap);
+    RECT canvas{0, 0, 500, 400};
+    FillRect(memory, &canvas, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    quote_enter_host.draw_quote_guides(memory);
+    bool handle_overlap{};
+    for (auto y = handle_rect.top; y < handle_rect.bottom && !handle_overlap; ++y)
+        for (auto x = handle_rect.left; x < handle_rect.right; ++x)
+            if (GetPixel(memory, x, y) != RGB(255, 255, 255)) handle_overlap = true;
+    bool guide_visible{};
+    for (auto y = quote_point.y; y < quote_point.y + 24; ++y)
+        if (GetPixel(memory, 90, y) != RGB(255, 255, 255)) guide_visible = true;
+    SelectObject(memory, old_bitmap);
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(quote_enter_host.handle(), screen);
+    if (handle_overlap || !guide_visible) return 92;
+
     DestroyWindow(parent);
     return 0;
 }

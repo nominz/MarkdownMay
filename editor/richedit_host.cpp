@@ -25,6 +25,7 @@ namespace {
 
 constexpr int kSelectionMarginDips = 8;
 constexpr LONG kBlockGutterTwips = 1200;
+constexpr LONG kStructuredBlockIndentTwips = 540;
 constexpr LONG kMaxNativeTableWidthTwips = 14400;
 constexpr int kFoldCenterDips = 16;
 constexpr int kFoldHitRightDips = 30;
@@ -462,8 +463,8 @@ bool SetNativeTableParameters(HWND handle, RichProjection& projection,
         // fail. Markdown carries no viewport-filling column width, so cap the
         // visual table at ten logical inches and let narrower windows contract it.
         const auto available_twips = (std::clamp)(static_cast<LONG>(MulDiv(
-            available_pixels, 1440, static_cast<int>(effective_dpi))),
-            1440L, kMaxNativeTableWidthTwips);
+            available_pixels, 1440, static_cast<int>(effective_dpi))) -
+            kStructuredBlockIndentTwips, 1440L, kMaxNativeTableWidthTwips);
         const auto width = (std::max)(240L, available_twips / static_cast<LONG>(columns));
 
         std::vector<TABLECELLPARMS> cells(columns);
@@ -482,7 +483,7 @@ bool SetNativeTableParameters(HWND handle, RichProjection& projection,
         row.cCell = static_cast<BYTE>(columns);
         row.cRow = static_cast<BYTE>(rows);
         row.dxCellMargin = margin;
-        row.dxIndent = kBlockGutterTwips;
+        row.dxIndent = kBlockGutterTwips + kStructuredBlockIndentTwips;
         row.nAlignment = PFA_LEFT;
         row.fIdentCells = FALSE;
         row.cpStartRow = insert ? -1 : begin;
@@ -887,18 +888,6 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
-    if (span.kind == document::NodeKind::list_item && span.marker_end > span.begin) {
-        const auto marker_end = utf16_positions[(std::min)(
-            static_cast<std::size_t>(span.marker_end), utf16_positions.size() - 1U)];
-        SendMessageW(handle, EM_SETSEL, static_cast<WPARAM>(begin),
-            static_cast<LPARAM>(marker_end));
-        CHARFORMAT2W marker{};
-        marker.cbSize = sizeof(marker);
-        marker.dwMask = CFM_PROTECTED;
-        marker.dwEffects = CFE_PROTECTED;
-        SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
-            reinterpret_cast<LPARAM>(&marker));
-    }
     if (insert_image && span.kind == document::NodeKind::image &&
         span.image_state == ImageDisplayState::ready && !span.image_path.empty()) {
         Microsoft::WRL::ComPtr<IStream> stream;
@@ -945,9 +934,9 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
             paragraph.dySpaceBefore = profile.heading_space_before[index];
             paragraph.dySpaceAfter = profile.heading_space_after[index];
         } else if (span.kind == document::NodeKind::quote)
-            paragraph.dxStartIndent = kBlockGutterTwips + 360;
+            paragraph.dxStartIndent = kBlockGutterTwips + kStructuredBlockIndentTwips;
         else if (span.kind == document::NodeKind::code_block) {
-            paragraph.dxStartIndent = kBlockGutterTwips + 300;
+            paragraph.dxStartIndent = kBlockGutterTwips + kStructuredBlockIndentTwips;
             paragraph.dxRightIndent = 300;
             paragraph.dySpaceBefore = 300;
             paragraph.dySpaceAfter = 180;
@@ -1948,6 +1937,16 @@ bool RichEditHost::handle_list_marker_click(const POINT point) {
                 hit < physical[static_cast<std::size_t>(value.marker_end)];
         });
     if (span == projection_.spans.end()) return false;
+    POINT marker_begin_point{};
+    POINT marker_end_point{};
+    SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&marker_begin_point),
+        physical[static_cast<std::size_t>(span->begin)]);
+    SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&marker_end_point),
+        physical[static_cast<std::size_t>(span->marker_end)]);
+    // EM_CHARFROMPOS maps the selection bar to the first character.  Do not
+    // mistake that native whole-line gesture for a marker click.
+    if (point.x < marker_begin_point.x || point.x >= marker_end_point.x)
+        return false;
     const auto marker_end = physical[static_cast<std::size_t>(span->marker_end)];
     SendMessageW(handle_, EM_SETSEL, marker_end, marker_end);
     if (!span->ordered) return true;
@@ -2032,7 +2031,7 @@ void RichEditHost::draw_quote_guides(HDC dc) const {
         // Keep the guide in the reserved gutter.  Deriving it from the first
         // child text position makes a quote containing a native table cross the
         // table's left border because the two children use different layouts.
-        const auto x = MulDiv(66, static_cast<int>(dpi_), 96);
+        const auto x = MulDiv(90, static_cast<int>(dpi_), 96);
         MoveToEx(dc, x, top, nullptr);
         LineTo(dc, x, bottom);
     }
@@ -2339,6 +2338,7 @@ ErrorCode RichEditHost::synchronize_change() {
         }
     }
     bool continued_list{};
+    bool continued_quote{};
     bool completed_thematic_break{};
     auto result = editor_.set_selection({source_begin, source_end});
     if (result == ErrorCode::ok) {
@@ -2360,8 +2360,29 @@ ErrorCode RichEditHost::synchronize_change() {
         } else if (replacement == expected_eol) {
             result = list_editor_.continue_item();
             continued_list = result == ErrorCode::ok;
-            if (result == ErrorCode::editor_selection_mapping_failed)
-                result = editor_.insert_text(replacement);
+            if (result == ErrorCode::editor_selection_mapping_failed) {
+                auto line_begin = source_begin == 0 ? std::string::npos :
+                    source.rfind('\n', static_cast<std::size_t>(source_begin - 1));
+                line_begin = line_begin == std::string::npos ? 0 : line_begin + 1;
+                auto cursor = line_begin;
+                while (cursor < source.size() && source[cursor] == ' ') ++cursor;
+                std::string quote_prefix(source.substr(line_begin, cursor - line_begin));
+                while (cursor < source.size() && source[cursor] == '>') {
+                    quote_prefix.push_back('>');
+                    ++cursor;
+                    if (cursor < source.size() && source[cursor] == ' ') {
+                        quote_prefix.push_back(' ');
+                        ++cursor;
+                    }
+                    while (cursor < source.size() && source[cursor] == ' ') {
+                        quote_prefix.push_back(' ');
+                        ++cursor;
+                    }
+                }
+                continued_quote = quote_prefix.find('>') != std::string::npos;
+                result = editor_.insert_text(continued_quote
+                    ? replacement + quote_prefix : replacement);
+            }
         } else {
             result = editor_.insert_text(replacement);
         }
@@ -2412,7 +2433,7 @@ ErrorCode RichEditHost::synchronize_change() {
     }
     const auto projected = project();
     if (projected == ErrorCode::ok) {
-        if (replacement == expected_eol && !continued_list) {
+        if (replacement == expected_eol && !continued_list && !continued_quote) {
             const auto length = static_cast<LONG>(GetWindowTextLengthW(handle_));
             control_selection.cpMin = (std::min)(control_selection.cpMin, length);
             control_selection.cpMax = (std::min)(control_selection.cpMax, length);

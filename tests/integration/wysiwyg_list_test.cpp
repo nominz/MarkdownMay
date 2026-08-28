@@ -46,13 +46,27 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         hanging.dxStartIndent < 1440 ||
         hanging.dxStartIndent + hanging.dxOffset <= hanging.dxStartIndent) return 37;
 
-    SendMessageW(host.handle(), EM_SETSEL, 0, 1);
-    CHARFORMAT2W marker_format{};
-    marker_format.cbSize = sizeof(marker_format);
-    marker_format.dwMask = CFM_PROTECTED;
-    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
-        reinterpret_cast<LPARAM>(&marker_format));
-    if ((marker_format.dwEffects & CFE_PROTECTED) == 0) return 38;
+    POINT first_point{};
+    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&first_point),
+        first_paragraph.cpMin);
+    SendMessageW(host.handle(), WM_LBUTTONDOWN, MK_LBUTTON,
+        MAKELPARAM(1, first_point.y + 2));
+    SendMessageW(host.handle(), WM_LBUTTONUP, 0, MAKELPARAM(1, first_point.y + 2));
+    CHARRANGE whole_line{};
+    SendMessageW(host.handle(), EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&whole_line));
+    if (whole_line.cpMax <= whole_line.cpMin || whole_line.cpMax < first_paragraph.cpMax)
+        return 38;
+
+    POINT marker_point{};
+    SendMessageW(host.handle(), EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&marker_point), 0);
+    SendMessageW(host.handle(), WM_LBUTTONDOWN, MK_LBUTTON,
+        MAKELPARAM(marker_point.x + 1, marker_point.y + 2));
+    SendMessageW(host.handle(), WM_LBUTTONUP, 0,
+        MAKELPARAM(marker_point.x + 1, marker_point.y + 2));
+    CHARRANGE protected_marker{};
+    SendMessageW(host.handle(), EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&protected_marker));
+    if (protected_marker.cpMin != protected_marker.cpMax ||
+        protected_marker.cpMin < first_paragraph.cpMin) return 39;
 
     auto first = Find(host.handle(), const_cast<wchar_t*>(L"first"));
     const auto inside_first = first.cpMin + 1;
