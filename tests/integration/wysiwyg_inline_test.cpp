@@ -1,6 +1,7 @@
 #include "markdownmay/editor/richedit_host.hpp"
 
 #include <richedit.h>
+#include <commdlg.h>
 
 #include <array>
 
@@ -72,6 +73,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (host.toggle_inline(markdownmay::editor::InlineFormat::strike) !=
             markdownmay::ErrorCode::ok ||
         session.snapshot().source != "粗体 和 [链接](local.md)") return 18;
+    if (session.reload("正文 `code` 结尾") != markdownmay::ErrorCode::ok ||
+        host.project() != markdownmay::ErrorCode::ok) return 21;
+    FINDTEXTEXW find_code{{0, -1}, const_cast<wchar_t*>(L"code"), {}};
+    if (SendMessageW(host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_code)) < 0) return 22;
+    SendMessageW(host.handle(), EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&find_code.chrgText));
+    CHARFORMAT2W code_format{};
+    code_format.cbSize = sizeof(code_format);
+    code_format.dwMask = CFM_BACKCOLOR | CFM_SIZE;
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&code_format));
+    if (code_format.crBackColor != RGB(255, 232, 238) || code_format.yHeight != 200)
+        return 23;
     if (session.reload("# **粗体** 和 **孤立 <b>标签</b>") != markdownmay::ErrorCode::ok ||
         host.project() != markdownmay::ErrorCode::ok) return 19;
     SendMessageW(host.handle(), EM_SETSEL, 1, 1);

@@ -43,8 +43,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         reinterpret_cast<LPARAM>(&hanging));
     if ((hanging.dwMask & (PFM_STARTINDENT | PFM_OFFSET)) !=
             (PFM_STARTINDENT | PFM_OFFSET) || hanging.dxOffset <= 0 ||
-        hanging.dxStartIndent < 1200 ||
+        hanging.dxStartIndent < 1440 ||
         hanging.dxStartIndent + hanging.dxOffset <= hanging.dxStartIndent) return 37;
+
+    SendMessageW(host.handle(), EM_SETSEL, 0, 1);
+    CHARFORMAT2W marker_format{};
+    marker_format.cbSize = sizeof(marker_format);
+    marker_format.dwMask = CFM_PROTECTED;
+    SendMessageW(host.handle(), EM_GETCHARFORMAT, SCF_SELECTION,
+        reinterpret_cast<LPARAM>(&marker_format));
+    if ((marker_format.dwEffects & CFE_PROTECTED) == 0) return 38;
 
     auto first = Find(host.handle(), const_cast<wchar_t*>(L"first"));
     const auto inside_first = first.cpMin + 1;

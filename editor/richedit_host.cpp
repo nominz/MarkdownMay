@@ -189,6 +189,9 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         self->handle_heading_fold_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
         return 0;
     if (message == WM_LBUTTONDOWN && self &&
+        self->handle_list_marker_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
+        return 0;
+    if (message == WM_LBUTTONDOWN && self &&
         self->handle_block_handle_click({GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)}))
         return 0;
     if ((message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) && self &&
@@ -284,6 +287,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
         if (dc) {
             self->draw_table_grid(dc);
             self->draw_quote_guides(dc);
+            self->draw_inline_code_frames(dc);
             self->draw_code_block_frames(dc);
             self->draw_heading_folds(dc);
             self->draw_block_interaction(dc);
@@ -295,6 +299,7 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
     } else if (self && message == WM_PRINTCLIENT) {
         self->draw_table_grid(reinterpret_cast<HDC>(w_param));
         self->draw_quote_guides(reinterpret_cast<HDC>(w_param));
+        self->draw_inline_code_frames(reinterpret_cast<HDC>(w_param));
         self->draw_code_block_frames(reinterpret_cast<HDC>(w_param));
         self->draw_heading_folds(reinterpret_cast<HDC>(w_param));
         self->draw_block_interaction(reinterpret_cast<HDC>(w_param));
@@ -826,8 +831,9 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
     } else if (span.kind == document::NodeKind::strike) {
         format.dwMask = CFM_STRIKEOUT; format.dwEffects = CFE_STRIKEOUT;
     } else if (span.kind == document::NodeKind::inline_code) {
-        format.dwMask = CFM_FACE | CFM_BACKCOLOR;
-        format.crBackColor = dark ? RGB(55, 55, 58) : RGB(238, 238, 238);
+        format.dwMask = CFM_FACE | CFM_BACKCOLOR | CFM_SIZE;
+        format.crBackColor = dark ? RGB(77, 48, 58) : RGB(255, 232, 238);
+        format.yHeight = (std::max)(120L, profile.body_size - 20L);
         wcscpy_s(format.szFaceName, L"Consolas");
     } else if (span.kind == document::NodeKind::link) {
         format.dwMask = CFM_UNDERLINE | CFM_COLOR;
@@ -881,6 +887,18 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
     }
     SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
                  reinterpret_cast<LPARAM>(&format));
+    if (span.kind == document::NodeKind::list_item && span.marker_end > span.begin) {
+        const auto marker_end = utf16_positions[(std::min)(
+            static_cast<std::size_t>(span.marker_end), utf16_positions.size() - 1U)];
+        SendMessageW(handle, EM_SETSEL, static_cast<WPARAM>(begin),
+            static_cast<LPARAM>(marker_end));
+        CHARFORMAT2W marker{};
+        marker.cbSize = sizeof(marker);
+        marker.dwMask = CFM_PROTECTED;
+        marker.dwEffects = CFE_PROTECTED;
+        SendMessageW(handle, EM_SETCHARFORMAT, SCF_SELECTION,
+            reinterpret_cast<LPARAM>(&marker));
+    }
     if (insert_image && span.kind == document::NodeKind::image &&
         span.image_state == ImageDisplayState::ready && !span.image_path.empty()) {
         Microsoft::WRL::ComPtr<IStream> stream;
@@ -936,8 +954,9 @@ void ApplySpan(HWND handle, const ProjectionSpan& span,
         }
         else if (span.kind == document::NodeKind::list_item) {
             constexpr LONG hanging = 540;
+            constexpr LONG list_indent = 240;
             paragraph.dxStartIndent = kBlockGutterTwips +
-                static_cast<LONG>(span.list_depth) * 360;
+                list_indent + static_cast<LONG>(span.list_depth) * 360;
             // RichEdit interprets dxOffset as the indentation of continuation
             // lines relative to the first line.  A positive offset therefore
             // keeps the marker to the left and aligns wrapped text with the
@@ -1468,7 +1487,19 @@ bool RichEditHost::refresh_block_layout() {
             utf16[static_cast<std::size_t>(item.projection_end)]);
         auto bottom = (std::max)(begin.y + line_height, end.y + line_height);
         if (bottom <= client.top || begin.y >= client.bottom) continue;
-        candidates.push_back({item.node_id, begin.y, bottom});
+        if (item.kind == document::NodeKind::heading) {
+            const auto document = TextDocumentFor(handle_);
+            const auto center = HeadingVerticalCenter(handle_, document.Get(),
+                utf16[static_cast<std::size_t>(item.projection_begin)],
+                item.heading_level, dpi_,
+                ProfileFor(render_style_));
+            // Preserve the glyph top for hover hit testing while making the
+            // rectangle's midpoint exactly the TOM character-row center.
+            candidates.push_back({item.node_id, begin.y,
+                (std::max)(begin.y + 1, center * 2 - begin.y)});
+        } else {
+            candidates.push_back({item.node_id, begin.y, bottom});
+        }
     }
     std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
         if (left.top != right.top) return left.top < right.top;
@@ -1904,6 +1935,44 @@ bool RichEditHost::handle_block_handle_click(const POINT point) {
     return show_block_context_menu(*hovered_block_, screen);
 }
 
+bool RichEditHost::handle_list_marker_click(const POINT point) {
+    if (!handle_) return false;
+    const auto physical = BuildPhysicalPositions(projection_);
+    const auto hit = static_cast<LONG>(SendMessageW(handle_, EM_CHARFROMPOS, 0,
+        reinterpret_cast<LPARAM>(&point)));
+    const auto span = std::find_if(projection_.spans.begin(), projection_.spans.end(),
+        [&](const ProjectionSpan& value) {
+            return value.kind == document::NodeKind::list_item &&
+                value.marker_end > value.begin && value.marker_end < physical.size() &&
+                hit >= physical[static_cast<std::size_t>(value.begin)] &&
+                hit < physical[static_cast<std::size_t>(value.marker_end)];
+        });
+    if (span == projection_.spans.end()) return false;
+    const auto marker_end = physical[static_cast<std::size_t>(span->marker_end)];
+    SendMessageW(handle_, EM_SETSEL, marker_end, marker_end);
+    if (!span->ordered) return true;
+
+    const auto menu = CreatePopupMenu();
+    if (!menu) return true;
+    constexpr std::array<std::uint32_t, 5> starts{1, 2, 3, 5, 10};
+    for (std::size_t index = 0; index < starts.size(); ++index) {
+        const auto label = std::wstring(L"起始值 ") + std::to_wstring(starts[index]);
+        AppendMenuW(menu, MF_STRING, 6301 + static_cast<UINT>(index), label.c_str());
+    }
+    POINT screen = point;
+    ClientToScreen(handle_, &screen);
+    const auto command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN |
+        TPM_TOPALIGN | TPM_NONOTIFY, screen.x, screen.y, 0, handle_, nullptr);
+    DestroyMenu(menu);
+    if (command >= 6301 && command < 6301 + starts.size()) {
+        const auto source = projection_.source_offsets[static_cast<std::size_t>(span->begin)];
+        if (editor_.set_selection({source, source}) == ErrorCode::ok &&
+            list_editor_.set_ordered_start(starts[command - 6301]) == ErrorCode::ok)
+            static_cast<void>(project());
+    }
+    return true;
+}
+
 bool RichEditHost::show_block_context_menu_at_caret() {
     const auto selection = source_selection();
     if (!selection.is_ok() || !refresh_block_layout()) return false;
@@ -1956,11 +2025,14 @@ void RichEditHost::draw_quote_guides(HDC dc) const {
         const auto last = quote.end > quote.begin ? quote.end - 1 : quote.end;
         SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
             utf16[static_cast<std::size_t>(last)]);
-        const auto top = static_cast<int>(begin.y);
-        const auto bottom = static_cast<int>(end.y) + metrics.tmHeight;
+        const auto vertical_adjust = MulDiv(4, static_cast<int>(dpi_), 96);
+        const auto top = static_cast<int>(begin.y) + vertical_adjust;
+        const auto bottom = static_cast<int>(end.y) + metrics.tmHeight + vertical_adjust;
         if (bottom < client.top || top > client.bottom) continue;
-        const auto x = static_cast<int>(begin.x) - MulDiv(14,
-            static_cast<int>(dpi_), 96);
+        // Keep the guide in the reserved gutter.  Deriving it from the first
+        // child text position makes a quote containing a native table cross the
+        // table's left border because the two children use different layouts.
+        const auto x = MulDiv(66, static_cast<int>(dpi_), 96);
         MoveToEx(dc, x, top, nullptr);
         LineTo(dc, x, bottom);
     }
@@ -2004,6 +2076,36 @@ void RichEditHost::draw_code_block_frames(HDC dc) const {
     }
     SetTextColor(dc, old_color);
     SetBkMode(dc, old_mode);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+}
+
+void RichEditHost::draw_inline_code_frames(HDC dc) const {
+    if (!handle_ || !dc || projection_.spans.empty()) return;
+    const auto positions = BuildPhysicalPositions(projection_);
+    TEXTMETRICW metrics{};
+    GetTextMetricsW(dc, &metrics);
+    const bool dark = GetRValue(background_color_) < 128;
+    const auto pen = CreatePen(PS_SOLID, 1,
+        dark ? RGB(132, 78, 96) : RGB(232, 168, 184));
+    const auto old_pen = SelectObject(dc, pen);
+    const auto old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
+    const auto pad_x = (std::max)(2, MulDiv(3, static_cast<int>(dpi_), 96));
+    const auto pad_y = (std::max)(1, MulDiv(2, static_cast<int>(dpi_), 96));
+    const auto radius = (std::max)(4, MulDiv(6, static_cast<int>(dpi_), 96));
+    for (const auto& span : projection_.spans) {
+        if (span.kind != document::NodeKind::inline_code || span.begin >= positions.size() ||
+            span.end >= positions.size()) continue;
+        POINT begin{}, end{};
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
+            positions[static_cast<std::size_t>(span.begin)]);
+        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
+            positions[static_cast<std::size_t>(span.end)]);
+        if (end.y != begin.y) continue;
+        RoundRect(dc, begin.x - pad_x, begin.y - pad_y, end.x + pad_x,
+            begin.y + metrics.tmHeight + pad_y, radius, radius);
+    }
     SelectObject(dc, old_brush);
     SelectObject(dc, old_pen);
     DeleteObject(pen);
@@ -2120,7 +2222,12 @@ ErrorCode RichEditHost::synchronize_change() {
         PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
         return ErrorCode::ok;
     }
-    if (NativeTableTextUnchanged(handle_, projection_)) {
+    const auto linear_projection = BuildLinearProjection(projection_);
+    const auto line_ending = fileio::DetectLineEnding(session_.snapshot().source);
+    const auto live_linear_text = ReadUtf8(handle_, line_ending == fileio::LineEnding::mixed
+        ? fileio::LineEnding::crlf : line_ending);
+    if (NativeTableTextUnchanged(handle_, projection_) &&
+        linear_projection.text == live_linear_text) {
         TraceTable("sync branch=native_text_unchanged reproject");
         // Native table formatting notifications (most notably RichEdit's built-in
         // column resize tracker) contain no Markdown text edit.  Restore the
@@ -2183,11 +2290,8 @@ ErrorCode RichEditHost::synchronize_change() {
     }
     const auto source = session_.snapshot().source;
     TraceTable("sync branch=linear source_bytes=" + std::to_string(source.size()));
-    const auto linear_projection = BuildLinearProjection(projection_);
     const auto& before = linear_projection.text;
-    const auto line_ending = fileio::DetectLineEnding(source);
-    const auto after = ReadUtf8(
-        handle_, line_ending == fileio::LineEnding::mixed ? fileio::LineEnding::crlf : line_ending);
+    const auto after = live_linear_text;
     if (before == after) {
         TraceTable("sync linear unchanged bytes=" + std::to_string(before.size()));
         return ErrorCode::ok;

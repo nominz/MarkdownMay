@@ -87,6 +87,24 @@ ErrorCode ListEditor::toggle_ordered(std::uint32_t start) {
 }
 ErrorCode ListEditor::toggle_task() { return Toggle(Kind::task, 1); }
 
+ErrorCode ListEditor::set_ordered_start(std::uint32_t start) {
+    if (start == 0) return ErrorCode::editor_selection_mapping_failed;
+    const auto source = session_.snapshot().source;
+    const auto position = editor_.selection().caret;
+    const auto begin = LineStart(source, position);
+    const auto end = LineEnd(source, position);
+    const auto line = std::string_view(source).substr(static_cast<std::size_t>(begin),
+        static_cast<std::size_t>(end - begin));
+    const auto marker = ParseMarker(line);
+    if (marker.kind != Kind::ordered) return ErrorCode::editor_selection_mapping_failed;
+    const auto digits_begin = marker.indent;
+    const auto digits_end = marker.content - 2;
+    const auto replacement = std::to_string(start);
+    const auto next = begin + digits_begin + replacement.size() + 2;
+    return editor_.replace_source_range(begin + digits_begin, begin + digits_end,
+        replacement, {next, next});
+}
+
 ErrorCode ListEditor::Toggle(Kind target, std::uint32_t start) {
     const auto source = session_.snapshot().source;
     const auto selected = editor_.selection();

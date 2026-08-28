@@ -17,6 +17,7 @@ public:
     [[nodiscard]] ErrorCode indent();
     [[nodiscard]] ErrorCode outdent();
     [[nodiscard]] ErrorCode continue_item();
+    [[nodiscard]] ErrorCode set_ordered_start(std::uint32_t start);
 
 private:
     [[nodiscard]] ErrorCode Toggle(Kind target, std::uint32_t start);

@@ -216,7 +216,7 @@ void Block(const document::Node& node, RichProjection& output,
     } else if (node.kind == document::NodeKind::unknown_block) {
         AppendMappedRange(output, node.text, node.source.begin, node.source.end);
     } else if (node.kind == document::NodeKind::thematic_break) {
-        AppendSynthetic(output, "────────", node.source.begin, node.source.end);
+        AppendSynthetic(output, "──────────────", node.source.begin, node.source.end);
     } else if (node.kind == document::NodeKind::list) {
         if (IsBareOrderedMarker(source, node.source)) {
             AppendMappedRange(output,
@@ -264,6 +264,7 @@ void Block(const document::Node& node, RichProjection& output,
             ProjectionSpan item_span{document::NodeKind::list_item, item_begin, item_end,
                 0, depth, detail && detail->task, detail && detail->checked};
             item_span.ordered = list && list->ordered;
+            item_span.marker_end = item_begin + marker.size();
             output.spans.push_back(std::move(item_span));
             cursor = item->source.end;
             first = false;

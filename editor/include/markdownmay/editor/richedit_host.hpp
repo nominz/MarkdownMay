@@ -142,6 +142,7 @@ public:
     void draw_table_grid(HDC dc) const;
     void draw_quote_guides(HDC dc) const;
     void draw_code_block_frames(HDC dc) const;
+    void draw_inline_code_frames(HDC dc) const;
     void set_heading_folds(HeadingFoldController* folds);
     void apply_heading_folds();
     void draw_heading_folds(HDC dc) const;
@@ -167,6 +168,7 @@ public:
         POINT screen_point);
     [[nodiscard]] bool show_block_context_menu_at_caret();
     [[nodiscard]] bool handle_block_handle_click(POINT point);
+    [[nodiscard]] bool handle_list_marker_click(POINT point);
     [[nodiscard]] HWND block_type_window() const noexcept;
     [[nodiscard]] HWND block_handle_window() const noexcept;
     [[nodiscard]] std::optional<BlockCommandContext> block_context_at_source(

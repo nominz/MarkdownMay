@@ -30,6 +30,7 @@ struct ProjectionSpan final {
     std::string language;
     document::NodeId node_id{};
     document::NodeId table_id{};
+    std::uint64_t marker_end{};
 };
 
 struct TableCellProjection final {

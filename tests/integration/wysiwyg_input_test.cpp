@@ -72,6 +72,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SendMessageW(table_cut_host.handle(), EM_EXGETSEL, 0,
         reinterpret_cast<LPARAM>(&table_cut_selection));
     if (table_cut_selection.cpMin != table_cut_selection.cpMax) return 21;
+
+    document::DocumentSession table_enter(
+        "| A | B |\n| --- | --- |\n| x | y |\n\n可换行段落。\n\n后段。");
+    editor::RichEditHost table_enter_host(table_enter);
+    if (table_enter_host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok) return 22;
+    FINDTEXTEXW find_enter{{0, -1}, const_cast<wchar_t*>(L"可换行段落。"), {}};
+    if (SendMessageW(table_enter_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_enter)) < 0) return 23;
+    SendMessageW(table_enter_host.handle(), EM_SETSEL,
+        find_enter.chrgText.cpMax, find_enter.chrgText.cpMax);
+    SendMessageW(table_enter_host.handle(), EM_REPLACESEL, TRUE,
+        reinterpret_cast<LPARAM>(L"\r"));
+    if (table_enter_host.synchronize_change() != ErrorCode::ok ||
+        table_enter.snapshot().source.find("可换行段落。\n\n") == std::string::npos)
+        return 24;
     DestroyWindow(parent);
     return 0;
 }
