@@ -1950,6 +1950,18 @@ ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
+    // RichEdit owns mouse capture for its private table-column tracker.  Any
+    // EN_CHANGE raised while that capture is active is an RTF/table-structure
+    // mutation, not a Markdown text transaction.  This is the invariant-level
+    // guard: it is independent of maximized geometry, caret relocation, cursor
+    // shape, and the tracker rewriting cell/row markers.  Ordinary mouse text
+    // selection raises no EN_CHANGE, while keyboard/IME/paste edits do not hold
+    // this capture.
+    if (!projection_.tables.empty() && GetCapture() == handle_) {
+        reset_native_table_structure_ = true;
+        PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
+        return ErrorCode::ok;
+    }
     // A native column drag reports EN_CHANGE even though Markdown was not edited.
     // The tracker can move the caret outside the table and can rewrite structural
     // marker text, so neither selection identity nor flat-text equality is stable.

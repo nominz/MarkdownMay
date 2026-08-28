@@ -264,7 +264,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SendMessageW(format_host.handle(), EM_EXSETSEL, 0,
         reinterpret_cast<LPARAM>(&outside_table_selection));
     const auto previous_cursor = SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+    SetCapture(format_host.handle());
     if (format_host.synchronize_change() != ErrorCode::ok) return 119;
+    ReleaseCapture();
     SetCursor(previous_cursor);
     MSG pending{};
     while (PeekMessageW(&pending, nullptr, 0, 0, PM_REMOVE)) {
