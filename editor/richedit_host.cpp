@@ -594,17 +594,15 @@ std::optional<NativeCellEdit> ReadNativeCellEdit(HWND handle,
     return result;
 }
 
-bool NativeTableTextUnchangedAtSelection(HWND handle,
-        const RichProjection& projection, CHARRANGE selection) {
+bool NativeTableTextUnchanged(HWND handle, const RichProjection& projection) {
     const auto document = TextDocumentFor(handle);
-    if (!document || selection.cpMin < 0 || selection.cpMax < selection.cpMin)
-        return false;
-    Microsoft::WRL::ComPtr<ITextRange2> selected_table;
-    long expanded{};
-    if (FAILED(document->Range2(selection.cpMin, selection.cpMin, &selected_table)) ||
-        !selected_table || FAILED(selected_table->Expand(tomTable, &expanded)) ||
-        expanded <= 0) return false;
+    if (!document || projection.tables.empty()) return false;
 
+    // RichEdit's native column tracker may move the selection outside the table
+    // before it sends EN_CHANGE (this is reproducible after maximizing).  The
+    // selection therefore cannot be used as proof that this is a table-format
+    // notification.  Compare every projected cell with its live native cell;
+    // only a document-wide text match is safe to classify as format-only.
     for (const auto& table : projection.tables)
         for (const auto& row : table.rows) for (const auto& cell : row.cells) {
         if (cell.physical_begin < 0) return false;
@@ -1092,6 +1090,14 @@ bool RichEditHost::is_native_table_column_boundary(POINT point) const {
     for (const auto& layout : layouts) {
         if (point.y < layout.table_rect.top || point.y >= layout.table_rect.bottom ||
             layout.column_boundaries.size() < 2U) continue;
+        // Trust RichEdit's own resize hit-test as a second line of defence.  Its
+        // maximized formatting rectangle can expose a hot zone that is wider or
+        // offset from the TOM cell rectangle by more than our DPI tolerance.
+        // Restrict this cursor check to a known native table rectangle so normal
+        // horizontal-resize cursors elsewhere are unaffected.
+        if (GetCursor() == LoadCursorW(nullptr, IDC_SIZEWE) &&
+            point.x >= layout.table_rect.left && point.x <= layout.table_rect.right)
+            return true;
         // RichEdit exposes resize tracking not only on internal separators but also
         // on the table's left/right outer edges. The right edge is normally hidden
         // against a narrow formatting rectangle and becomes draggable after maximize.
@@ -1918,7 +1924,18 @@ ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
-    if (NativeTableTextUnchangedAtSelection(handle_, projection_, control_selection)) {
+    // A native column drag reports EN_CHANGE even though Markdown was not edited.
+    // The tracker can move the caret outside the table and can rewrite structural
+    // marker text, so neither selection identity nor flat-text equality is stable.
+    // The system horizontal-resize cursor is the reliable discriminator while the
+    // pointer remains on the dragged table boundary.
+    if (!projection_.tables.empty() &&
+        GetCursor() == LoadCursorW(nullptr, IDC_SIZEWE)) {
+        reset_native_table_structure_ = true;
+        PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
+        return ErrorCode::ok;
+    }
+    if (NativeTableTextUnchanged(handle_, projection_)) {
         // Native table formatting notifications (most notably RichEdit's built-in
         // column resize tracker) contain no Markdown text edit.  Restore the
         // projection-owned geometry before any structural markers reach the flat

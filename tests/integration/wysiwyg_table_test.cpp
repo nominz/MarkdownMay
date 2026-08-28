@@ -245,6 +245,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     Microsoft::WRL::ComPtr<ITextRange2> native_range;
     Microsoft::WRL::ComPtr<ITextRow> native_row;
     long native_width{};
+    const auto format_event_mask = SendMessageW(format_host.handle(), EM_GETEVENTMASK, 0, 0);
+    SendMessageW(format_host.handle(), EM_SETEVENTMASK, 0, 0);
     if (!SendMessageW(format_host.handle(), EM_GETOLEINTERFACE, 0,
             reinterpret_cast<LPARAM>(rich_ole.GetAddressOf())) ||
         FAILED(rich_ole.As(&text_document)) || !text_document ||
@@ -255,9 +257,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         FAILED(native_row->GetCellWidth(&native_width)) ||
         FAILED(native_row->SetCellWidth(native_width + 720)) ||
         FAILED(native_row->Apply(1, tomRowUpdate))) return 121;
+    SendMessageW(format_host.handle(), EM_SETEVENTMASK, 0, format_event_mask);
+    // The native resize tracker can leave the caret outside the table after a
+    // maximized-window drag.  Reproduce that notification shape explicitly.
+    CHARRANGE outside_table_selection{0, 0};
     SendMessageW(format_host.handle(), EM_EXSETSEL, 0,
-        reinterpret_cast<LPARAM>(&format_selection));
+        reinterpret_cast<LPARAM>(&outside_table_selection));
+    const auto previous_cursor = SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
     if (format_host.synchronize_change() != ErrorCode::ok) return 119;
+    SetCursor(previous_cursor);
     MSG pending{};
     while (PeekMessageW(&pending, nullptr, 0, 0, PM_REMOVE)) {
         TranslateMessage(&pending);
