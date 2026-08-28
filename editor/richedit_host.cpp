@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <cstring>
 #include <cstdlib>
 #include <limits>
 #include <regex>
@@ -33,6 +34,33 @@ constexpr int kBlockHandleRightDips = 77;
 constexpr int kBlockTypeControlId = 6101;
 constexpr int kBlockHandleControlId = 6102;
 constexpr UINT kBlockMenuFirst = 6201;
+constexpr UINT kReprojectNativeTableMessage = WM_APP + 0x31;
+
+struct RtfResetStream final {
+    std::string_view text;
+    std::size_t offset{};
+};
+
+DWORD CALLBACK ReadRtfReset(DWORD_PTR cookie, LPBYTE buffer, LONG capacity, LONG* copied) {
+    auto* stream = reinterpret_cast<RtfResetStream*>(cookie);
+    if (!stream || !buffer || capacity < 0 || !copied) return 1;
+    const auto remaining = stream->text.size() - stream->offset;
+    const auto count = (std::min)(remaining, static_cast<std::size_t>(capacity));
+    if (count) std::memcpy(buffer, stream->text.data() + stream->offset, count);
+    stream->offset += count;
+    *copied = static_cast<LONG>(count);
+    return 0;
+}
+
+bool ResetRichEditDocument(HWND handle) {
+    // Streaming an empty RTF document replaces both text and the backing row/cell
+    // format tree. SetWindowText/TOM New can leave native table descriptors alive.
+    static constexpr std::string_view empty_rtf = "{\\rtf1\\ansi\\deff0\\pard }";
+    RtfResetStream reset{empty_rtf};
+    EDITSTREAM stream{reinterpret_cast<DWORD_PTR>(&reset), 0, ReadRtfReset};
+    SendMessageW(handle, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&stream));
+    return stream.dwError == 0;
+}
 
 std::string ConvertBlockSource(std::string source, const std::uint8_t heading_level) {
     std::size_t marker{};
@@ -86,6 +114,10 @@ LRESULT CALLBACK BlockButtonSubclass(HWND window, UINT message, WPARAM w_param,
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
     auto* self = reinterpret_cast<RichEditHost*>(reference);
+    if (message == kReprojectNativeTableMessage && self) {
+        static_cast<void>(self->project());
+        return 0;
+    }
     if (message == WM_KEYDOWN && w_param == VK_OEM_4 &&
         (GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
         (GetKeyState(VK_SHIFT) & 0x8000) != 0 && self &&
@@ -502,37 +534,93 @@ std::optional<NativeCellEdit> ReadNativeCellEdit(HWND handle,
     if (FAILED(range->GetStart(&start)) || FAILED(range->GetEnd(&end)) || end <= start)
         return std::nullopt;
     const TableCellProjection* projected{};
+    LONG nearest_distance = LONG_MAX;
     for (const auto& table : projection.tables) {
         for (const auto& row : table.rows) {
             for (const auto& cell : row.cells) {
-                if (cell.physical_begin == start) {
+                // TOM's cell range includes RichEdit's leading structural marker.
+                // Formatting a native row can move the reported range start by
+                // one marker without moving the visible cell content.
+                if (cell.physical_begin == start ||
+                    (cell.physical_begin > start && cell.physical_begin < end)) {
                     projected = &cell;
+                    nearest_distance = 0;
                     break;
                 }
+                if (cell.physical_begin >= 0) {
+                    const auto distance = std::labs(cell.physical_begin - start);
+                    if (distance < nearest_distance) {
+                        nearest_distance = distance;
+                        projected = &cell;
+                    }
+                }
             }
-            if (projected) break;
+            if (nearest_distance == 0) break;
         }
-        if (projected) break;
+        if (nearest_distance == 0) break;
     }
-    if (!projected) return std::nullopt;
     BSTR value{};
     if (FAILED(range->GetText(&value)) || !value) return std::nullopt;
     std::wstring wide(value, SysStringLen(value));
     SysFreeString(value);
     while (!wide.empty() && (wide.back() == L'\a' || wide.back() == L'\t' ||
             wide.back() == L'\r' || wide.back() == L'\n')) wide.pop_back();
+    const auto visible_text = ToUtf8(wide);
+    if (!projected || nearest_distance > 8 || projected->text != visible_text) {
+        projected = nullptr;
+        nearest_distance = LONG_MAX;
+        for (const auto& table : projection.tables)
+            for (const auto& row : table.rows) for (const auto& cell : row.cells) {
+                if (cell.text != visible_text || cell.physical_begin < 0) continue;
+                const auto distance = std::labs(cell.physical_begin - start);
+                if (distance < nearest_distance) {
+                    nearest_distance = distance;
+                    projected = &cell;
+                }
+            }
+    }
+    if (!projected) return std::nullopt;
     const auto bounded_begin = (std::clamp)(selection.cpMin - start, 0L,
         static_cast<LONG>(wide.size()));
     const auto bounded_end = (std::clamp)(selection.cpMax - start, bounded_begin,
         static_cast<LONG>(wide.size()));
     NativeCellEdit result;
     result.cell = projected;
-    result.text = ToUtf8(wide);
+    result.text = visible_text;
     result.selection_begin = ToUtf8(std::wstring_view(wide).substr(
         0, static_cast<std::size_t>(bounded_begin))).size();
     result.selection_end = ToUtf8(std::wstring_view(wide).substr(
         0, static_cast<std::size_t>(bounded_end))).size();
     return result;
+}
+
+bool NativeTableTextUnchangedAtSelection(HWND handle,
+        const RichProjection& projection, CHARRANGE selection) {
+    const auto document = TextDocumentFor(handle);
+    if (!document || selection.cpMin < 0 || selection.cpMax < selection.cpMin)
+        return false;
+    Microsoft::WRL::ComPtr<ITextRange2> selected_table;
+    long expanded{};
+    if (FAILED(document->Range2(selection.cpMin, selection.cpMin, &selected_table)) ||
+        !selected_table || FAILED(selected_table->Expand(tomTable, &expanded)) ||
+        expanded <= 0) return false;
+
+    for (const auto& table : projection.tables)
+        for (const auto& row : table.rows) for (const auto& cell : row.cells) {
+        if (cell.physical_begin < 0) return false;
+        Microsoft::WRL::ComPtr<ITextRange2> range;
+        long cell_expanded{};
+        if (FAILED(document->Range2(cell.physical_begin, cell.physical_begin, &range)) ||
+            !range || FAILED(range->Expand(tomCell, &cell_expanded))) return false;
+        BSTR value{};
+        if (FAILED(range->GetText(&value)) || !value) return false;
+        std::wstring wide(value, SysStringLen(value));
+        SysFreeString(value);
+        while (!wide.empty() && (wide.back() == L'\a' || wide.back() == L'\t' ||
+                wide.back() == L'\r' || wide.back() == L'\n')) wide.pop_back();
+        if (ToUtf8(wide) != cell.text) return false;
+    }
+    return true;
 }
 
 ErrorCode MapControlSelection(HWND handle, const RichProjection& projection,
@@ -887,7 +975,10 @@ ErrorCode RichEditHost::project() {
     block_layout_valid_ = false;
     const auto rich_text = ToWide(fileio::NormalizeLineEndings(
         projection_.text, fileio::LineEnding::crlf));
-    const auto success = SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty();
+    const auto reset_native_structure = reset_native_table_structure_;
+    reset_native_table_structure_ = false;
+    const auto success = (!reset_native_structure || ResetRichEditDocument(handle_)) &&
+        (SetWindowTextW(handle_, rich_text.c_str()) != 0 || rich_text.empty());
     if (!success) {
         SendMessageW(handle_, EM_SETEVENTMASK, 0, static_cast<LPARAM>(event_mask));
         SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
@@ -992,8 +1083,12 @@ bool RichEditHost::is_native_table_column_boundary(POINT point) const {
     if (!handle_ || projection_.tables.empty()) return false;
     const auto revision = session_.snapshot().source_revision;
     const auto layouts = BuildTableLayouts(handle_, projection_, revision, dpi_);
-    const auto tolerance = (std::max)(2L, static_cast<LONG>(MulDiv(
-        3, static_cast<int>(dpi_ ? dpi_ : 96), 96)));
+    // The resize cursor exposed by msftedit.dll is wider than the one-pixel
+    // border that BuildTableLayouts reports, particularly with fractional DPI.
+    // Cover the complete native hot zone so the click cannot start RichEdit's
+    // private RTF-only column tracking before our source-owned interaction does.
+    const auto tolerance = (std::max)(4L, static_cast<LONG>(MulDiv(
+        8, static_cast<int>(dpi_ ? dpi_ : 96), 96)));
     for (const auto& layout : layouts) {
         if (point.y < layout.table_rect.top || point.y >= layout.table_rect.bottom ||
             layout.column_boundaries.size() < 2U) continue;
@@ -1823,9 +1918,23 @@ ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
+    if (NativeTableTextUnchangedAtSelection(handle_, projection_, control_selection)) {
+        // Native table formatting notifications (most notably RichEdit's built-in
+        // column resize tracker) contain no Markdown text edit.  Restore the
+        // projection-owned geometry before any structural markers reach the flat
+        // source mapper.
+        reset_native_table_structure_ = true;
+        PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
+        return ErrorCode::ok;
+    }
     if (const auto native = ReadNativeCellEdit(handle_, projection_, control_selection)) {
         const auto& before_cell = native->cell->text;
         const auto& after_cell = native->text;
+        if (before_cell == after_cell) {
+            reset_native_table_structure_ = true;
+            PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
+            return ErrorCode::ok;
+        }
         if (before_cell != after_cell) {
             std::size_t prefix{};
             while (prefix < before_cell.size() && prefix < after_cell.size() &&

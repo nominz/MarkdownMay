@@ -172,6 +172,7 @@ private:
     HWND handle_{};
     HMODULE rich_edit_module_{};
     bool projecting_{};
+    bool reset_native_table_structure_{};
     RichProjection projection_;
     COLORREF text_color_{RGB(32, 32, 32)};
     COLORREF background_color_{RGB(255, 255, 255)};

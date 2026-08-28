@@ -3,8 +3,14 @@
 
 #include <windows.h>
 #include <richedit.h>
+#include <richole.h>
+#include <tom.h>
+#include <wrl/client.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -209,6 +215,76 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (layouts.size() != 1 || layouts[0].cells.empty() ||
         layouts[0].cells.front().content_rect.left -
             layouts[0].cells.front().rect.left != editor::TableHorizontalPadding(144)) return 96;
+
+    // Bypass the mouse guard and directly reproduce the RTF-only width mutation
+    // performed by RichEdit's native column tracker.  Synchronization must keep
+    // Markdown and every native cell alive even though geometry changed.
+    document::DocumentSession format_session(sample);
+    editor::RichEditHost format_host(format_session);
+    if (format_host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok) return 116;
+    MoveWindow(format_host.handle(), 0, 0, 1800, 900, TRUE);
+    auto format_projection = editor::BuildInlineProjection(
+        *format_session.snapshot().semantic, format_session.snapshot().source);
+    auto format_layouts = editor::BuildTableLayouts(format_host.handle(), format_projection,
+        format_session.snapshot().source_revision, 96);
+    if (format_layouts.size() != 1 || format_layouts[0].cells.size() != 20) return 117;
+    POINT format_point{
+        (format_layouts[0].cells.front().content_rect.left +
+            format_layouts[0].cells.front().content_rect.right) / 2,
+        (format_layouts[0].cells.front().content_rect.top +
+            format_layouts[0].cells.front().content_rect.bottom) / 2};
+    SendMessageW(format_host.handle(), WM_LBUTTONDOWN, MK_LBUTTON,
+        MAKELPARAM(format_point.x, format_point.y));
+    SendMessageW(format_host.handle(), WM_LBUTTONUP, 0,
+        MAKELPARAM(format_point.x, format_point.y));
+    CHARRANGE format_selection{};
+    SendMessageW(format_host.handle(), EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&format_selection));
+    Microsoft::WRL::ComPtr<IRichEditOle> rich_ole;
+    Microsoft::WRL::ComPtr<ITextDocument2> text_document;
+    Microsoft::WRL::ComPtr<ITextRange2> native_range;
+    Microsoft::WRL::ComPtr<ITextRow> native_row;
+    long native_width{};
+    if (!SendMessageW(format_host.handle(), EM_GETOLEINTERFACE, 0,
+            reinterpret_cast<LPARAM>(rich_ole.GetAddressOf())) ||
+        FAILED(rich_ole.As(&text_document)) || !text_document ||
+        FAILED(text_document->Range2(format_selection.cpMin, format_selection.cpMin,
+            &native_range)) || !native_range ||
+        FAILED(native_range->GetRow(&native_row)) || !native_row ||
+        FAILED(native_row->SetCellIndex(0)) ||
+        FAILED(native_row->GetCellWidth(&native_width)) ||
+        FAILED(native_row->SetCellWidth(native_width + 720)) ||
+        FAILED(native_row->Apply(1, tomRowUpdate))) return 121;
+    SendMessageW(format_host.handle(), EM_EXSETSEL, 0,
+        reinterpret_cast<LPARAM>(&format_selection));
+    if (format_host.synchronize_change() != ErrorCode::ok) return 119;
+    MSG pending{};
+    while (PeekMessageW(&pending, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&pending);
+        DispatchMessageW(&pending);
+    }
+    if (format_session.snapshot().source != sample) return 127;
+    if (!Table(*format_session.snapshot().semantic->root())) return 128;
+    format_layouts = editor::BuildTableLayouts(format_host.handle(), format_projection,
+        format_session.snapshot().source_revision, 96);
+    if (format_layouts.size() != 1 || format_layouts[0].cells.size() != 20 ||
+        format_layouts[0].column_boundaries.size() != 3) return 120;
+
+    const auto v04_path = std::filesystem::path(__FILE__).parent_path().parent_path()
+        .parent_path() / "docs" / L"需求规格说明书_V04.md";
+    std::ifstream v04_file(v04_path, std::ios::binary);
+    std::ostringstream v04_buffer;
+    v04_buffer << v04_file.rdbuf();
+    const auto v04_source = v04_buffer.str();
+    if (v04_source.empty()) return 124;
+    document::DocumentSession v04_session(v04_source);
+    editor::RichEditHost v04_host(v04_session);
+    if (v04_host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok) return 125;
+    auto v04_projection = editor::BuildInlineProjection(
+        *v04_session.snapshot().semantic, v04_session.snapshot().source);
+    auto v04_layouts = editor::BuildTableLayouts(v04_host.handle(), v04_projection,
+        v04_session.snapshot().source_revision, 96);
+    if (v04_layouts.size() != 9) return 126;
 
     const std::string wrap_source =
         "表格前普通段落\n\n"
