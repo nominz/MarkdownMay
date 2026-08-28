@@ -63,6 +63,7 @@ public:
     void align_selection_to_top();
     [[nodiscard]] ErrorCode synchronize_change();
     void note_change_notification();
+    void trace_table_event(std::string_view event) const;
     [[nodiscard]] bool is_projecting() const noexcept { return projecting_; }
     [[nodiscard]] ErrorCode complete_thematic_break();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);

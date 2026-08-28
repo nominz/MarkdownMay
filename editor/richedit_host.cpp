@@ -36,6 +36,34 @@ constexpr int kBlockHandleControlId = 6102;
 constexpr UINT kBlockMenuFirst = 6201;
 constexpr UINT kReprojectNativeTableMessage = WM_APP + 0x31;
 
+std::wstring TableTracePath() {
+    wchar_t directory[MAX_PATH]{};
+    const auto length = GetTempPathW(MAX_PATH, directory);
+    if (!length || length >= MAX_PATH) return L"MarkdownMay_table_trace.log";
+    return std::wstring(directory, length) + L"MarkdownMay_table_trace.log";
+}
+
+void TraceTable(std::string_view event) {
+    static const auto path = TableTracePath();
+    static const bool initialized = [] {
+        DeleteFileW(TableTracePath().c_str());
+        return true;
+    }();
+    static_cast<void>(initialized);
+    const auto file = CreateFileW(path.c_str(), FILE_APPEND_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    const auto prefix = std::to_string(GetTickCount64()) + " pid=" +
+        std::to_string(GetCurrentProcessId()) + " ";
+    DWORD written{};
+    WriteFile(file, prefix.data(), static_cast<DWORD>(prefix.size()), &written, nullptr);
+    WriteFile(file, event.data(), static_cast<DWORD>(event.size()), &written, nullptr);
+    static constexpr char newline[] = "\r\n";
+    WriteFile(file, newline, 2, &written, nullptr);
+    CloseHandle(file);
+}
+
 struct RtfResetStream final {
     std::string_view text;
     std::size_t offset{};
@@ -114,6 +142,13 @@ LRESULT CALLBACK BlockButtonSubclass(HWND window, UINT message, WPARAM w_param,
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
     auto* self = reinterpret_cast<RichEditHost*>(reference);
+    if (self && (message == WM_SIZE || message == WM_LBUTTONDOWN ||
+            message == WM_LBUTTONUP || message == WM_CAPTURECHANGED)) {
+        self->trace_table_event("richedit message=" + std::to_string(message) +
+            " w=" + std::to_string(static_cast<unsigned long long>(w_param)) +
+            " l=" + std::to_string(static_cast<long long>(l_param)) +
+            " capture=" + std::to_string(GetCapture() == window));
+    }
     if (message == kReprojectNativeTableMessage && self) {
         static_cast<void>(self->project());
         return 0;
@@ -959,6 +994,7 @@ ErrorCode RichEditHost::create(HWND parent, const RECT& bounds) {
 
 ErrorCode RichEditHost::project() {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
+    TraceTable("project begin revision=" + std::to_string(session_.snapshot().source_revision));
     projecting_ = true;
     const auto snapshot = session_.snapshot();
     if (!snapshot.semantic) {
@@ -994,6 +1030,8 @@ ErrorCode RichEditHost::project() {
         return ErrorCode::editor_render_projection_failed;
     }
     if (!SetNativeTableParameters(handle_, projection_, background_color_, dpi_, true)) {
+        TraceTable("project insert_tables failed tables=" +
+            std::to_string(projection_.tables.size()));
         SendMessageW(handle_, EM_SETEVENTMASK, 0, static_cast<LPARAM>(event_mask));
         SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
         projecting_ = false;
@@ -1016,6 +1054,8 @@ ErrorCode RichEditHost::project() {
     projecting_ = false;
     SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(handle_, nullptr, TRUE);
+    TraceTable("project end tables=" + std::to_string(projection_.tables.size()) +
+        " length=" + std::to_string(GetWindowTextLengthW(handle_)));
     return ErrorCode::ok;
 }
 
@@ -1072,6 +1112,11 @@ RenderStyle RichEditHost::render_style() const noexcept { return render_style_; 
 
 void RichEditHost::refresh_layout_after_resize() {
     if (!handle_ || projecting_ || projection_.spans.empty()) return;
+    RECT client{};
+    GetClientRect(handle_, &client);
+    TraceTable("resize refresh begin width=" + std::to_string(client.right) +
+        " height=" + std::to_string(client.bottom) + " tables=" +
+        std::to_string(projection_.tables.size()));
     // WM_SIZE runs inside RichEdit's own layout pass. Replacing the document and
     // issuing EM_INSERTTABLE here can leave the plain projection installed when
     // native table insertion is rejected as re-entrant. Resize the existing
@@ -1080,11 +1125,12 @@ void RichEditHost::refresh_layout_after_resize() {
     RichEditFreeze freeze(handle_);
     CHARRANGE selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-    static_cast<void>(SetNativeTableParameters(
-        handle_, projection_, background_color_, dpi_, false));
+    const auto table_result = SetNativeTableParameters(
+        handle_, projection_, background_color_, dpi_, false);
     SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     projecting_ = false;
     InvalidateRect(handle_, nullptr, TRUE);
+    TraceTable("resize refresh end result=" + std::to_string(table_result));
 }
 
 bool RichEditHost::begin_native_table_pointer_gesture(POINT point) {
@@ -1992,9 +2038,15 @@ void RichEditHost::align_selection_to_top() {
 
 ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
+    TraceTable("sync begin pending_format=" +
+        std::to_string(native_table_format_change_pending_) + " capture=" +
+        std::to_string(GetCapture() == handle_) + " tables=" +
+        std::to_string(projection_.tables.size()) + " revision=" +
+        std::to_string(session_.snapshot().source_revision));
     CHARRANGE control_selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
     if (native_table_format_change_pending_) {
+        TraceTable("sync branch=pending_native_format reproject");
         native_table_format_change_pending_ = false;
         reset_native_table_structure_ = true;
         PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
@@ -2008,6 +2060,7 @@ ErrorCode RichEditHost::synchronize_change() {
     // selection raises no EN_CHANGE, while keyboard/IME/paste edits do not hold
     // this capture.
     if (!projection_.tables.empty() && GetCapture() == handle_) {
+        TraceTable("sync branch=current_capture reproject");
         reset_native_table_structure_ = true;
         PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
         return ErrorCode::ok;
@@ -2019,11 +2072,13 @@ ErrorCode RichEditHost::synchronize_change() {
     // pointer remains on the dragged table boundary.
     if (!projection_.tables.empty() &&
         GetCursor() == LoadCursorW(nullptr, IDC_SIZEWE)) {
+        TraceTable("sync branch=size_cursor reproject");
         reset_native_table_structure_ = true;
         PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
         return ErrorCode::ok;
     }
     if (NativeTableTextUnchanged(handle_, projection_)) {
+        TraceTable("sync branch=native_text_unchanged reproject");
         // Native table formatting notifications (most notably RichEdit's built-in
         // column resize tracker) contain no Markdown text edit.  Restore the
         // projection-owned geometry before any structural markers reach the flat
@@ -2033,6 +2088,8 @@ ErrorCode RichEditHost::synchronize_change() {
         return ErrorCode::ok;
     }
     if (const auto native = ReadNativeCellEdit(handle_, projection_, control_selection)) {
+        TraceTable("sync branch=native_cell before=" + std::to_string(native->cell->text.size()) +
+            " after=" + std::to_string(native->text.size()));
         const auto& before_cell = native->cell->text;
         const auto& after_cell = native->text;
         if (before_cell == after_cell) {
@@ -2082,6 +2139,7 @@ ErrorCode RichEditHost::synchronize_change() {
         }
     }
     const auto source = session_.snapshot().source;
+    TraceTable("sync branch=linear source_bytes=" + std::to_string(source.size()));
     const auto linear_projection = BuildLinearProjection(projection_);
     const auto& before = linear_projection.text;
     const auto line_ending = fileio::DetectLineEnding(source);
@@ -2215,9 +2273,18 @@ ErrorCode RichEditHost::synchronize_change() {
 
 void RichEditHost::note_change_notification() {
     if (projection_.tables.empty()) return;
-    if (native_table_pointer_read_only_ || GetCapture() == handle_ ||
-        GetCursor() == LoadCursorW(nullptr, IDC_SIZEWE))
+    const auto pointer_read_only = native_table_pointer_read_only_;
+    const auto captured = GetCapture() == handle_;
+    const auto size_cursor = GetCursor() == LoadCursorW(nullptr, IDC_SIZEWE);
+    TraceTable("change notification pointer_read_only=" + std::to_string(pointer_read_only) +
+        " capture=" + std::to_string(captured) + " size_cursor=" +
+        std::to_string(size_cursor));
+    if (pointer_read_only || captured || size_cursor)
         native_table_format_change_pending_ = true;
+}
+
+void RichEditHost::trace_table_event(std::string_view event) const {
+    TraceTable(event);
 }
 
 ErrorCode RichEditHost::complete_thematic_break() {

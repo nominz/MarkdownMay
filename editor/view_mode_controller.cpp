@@ -365,6 +365,9 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
     }
     if (!self) return DefWindowProcW(window, message, w_param, l_param);
     if (message == WM_SIZE) {
+        self->render_.trace_table_event("host WM_SIZE width=" +
+            std::to_string(LOWORD(l_param)) + " height=" +
+            std::to_string(HIWORD(l_param)));
         self->Layout(LOWORD(l_param), HIWORD(l_param));
         return 0;
     }
@@ -372,6 +375,7 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
         reinterpret_cast<HWND>(l_param) == self->render_.handle() &&
         HIWORD(w_param) == EN_CHANGE && !self->switching_mode_ &&
         !self->render_.is_projecting() && !self->synchronization_pending_) {
+        self->render_.trace_table_event("host EN_CHANGE accepted");
         // Capture transient RichEdit mouse/table state now.  synchronize_change()
         // runs from a posted message after button-up, when capture/cursor state is
         // already gone.
@@ -388,6 +392,7 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
         }
     }
     if (message == kSynchronizeRenderMessage) {
+        self->render_.trace_table_event("host posted sync dispatch");
         if (!self->switching_mode_ && self->mode_ == ViewMode::render)
             static_cast<void>(self->render_.synchronize_change());
         self->synchronization_pending_ = false;
