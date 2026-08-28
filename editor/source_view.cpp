@@ -2,6 +2,7 @@
 
 #include <Scintilla.h>
 #include <commctrl.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <mutex>
@@ -45,6 +46,24 @@ bool RegisterSourceClasses() {
 LRESULT CALLBACK SourceEditorSubclass(HWND window, UINT message, WPARAM w_param,
                                       LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
     auto* self = reinterpret_cast<SourceView*>(reference);
+    LRESULT menu_result{};
+    if (HandleDocumentContextMenuMessage(message, w_param, l_param, menu_result))
+        return menu_result;
+    if (message == WM_RBUTTONDOWN && self)
+        self->remember_context_selection_at(
+            {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)});
+    if (message == WM_CONTEXTMENU && self) {
+        self->restore_context_selection();
+        POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+        if (point.x == -1 && point.y == -1) {
+            const auto position = SendEditor(window, SCI_GETCURRENTPOS);
+            point.x = static_cast<LONG>(SendEditor(window, SCI_POINTXFROMPOSITION, 0, position));
+            point.y = static_cast<LONG>(SendEditor(window, SCI_POINTYFROMPOSITION, 0, position)) +
+                MulDiv(24, GetDpiForWindow(window), 96);
+            ClientToScreen(window, &point);
+        }
+        if (self->show_document_context_menu(point)) return 0;
+    }
     if (message == WM_KEYDOWN && w_param == VK_OEM_4 &&
         (GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
         (GetKeyState(VK_SHIFT) & 0x8000) != 0 && self &&
@@ -209,6 +228,43 @@ ErrorCode SourceView::select_all() {
     if (!editor_) return ErrorCode::editor_source_control_failed;
     SendEditor(editor_, SCI_SELECTALL);
     return ErrorCode::ok;
+}
+ErrorCode SourceView::erase_selection() {
+    if (!editor_) return ErrorCode::editor_source_control_failed;
+    SendEditor(editor_, SCI_CLEAR);
+    return ErrorCode::ok;
+}
+void SourceView::set_document_context_menu(DocumentContextStateQuery query,
+        DocumentContextCommandHandler handler) {
+    document_context_query_ = std::move(query);
+    document_context_handler_ = std::move(handler);
+}
+bool SourceView::show_document_context_menu(POINT screen_point) {
+    if (!document_context_query_ || !document_context_handler_) return false;
+    return ShowDocumentContextMenu(editor_, screen_point, dpi_, text_color_,
+        background_color_, document_context_query_(), document_context_handler_);
+}
+void SourceView::remember_context_selection_at(const POINT client_point) {
+    context_selection_pending_ = false;
+    if (!editor_) return;
+    const auto anchor = static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETANCHOR));
+    const auto caret = static_cast<std::uint64_t>(SendEditor(editor_, SCI_GETCURRENTPOS));
+    if (anchor == caret) return;
+    const auto hit = SendEditor(editor_, SCI_POSITIONFROMPOINTCLOSE,
+        static_cast<WPARAM>(client_point.x), static_cast<LPARAM>(client_point.y));
+    const auto begin = (std::min)(anchor, caret);
+    const auto end = (std::max)(anchor, caret);
+    if (hit < 0 || static_cast<std::uint64_t>(hit) < begin ||
+        static_cast<std::uint64_t>(hit) > end) return;
+    context_selection_anchor_ = anchor;
+    context_selection_caret_ = caret;
+    context_selection_pending_ = true;
+}
+void SourceView::restore_context_selection() {
+    if (!editor_ || !context_selection_pending_) return;
+    SendEditor(editor_, SCI_SETSEL, static_cast<WPARAM>(context_selection_anchor_),
+        static_cast<LPARAM>(context_selection_caret_));
+    context_selection_pending_ = false;
 }
 void SourceView::set_synchronized_callback(std::function<void(ErrorCode)> callback) {
     synchronized_callback_ = std::move(callback);

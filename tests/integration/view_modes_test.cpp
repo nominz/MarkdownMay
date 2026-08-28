@@ -57,6 +57,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         ReadSource(modes.source_view().handle()) != session.snapshot().source ||
         !HasVisibleStyle(modes.split_view().handle()) ||
         HasVisibleStyle(modes.split_view().render_view().handle())) return 5;
+
+    // DEF-048: a repeated command must repair any temporary mismatch between
+    // the logical mode (used by toolbar state) and the actually visible child.
+    ShowWindow(modes.split_view().handle(), SW_HIDE);
+    ShowWindow(modes.render_view().handle(), SW_SHOW);
+    if (modes.switch_to(editor::ViewMode::source) != ErrorCode::ok ||
+        !HasVisibleStyle(modes.split_view().handle()) ||
+        HasVisibleStyle(modes.render_view().handle()) ||
+        HasVisibleStyle(modes.split_view().render_view().handle())) return 39;
     auto source = session.snapshot().source;
     const auto source_insert = static_cast<WPARAM>(source.find("正文"));
     SendMessageW(modes.source_view().handle(), SCI_SETSEL, source_insert, source_insert);
@@ -206,10 +215,57 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         GetTickCount64() - exact_started > 1000 ||
         ReadWide(exact_modes.render_view().handle()).find(L"标题1") ==
             std::wstring::npos) return 35;
+    CHARRANGE context_range{0, 3};
+    SendMessageW(exact_modes.render_view().handle(), EM_EXSETSEL, 0,
+        reinterpret_cast<LPARAM>(&context_range));
+    POINT context_point{};
+    SendMessageW(exact_modes.render_view().handle(), EM_POSFROMCHAR,
+        reinterpret_cast<WPARAM>(&context_point), 1);
+    exact_modes.render_view().remember_context_selection_at(context_point);
+    SendMessageW(exact_modes.render_view().handle(), EM_SETSEL, 1, 1);
+    exact_modes.render_view().restore_context_selection();
+    SendMessageW(exact_modes.render_view().handle(), EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&context_range));
+    if (context_range.cpMin != 0 || context_range.cpMax != 3) return 43;
     if (exact_modes.change_document_kind(document::DocumentKind::plain_text) != ErrorCode::ok ||
         exact_modes.mode() != editor::ViewMode::source ||
         HasVisibleStyle(exact_modes.split_view().render_view().handle()) ||
         exact_modes.split_view().render_view().block_context_at_source(0)) return 38;
+    SendMessageW(exact_modes.source_view().handle(), SCI_SETSEL, 0, 2);
+    if (exact_modes.erase_selection() != ErrorCode::ok) return 40;
+    const auto deleted_sync = exact_modes.source_view().synchronize_now();
+    if (deleted_sync != ErrorCode::ok &&
+        deleted_sync != ErrorCode::markdown_parse_failed) return 41;
+    if (exact_session.snapshot().source.starts_with("# ")) return 42;
     DestroyWindow(exact_parent);
+
+    std::string undo_tail_source;
+    for (int index = 0; index < 180; ++index)
+        undo_tail_source += "前文 " + std::to_string(index) + "。\n\n";
+    const auto undo_tail_original = undo_tail_source +
+        "## 10. 冻结结论\n\n2026-08-12 用户明确同意冻结 V04。\n";
+    document::DocumentSession undo_tail_session(undo_tail_original);
+    HWND undo_tail_parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
+        0, 0, 900, 420, nullptr, nullptr, instance, nullptr);
+    editor::ViewModeController undo_tail_modes(undo_tail_session);
+    if (!undo_tail_parent || undo_tail_modes.create(undo_tail_parent, {0, 0, 900, 420}) !=
+            ErrorCode::ok) return 44;
+    const auto tail_begin = static_cast<std::uint64_t>(
+        undo_tail_original.find("2026-08-12"));
+    const auto tail_end = static_cast<std::uint64_t>(undo_tail_original.find('\n', tail_begin));
+    if (undo_tail_modes.render_view().select_source_range({tail_begin, tail_end}) != ErrorCode::ok)
+        return 45;
+    undo_tail_modes.render_view().scroll_to_fraction(179, 180);
+    if (undo_tail_modes.execute(editor::EditorCommand::quote) != ErrorCode::ok ||
+        undo_tail_session.snapshot().source.find("> 2026-08-12") == std::string::npos)
+        return 46;
+    const auto before_tail_undo_scroll = undo_tail_modes.render_view().scroll_fraction();
+    if (undo_tail_modes.undo() != ErrorCode::ok ||
+        undo_tail_session.snapshot().source != undo_tail_original) return 47;
+    const auto after_tail_undo_scroll = undo_tail_modes.render_view().scroll_fraction();
+    if (after_tail_undo_scroll.first + 5 < before_tail_undo_scroll.first) return 48;
+    const auto restored_tail = undo_tail_modes.render_view().source_selection();
+    if (!restored_tail.is_ok() || restored_tail.value().caret < tail_begin - 2) return 49;
+    DestroyWindow(undo_tail_parent);
     return 0;
 }

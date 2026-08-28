@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <richedit.h>
+#include <commdlg.h>
 
 #include <string>
 
@@ -50,7 +51,27 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                cut_result == ErrorCode::editor_unmapped_rich_edit_change ? 14 :
                cut_result == ErrorCode::document_invalid_state ? 15 : 16;
     if (!session.snapshot().source.empty()) return 12;
+    CHARRANGE after_cut{};
+    SendMessageW(host.handle(), EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&after_cut));
+    if (after_cut.cpMin != 0 || after_cut.cpMax != 0) return 17;
     if (host.undo() != ErrorCode::ok || session.snapshot().source.empty()) return 11;
+
+    document::DocumentSession table_cut(
+        "| A | B |\n| --- | --- |\n| x | y |\n\n待剪切段落。\n\n后段。");
+    editor::RichEditHost table_cut_host(table_cut);
+    if (table_cut_host.create(parent, {0, 0, 760, 560}) != ErrorCode::ok) return 18;
+    FINDTEXTEXW find_cut{{0, -1}, const_cast<wchar_t*>(L"待剪切段落。"), {}};
+    if (SendMessageW(table_cut_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_cut)) < 0) return 19;
+    SendMessageW(table_cut_host.handle(), EM_SETSEL,
+        find_cut.chrgText.cpMin, find_cut.chrgText.cpMax);
+    if (table_cut_host.cut() != ErrorCode::ok ||
+        table_cut.snapshot().source !=
+            "| A | B |\n| --- | --- |\n| x | y |\n\n\n\n后段。") return 20;
+    CHARRANGE table_cut_selection{};
+    SendMessageW(table_cut_host.handle(), EM_EXGETSEL, 0,
+        reinterpret_cast<LPARAM>(&table_cut_selection));
+    if (table_cut_selection.cpMin != table_cut_selection.cpMax) return 21;
     DestroyWindow(parent);
     return 0;
 }

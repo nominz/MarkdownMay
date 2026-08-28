@@ -144,6 +144,24 @@ LRESULT CALLBACK BlockButtonSubclass(HWND window, UINT message, WPARAM w_param,
 LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
                                   LPARAM l_param, UINT_PTR, DWORD_PTR reference) {
     auto* self = reinterpret_cast<RichEditHost*>(reference);
+    LRESULT menu_result{};
+    if (HandleDocumentContextMenuMessage(message, w_param, l_param, menu_result))
+        return menu_result;
+    if (message == WM_RBUTTONDOWN && self)
+        self->remember_context_selection_at(
+            {GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)});
+    if (message == WM_CONTEXTMENU && self && self->handle() == window) {
+        self->restore_context_selection();
+        POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+        if (point.x == -1 && point.y == -1) {
+            CHARRANGE selection{};
+            SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+            SendMessageW(window, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&point), selection.cpMin);
+            point.y += MulDiv(24, GetDpiForWindow(window), 96);
+            ClientToScreen(window, &point);
+        }
+        if (self->show_document_context_menu(point)) return 0;
+    }
     if (self && (message == WM_SIZE || message == WM_LBUTTONDOWN ||
             message == WM_LBUTTONUP || message == WM_CAPTURECHANGED)) {
         self->trace_table_event("richedit message=" + std::to_string(message) +
@@ -1071,6 +1089,13 @@ ErrorCode RichEditHost::project() {
     TraceTable("project end tables=" + std::to_string(projection_.tables.size()) +
         " length=" + std::to_string(GetWindowTextLengthW(handle_)));
     return ErrorCode::ok;
+}
+
+ErrorCode RichEditHost::project_editor_selection() {
+    const auto selection = editor_.selection();
+    const auto result = project();
+    if (result != ErrorCode::ok) return result;
+    return select_source_range(selection);
 }
 
 ErrorCode RichEditHost::run_deferred_reproject() {
@@ -2334,76 +2359,34 @@ ErrorCode RichEditHost::toggle_inline(InlineFormat format) {
     CHARRANGE selected{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
     if (selected.cpMin == selected.cpMax) return ErrorCode::ok;
-    const auto visible = ReadWide(handle_);
-    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        static_cast<std::size_t>(selected.cpMax) > visible.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    const auto target = fileio::DetectLineEnding(projection_.text);
-    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, target);
-    const auto end = PrefixUtf8Size(handle_, selected.cpMax, target);
-    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    auto result = editor_.set_selection(
-        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    auto result = MapControlSelection(handle_, projection_, editor_);
     if (result == ErrorCode::ok) result = formatter_.toggle(format);
-    return result == ErrorCode::ok ? project() : result;
+    return result == ErrorCode::ok ? project_editor_selection() : result;
 }
 
 ErrorCode RichEditHost::set_link(std::string_view target, std::string_view title) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
     CHARRANGE selected{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
-    const auto visible = ReadWide(handle_);
-    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        static_cast<std::size_t>(selected.cpMax) > visible.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    const auto line_ending = fileio::DetectLineEnding(projection_.text);
-    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
-    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
-    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    auto result = editor_.set_selection(
-        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    auto result = MapControlSelection(handle_, projection_, editor_);
     if (result == ErrorCode::ok) result = formatter_.set_link(target, title);
-    return result == ErrorCode::ok ? project() : result;
+    return result == ErrorCode::ok ? project_editor_selection() : result;
 }
 
 ErrorCode RichEditHost::set_heading(std::uint8_t level) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
     CHARRANGE selected{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
-    const auto visible = ReadWide(handle_);
-    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        static_cast<std::size_t>(selected.cpMax) > visible.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    const auto line_ending = fileio::DetectLineEnding(projection_.text);
-    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
-    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
-    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    auto result = editor_.set_selection(
-        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    auto result = MapControlSelection(handle_, projection_, editor_);
     if (result == ErrorCode::ok) result = block_formatter_.set_heading(level);
-    return result == ErrorCode::ok ? project() : result;
+    return result == ErrorCode::ok ? project_editor_selection() : result;
 }
 
 ErrorCode RichEditHost::toggle_quote() {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
-    CHARRANGE selected{};
-    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
-    const auto visible = ReadWide(handle_);
-    const auto line_ending = fileio::DetectLineEnding(projection_.text);
-    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        static_cast<std::size_t>(selected.cpMax) > visible.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
-    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
-    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
-        return ErrorCode::editor_selection_mapping_failed;
-    auto result = editor_.set_selection(
-        {projection_.source_offsets[begin], projection_.source_offsets[end]});
+    auto result = MapControlSelection(handle_, projection_, editor_);
     if (result == ErrorCode::ok) result = block_formatter_.toggle_quote();
-    return result == ErrorCode::ok ? project() : result;
+    return result == ErrorCode::ok ? project_editor_selection() : result;
 }
 
 ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
@@ -2413,66 +2396,13 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
     // the whole command inside the programmatic-projection notification window,
     // not just SetWindowText/formatting inside project().
     projection_notifications_pending_ = true;
-    CHARRANGE selected{};
-    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
-    const auto line_ending = fileio::DetectLineEnding(projection_.text);
-    if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        selected.cpMax > GetWindowTextLengthW(handle_)) {
-        complete_projection_notification_window();
-        return ErrorCode::editor_selection_mapping_failed;
-    }
-    // RichEdit character positions count a paragraph terminator as one logical
-    // position, while WM_GETTEXT exposes it as CRLF.  Slicing ReadWide() with a
-    // CHARRANGE therefore drifts one character backwards for every preceding
-    // paragraph.  Read the prefix through RichEdit's own range API so cpMin and
-    // cpMax stay in the same coordinate system as the control.
-    const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
-    const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
-    TraceTable("code_block control=[" + std::to_string(selected.cpMin) + "," +
-        std::to_string(selected.cpMax) + ") projection=[" + std::to_string(begin) + "," +
-        std::to_string(end) + ") projection_size=" + std::to_string(projection_.text.size()) +
-        " offsets=" + std::to_string(projection_.source_offsets.size()));
-    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size()) {
-        complete_projection_notification_window();
-        return ErrorCode::editor_selection_mapping_failed;
-    }
-    auto source_begin = projection_.source_offsets[begin];
-    auto source_end = projection_.source_offsets[end];
-    // A projection boundary can still be owned by the preceding hidden Markdown
-    // block.  For a non-empty visual selection, identify the first selected block
-    // from the first actual UTF-8 character inside the selection, not that boundary.
-    if (begin < end && begin < projection_.text.size()) {
-        const auto first = static_cast<unsigned char>(projection_.text[begin]);
-        std::size_t bytes = 1;
-        if ((first & 0xf8U) == 0xf0U) bytes = 4;
-        else if ((first & 0xf0U) == 0xe0U) bytes = 3;
-        else if ((first & 0xe0U) == 0xc0U) bytes = 2;
-        const auto inside = (std::min)(begin + bytes, end);
-        source_begin = projection_.source_offsets[inside];
-
-        // The boundary immediately after a mouse selection can belong to a
-        // following hidden Markdown separator.  On a long projection that
-        // synthetic boundary may carry the document-end source offset, making
-        // a selected paragraph look like a selection through EOF.  Anchor the
-        // end in the final byte that is actually selected; BlockFormatter will
-        // expand that interior point to the complete semantic block.
-        const auto snapshot = session_.snapshot();
-        if (snapshot.semantic && end > 0) {
-            const auto last_inside = projection_.source_offsets[end - 1U];
-            source_end = (std::min)(static_cast<std::uint64_t>(snapshot.source.size()),
-                (std::max)(source_begin + 1U, last_inside + 1U));
-        }
-    }
-    TraceTable("code_block source=[" + std::to_string(source_begin) + "," +
-        std::to_string(source_end) + ") source_size=" +
-        std::to_string(session_.snapshot().source.size()));
-    auto result = editor_.set_selection({source_begin, source_end});
+    auto result = MapControlSelection(handle_, projection_, editor_);
     if (result == ErrorCode::ok) result = block_formatter_.toggle_code_block(language);
     if (result != ErrorCode::ok) {
         complete_projection_notification_window();
         return result;
     }
-    result = project();
+    result = project_editor_selection();
     if (result != ErrorCode::ok) complete_projection_notification_window();
     return result;
 }
@@ -2694,10 +2624,44 @@ ErrorCode RichEditHost::cut() {
         }
     }
     if (result == ErrorCode::ok) result = editor_.insert_text({});
-    return result == ErrorCode::ok ? project() : result;
+    return result == ErrorCode::ok ? project_editor_selection() : result;
 }
 ErrorCode RichEditHost::select_all() {
     SendMessageW(handle_, EM_SETSEL, 0, -1); return ErrorCode::ok;
+}
+ErrorCode RichEditHost::erase_selection() {
+    if (!handle_) return ErrorCode::editor_render_projection_failed;
+    SendMessageW(handle_, WM_CLEAR, 0, 0);
+    return ErrorCode::ok;
+}
+void RichEditHost::set_document_context_menu(DocumentContextStateQuery query,
+        DocumentContextCommandHandler handler) {
+    document_context_query_ = std::move(query);
+    document_context_handler_ = std::move(handler);
+}
+bool RichEditHost::show_document_context_menu(POINT screen_point) {
+    if (!document_context_query_ || !document_context_handler_) return false;
+    return ShowDocumentContextMenu(handle_, screen_point, dpi_, text_color_,
+        background_color_, document_context_query_(), document_context_handler_);
+}
+void RichEditHost::remember_context_selection_at(const POINT client_point) {
+    context_selection_pending_ = false;
+    if (!handle_) return;
+    CHARRANGE selection{};
+    SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    if (selection.cpMin == selection.cpMax) return;
+    const auto hit = static_cast<LONG>(SendMessageW(handle_, EM_CHARFROMPOS, 0,
+        reinterpret_cast<LPARAM>(&client_point)));
+    if (hit < selection.cpMin || hit > selection.cpMax) return;
+    context_selection_begin_ = selection.cpMin;
+    context_selection_end_ = selection.cpMax;
+    context_selection_pending_ = true;
+}
+void RichEditHost::restore_context_selection() {
+    if (!handle_ || !context_selection_pending_) return;
+    const CHARRANGE selection{context_selection_begin_, context_selection_end_};
+    SendMessageW(handle_, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+    context_selection_pending_ = false;
 }
 ErrorCode RichEditHost::execute(EditorCommand command) {
     switch (command) {

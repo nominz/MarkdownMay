@@ -3,6 +3,7 @@
 #include "markdownmay/editor/source_sync.hpp"
 #include "markdownmay/editor/paragraph_editor.hpp"
 #include "markdownmay/editor/heading_fold_controller.hpp"
+#include "markdownmay/editor/document_context_menu.hpp"
 
 #include <windows.h>
 
@@ -41,12 +42,18 @@ public:
     [[nodiscard]] ErrorCode copy();
     [[nodiscard]] ErrorCode paste();
     [[nodiscard]] ErrorCode select_all();
+    [[nodiscard]] ErrorCode erase_selection();
+    void set_document_context_menu(DocumentContextStateQuery query,
+        DocumentContextCommandHandler handler);
     void set_read_only(bool read_only);
     void set_synchronized_callback(std::function<void(ErrorCode)> callback);
     void set_scroll_callback(std::function<void(std::uint64_t, std::uint64_t)> callback);
     void set_heading_folds(HeadingFoldController* folds);
     void apply_heading_folds();
     [[nodiscard]] bool toggle_heading_fold_at_caret();
+    [[nodiscard]] bool show_document_context_menu(POINT screen_point);
+    void remember_context_selection_at(POINT client_point);
+    void restore_context_selection();
     static LRESULT CALLBACK HostProcedure(HWND window, UINT message,
                                            WPARAM w_param, LPARAM l_param);
 
@@ -72,6 +79,11 @@ private:
     COLORREF accent_color_{RGB(28, 80, 150)};
     UINT dpi_{96};
     HeadingFoldController* folds_{};
+    DocumentContextStateQuery document_context_query_;
+    DocumentContextCommandHandler document_context_handler_;
+    std::uint64_t context_selection_anchor_{};
+    std::uint64_t context_selection_caret_{};
+    bool context_selection_pending_{};
 };
 
 }  // namespace markdownmay::editor

@@ -226,6 +226,35 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (trailing_gap.snapshot().source !=
             "```\r\n首段。\r\n```\r\n\r\n## 标题\r\n\r\n后段。\r\n") return 81;
 
+    // DEF-050: native tables change RichEdit physical positions. Commands on a
+    // paragraph after a table must map through the physical-position table,
+    // never through a flattened EM_GETTEXTRANGE prefix.
+    const std::string after_table_source =
+        "| A | B |\n| --- | --- |\n| x | y |\n\n目标段落。\n\n后段。";
+    markdownmay::document::DocumentSession after_table_quote(after_table_source);
+    markdownmay::editor::RichEditHost after_table_quote_host(after_table_quote);
+    if (after_table_quote_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 82;
+    FINDTEXTEXW find_target{{0, -1}, const_cast<wchar_t*>(L"目标段落。"), {}};
+    if (SendMessageW(after_table_quote_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_target)) < 0) return 83;
+    SendMessageW(after_table_quote_host.handle(), EM_SETSEL,
+        find_target.chrgText.cpMin, find_target.chrgText.cpMax);
+    if (after_table_quote_host.toggle_quote() != markdownmay::ErrorCode::ok ||
+        after_table_quote.snapshot().source !=
+            "| A | B |\n| --- | --- |\n| x | y |\n\n> 目标段落。\n\n后段。") return 84;
+
+    markdownmay::document::DocumentSession after_table_code(after_table_source);
+    markdownmay::editor::RichEditHost after_table_code_host(after_table_code);
+    if (after_table_code_host.create(parent, bounds) != markdownmay::ErrorCode::ok) return 85;
+    find_target.chrg = {0, -1};
+    if (SendMessageW(after_table_code_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_target)) < 0) return 86;
+    SendMessageW(after_table_code_host.handle(), EM_SETSEL,
+        find_target.chrgText.cpMin, find_target.chrgText.cpMax);
+    if (after_table_code_host.toggle_code_block() != markdownmay::ErrorCode::ok ||
+        after_table_code.snapshot().source !=
+            "| A | B |\n| --- | --- |\n| x | y |\n\n```\n目标段落。\n```\n\n后段。") return 87;
+
     DestroyWindow(parent);
     return 0;
 }

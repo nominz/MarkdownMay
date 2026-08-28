@@ -592,6 +592,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SendMessageW(rich, EM_GETFIRSTVISIBLELINE, 0, 0) != 0) {
         DestroyWindow(window.handle()); CoUninitialize(); return 27;
     }
+    if (dispatcher.execute(app::CommandId::view_source) != ErrorCode::ok ||
+        window.document_window().modes().mode() != editor::ViewMode::source ||
+        !IsWindowVisible(window.document_window().modes().split_view().handle()) ||
+        IsWindowVisible(rich) ||
+        dispatcher.execute(app::CommandId::view_split) != ErrorCode::ok ||
+        window.document_window().modes().mode() != editor::ViewMode::split ||
+        !IsWindowVisible(window.document_window().modes().split_view().render_view().handle()) ||
+        dispatcher.execute(app::CommandId::view_render) != ErrorCode::ok) {
+        DestroyWindow(window.handle()); CoUninitialize(); return 96;
+    }
     SendMessageW(rich, EM_SETSEL, static_cast<WPARAM>(-1), static_cast<LPARAM>(-1));
     SendMessageW(rich, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L"追加\r"));
     if (window.document_window().save_document() != ErrorCode::ok) {

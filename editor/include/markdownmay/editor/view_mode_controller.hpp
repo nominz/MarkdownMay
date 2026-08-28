@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,7 @@ public:
     [[nodiscard]] ErrorCode copy();
     [[nodiscard]] ErrorCode paste();
     [[nodiscard]] ErrorCode select_all();
+    [[nodiscard]] ErrorCode erase_selection();
     [[nodiscard]] ErrorCode execute(EditorCommand command);
     [[nodiscard]] ErrorCode save(const std::filesystem::path& target,
         fileio::TextEncoding encoding, fileio::LineEnding line_ending,
@@ -72,14 +74,19 @@ public:
 private:
     struct HistoryEntry final { std::string before; std::string after; };
     void Layout(int width, int height);
+    void ApplyModeVisibility(ViewMode target);
     void ObserveChange(const document::DocumentEvent& event);
     [[nodiscard]] TextSelection CaptureSelection();
     void RestoreSelection(TextSelection selection);
-    [[nodiscard]] ErrorCode RefreshActive();
+    [[nodiscard]] ErrorCode RefreshActive(
+        std::optional<TextSelection> preserved_selection = std::nullopt,
+        std::optional<std::pair<std::uint64_t, std::uint64_t>> preserved_scroll = std::nullopt);
     [[nodiscard]] ErrorCode ApplyHistory(std::string source,
                                           document::EditOrigin origin);
     [[nodiscard]] ErrorCode SynchronizeActive();
     void ApplyHeadingFolds();
+    [[nodiscard]] DocumentContextMenuState QueryDocumentContextMenu(bool rendered_surface);
+    void ExecuteDocumentContextMenu(DocumentContextCommand command, bool rendered_surface);
 
     document::DocumentSession& session_;
     ParagraphEditor search_editor_;

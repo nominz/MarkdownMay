@@ -3,6 +3,7 @@
 #include "markdownmay/fileio/line_endings.hpp"
 
 #include <richedit.h>
+#include <Scintilla.h>
 
 #include <algorithm>
 #include <mutex>
@@ -46,6 +47,16 @@ ViewModeController::ViewModeController(document::DocumentSession& session)
     render_.set_heading_folds(&heading_folds_);
     split_.source_view().set_heading_folds(&heading_folds_);
     split_.render_view().set_heading_folds(&heading_folds_);
+    const auto bind_context_menu = [this](auto& surface, const bool rendered) {
+        surface.set_document_context_menu(
+            [this, rendered] { return QueryDocumentContextMenu(rendered); },
+            [this, rendered](DocumentContextCommand command) {
+                ExecuteDocumentContextMenu(command, rendered);
+            });
+    };
+    bind_context_menu(render_, true);
+    bind_context_menu(split_.source_view(), false);
+    bind_context_menu(split_.render_view(), true);
     heading_folds_.set_changed_callback([this] { ApplyHeadingFolds(); });
     const std::weak_ptr<int> lifetime(lifetime_);
     session_.subscribe([this, lifetime](const document::DocumentEvent& event) {
@@ -79,7 +90,12 @@ ErrorCode ViewModeController::create(HWND parent, const RECT& bounds) {
 ErrorCode ViewModeController::switch_to(ViewMode target) {
     if (session_.kind() == document::DocumentKind::plain_text &&
         target != ViewMode::source) return ErrorCode::document_invalid_state;
-    if (target == mode_) return ErrorCode::ok;
+    if (target == mode_) {
+        ApplyModeVisibility(target);
+        SetFocus(target == ViewMode::render
+            ? render_.handle() : split_.source_view().handle());
+        return ErrorCode::ok;
+    }
     SwitchingGuard switching(switching_mode_);
     auto selection = CaptureSelection();
     const auto scroll = mode_ == ViewMode::render
@@ -92,8 +108,6 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
     if (target == ViewMode::render && !session_.can_export())
         return ErrorCode::editor_cannot_enter_render_mode;
 
-    if (target == ViewMode::render) ShowWindow(split_.handle(), SW_HIDE);
-
     if (mode_ == ViewMode::render && target != ViewMode::render) {
         const auto result = split_.project();
         if (result != ErrorCode::ok) return result;
@@ -103,10 +117,8 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
         render_.set_read_only(read_only_);
     }
 
-    ShowWindow(render_.handle(), target == ViewMode::render ? SW_SHOW : SW_HIDE);
-    ShowWindow(split_.handle(), target == ViewMode::render ? SW_HIDE : SW_SHOW);
-    if (target != ViewMode::render) split_.set_source_only(target == ViewMode::source);
     mode_ = target;
+    ApplyModeVisibility(mode_);
     RestoreSelection(selection);
     if (mode_ == ViewMode::render)
         render_.scroll_to_fraction(scroll.first, scroll.second);
@@ -114,8 +126,6 @@ ErrorCode ViewModeController::switch_to(ViewMode target) {
         split_.source_view().scroll_to_fraction(scroll.first, scroll.second);
     if (mode_ == ViewMode::render) SetFocus(render_.handle());
     else SetFocus(split_.source_view().handle());
-    if (mode_ == ViewMode::render) RedrawWindow(render_.handle(), nullptr, nullptr,
-        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
     return ErrorCode::ok;
 }
 
@@ -128,12 +138,15 @@ ErrorCode ViewModeController::undo() {
         if (synchronized != ErrorCode::ok) return synchronized;
     }
     if (undo_.empty()) return ErrorCode::ok;
+    const auto selection = CaptureSelection();
+    const auto scroll = mode_ == ViewMode::render
+        ? render_.scroll_fraction() : split_.source_view().scroll_fraction();
     const auto entry = undo_.back();
     const auto result = ApplyHistory(entry.before, document::EditOrigin::undo);
     if (result != ErrorCode::ok) return result;
     undo_.pop_back();
     redo_.push_back(entry);
-    return RefreshActive();
+    return RefreshActive(selection, scroll);
 }
 
 ErrorCode ViewModeController::redo() {
@@ -145,12 +158,15 @@ ErrorCode ViewModeController::redo() {
         if (synchronized != ErrorCode::ok) return synchronized;
     }
     if (redo_.empty()) return ErrorCode::ok;
+    const auto selection = CaptureSelection();
+    const auto scroll = mode_ == ViewMode::render
+        ? render_.scroll_fraction() : split_.source_view().scroll_fraction();
     const auto entry = redo_.back();
     const auto result = ApplyHistory(entry.after, document::EditOrigin::redo);
     if (result != ErrorCode::ok) return result;
     redo_.pop_back();
     undo_.push_back(entry);
-    return RefreshActive();
+    return RefreshActive(selection, scroll);
 }
 
 ErrorCode ViewModeController::cut() {
@@ -169,6 +185,53 @@ ErrorCode ViewModeController::paste() {
 ErrorCode ViewModeController::select_all() {
     return mode_ == ViewMode::render
         ? render_.select_all() : split_.source_view().select_all();
+}
+
+ErrorCode ViewModeController::erase_selection() {
+    return mode_ == ViewMode::render
+        ? render_.erase_selection() : split_.source_view().erase_selection();
+}
+
+DocumentContextMenuState ViewModeController::QueryDocumentContextMenu(
+        const bool rendered_surface) {
+    HWND surface = rendered_surface
+        ? (mode_ == ViewMode::split ? split_.render_view().handle() : render_.handle())
+        : split_.source_view().handle();
+    bool selected{};
+    std::uint64_t length{};
+    if (rendered_surface) {
+        CHARRANGE range{};
+        SendMessageW(surface, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&range));
+        selected = range.cpMin != range.cpMax;
+        length = static_cast<std::uint64_t>(SendMessageW(surface, WM_GETTEXTLENGTH, 0, 0));
+    } else {
+        const auto anchor = SendMessageW(surface, SCI_GETANCHOR, 0, 0);
+        const auto caret = SendMessageW(surface, SCI_GETCURRENTPOS, 0, 0);
+        selected = anchor != caret;
+        length = static_cast<std::uint64_t>(SendMessageW(surface, SCI_GETLENGTH, 0, 0));
+    }
+    const bool editable = !read_only_ && !(mode_ == ViewMode::split && rendered_surface);
+    return {can_undo(), can_redo(), editable && selected, selected,
+        editable && IsClipboardFormatAvailable(CF_UNICODETEXT),
+        editable && selected, length > 0};
+}
+
+void ViewModeController::ExecuteDocumentContextMenu(
+        const DocumentContextCommand command, const bool rendered_surface) {
+    if (command == DocumentContextCommand::undo) { static_cast<void>(undo()); return; }
+    if (command == DocumentContextCommand::redo) { static_cast<void>(redo()); return; }
+    if (mode_ == ViewMode::split && rendered_surface) {
+        if (command == DocumentContextCommand::copy)
+            static_cast<void>(split_.render_view().copy());
+        else if (command == DocumentContextCommand::select_all)
+            static_cast<void>(split_.render_view().select_all());
+        return;
+    }
+    if (command == DocumentContextCommand::cut) static_cast<void>(cut());
+    else if (command == DocumentContextCommand::copy) static_cast<void>(copy());
+    else if (command == DocumentContextCommand::paste) static_cast<void>(paste());
+    else if (command == DocumentContextCommand::remove) static_cast<void>(erase_selection());
+    else if (command == DocumentContextCommand::select_all) static_cast<void>(select_all());
 }
 
 ErrorCode ViewModeController::execute(EditorCommand command) {
@@ -212,16 +275,14 @@ ErrorCode ViewModeController::reload(std::string source, document::DocumentKind 
         if (render_.project() != ErrorCode::ok) return ErrorCode::editor_render_projection_failed;
         render_.reset_to_start();
         render_.set_read_only(read_only_);
-        ShowWindow(split_.handle(), SW_HIDE);
-        ShowWindow(render_.handle(), SW_SHOW);
         mode_ = ViewMode::render;
+        ApplyModeVisibility(mode_);
         return ErrorCode::ok;
     }
     if (split_.project() != ErrorCode::ok) return ErrorCode::editor_split_control_failed;
     split_.set_source_only(true);
-    ShowWindow(render_.handle(), SW_HIDE);
-    ShowWindow(split_.handle(), SW_SHOW);
     mode_ = ViewMode::source;
+    ApplyModeVisibility(mode_);
     return ErrorCode::ok;
 }
 
@@ -410,6 +471,19 @@ void ViewModeController::Layout(int width, int height) {
     if (split_.handle()) MoveWindow(split_.handle(), 0, 0, width, height, TRUE);
 }
 
+void ViewModeController::ApplyModeVisibility(ViewMode target) {
+    if (!host_) return;
+    if (target != ViewMode::render)
+        split_.set_source_only(target == ViewMode::source);
+    ShowWindow(render_.handle(), target == ViewMode::render ? SW_SHOW : SW_HIDE);
+    ShowWindow(split_.handle(), target == ViewMode::render ? SW_HIDE : SW_SHOW);
+    RECT client{};
+    GetClientRect(host_, &client);
+    Layout(client.right, client.bottom);
+    RedrawWindow(host_, nullptr, nullptr,
+        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+}
+
 void ViewModeController::ObserveChange(const document::DocumentEvent& event) {
     const auto current = session_.snapshot().source;
     if (event.origin == document::EditOrigin::file_reload) {
@@ -447,10 +521,12 @@ void ViewModeController::RestoreSelection(TextSelection selection) {
     else static_cast<void>(split_.source_view().select_source_range(selection));
 }
 
-ErrorCode ViewModeController::RefreshActive() {
+ErrorCode ViewModeController::RefreshActive(
+        std::optional<TextSelection> preserved_selection,
+        std::optional<std::pair<std::uint64_t, std::uint64_t>> preserved_scroll) {
     if (session_.kind() == document::DocumentKind::plain_text &&
         mode_ != ViewMode::source) mode_ = ViewMode::source;
-    const auto selection = CaptureSelection();
+    const auto selection = preserved_selection.value_or(CaptureSelection());
     ErrorCode result{};
     if (mode_ == ViewMode::render) {
         result = render_.project();
@@ -459,7 +535,19 @@ ErrorCode ViewModeController::RefreshActive() {
         result = split_.project();
         split_.set_source_only(mode_ == ViewMode::source);
     }
-    if (result == ErrorCode::ok) RestoreSelection(selection);
+    if (result == ErrorCode::ok) {
+        RestoreSelection(selection);
+        if (mode_ == ViewMode::render)
+            RedrawWindow(render_.handle(), nullptr, nullptr,
+                RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
+        if (preserved_scroll) {
+            if (mode_ == ViewMode::render)
+                render_.scroll_to_fraction(preserved_scroll->first, preserved_scroll->second);
+            else
+                split_.source_view().scroll_to_fraction(
+                    preserved_scroll->first, preserved_scroll->second);
+        }
+    }
     return result;
 }
 

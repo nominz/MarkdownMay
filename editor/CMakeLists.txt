@@ -2,6 +2,7 @@ add_library(markdownmay_editor STATIC
     block_interaction_controller.cpp
     block_formatter.cpp
     clipboard_controller.cpp
+    document_context_menu.cpp
     find_replace_controller.cpp
     heading_fold_controller.cpp
     image_controller.cpp

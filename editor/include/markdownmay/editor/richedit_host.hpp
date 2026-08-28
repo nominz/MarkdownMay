@@ -12,6 +12,7 @@
 #include "markdownmay/editor/heading_fold_controller.hpp"
 #include "markdownmay/editor/block_interaction_controller.hpp"
 #include "markdownmay/editor/render_style.hpp"
+#include "markdownmay/editor/document_context_menu.hpp"
 
 #include <windows.h>
 
@@ -53,6 +54,7 @@ public:
 
     [[nodiscard]] ErrorCode create(HWND parent, const RECT& bounds);
     [[nodiscard]] ErrorCode project();
+    [[nodiscard]] ErrorCode project_editor_selection();
     [[nodiscard]] ErrorCode run_deferred_reproject();
     [[nodiscard]] ErrorCode show_status_message(std::wstring_view message);
     void set_read_only(bool read_only);
@@ -119,6 +121,9 @@ public:
     [[nodiscard]] ErrorCode copy();
     [[nodiscard]] ErrorCode cut();
     [[nodiscard]] ErrorCode select_all();
+    [[nodiscard]] ErrorCode erase_selection();
+    void set_document_context_menu(DocumentContextStateQuery query,
+        DocumentContextCommandHandler handler);
     [[nodiscard]] ErrorCode execute(EditorCommand command);
     [[nodiscard]] ErrorCode clear_paragraph_formatting();
     [[nodiscard]] bool inline_active(InlineFormat format) const noexcept;
@@ -167,6 +172,9 @@ public:
     [[nodiscard]] std::optional<BlockCommandContext> block_context_at_source(
         std::uint64_t source_offset) const noexcept;
     void draw_block_accessible_button(const DRAWITEMSTRUCT& item) const;
+    [[nodiscard]] bool show_document_context_menu(POINT screen_point);
+    void remember_context_selection_at(POINT client_point);
+    void restore_context_selection();
 
 private:
     document::DocumentSession& session_;
@@ -201,6 +209,11 @@ private:
     HWND block_type_window_{};
     HWND block_handle_window_{};
     std::function<void(BlockMenuCommand, const BlockCommandContext&)> block_menu_callback_;
+    DocumentContextStateQuery document_context_query_;
+    DocumentContextCommandHandler document_context_handler_;
+    LONG context_selection_begin_{};
+    LONG context_selection_end_{};
+    bool context_selection_pending_{};
     POINT pending_fold_scroll_{};
     bool fold_scroll_pending_{};
 
