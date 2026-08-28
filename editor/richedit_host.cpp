@@ -1994,6 +1994,12 @@ ErrorCode RichEditHost::synchronize_change() {
     if (projecting_) return ErrorCode::ok;
     CHARRANGE control_selection{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&control_selection));
+    if (native_table_format_change_pending_) {
+        native_table_format_change_pending_ = false;
+        reset_native_table_structure_ = true;
+        PostMessageW(handle_, kReprojectNativeTableMessage, 0, 0);
+        return ErrorCode::ok;
+    }
     // RichEdit owns mouse capture for its private table-column tracker.  Any
     // EN_CHANGE raised while that capture is active is an RTF/table-structure
     // mutation, not a Markdown text transaction.  This is the invariant-level
@@ -2205,6 +2211,13 @@ ErrorCode RichEditHost::synchronize_change() {
         }
     }
     return projected;
+}
+
+void RichEditHost::note_change_notification() {
+    if (projection_.tables.empty()) return;
+    if (native_table_pointer_read_only_ || GetCapture() == handle_ ||
+        GetCursor() == LoadCursorW(nullptr, IDC_SIZEWE))
+        native_table_format_change_pending_ = true;
 }
 
 ErrorCode RichEditHost::complete_thematic_break() {

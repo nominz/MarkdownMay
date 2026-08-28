@@ -372,6 +372,10 @@ LRESULT CALLBACK ViewModeController::HostProcedure(HWND window, UINT message,
         reinterpret_cast<HWND>(l_param) == self->render_.handle() &&
         HIWORD(w_param) == EN_CHANGE && !self->switching_mode_ &&
         !self->render_.is_projecting() && !self->synchronization_pending_) {
+        // Capture transient RichEdit mouse/table state now.  synchronize_change()
+        // runs from a posted message after button-up, when capture/cursor state is
+        // already gone.
+        self->render_.note_change_notification();
         self->synchronization_pending_ = true;
         PostMessageW(window, kSynchronizeRenderMessage, 0, 0);
         return 0;

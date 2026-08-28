@@ -62,6 +62,7 @@ public:
     [[nodiscard]] ErrorCode select_source_range(TextSelection selection);
     void align_selection_to_top();
     [[nodiscard]] ErrorCode synchronize_change();
+    void note_change_notification();
     [[nodiscard]] bool is_projecting() const noexcept { return projecting_; }
     [[nodiscard]] ErrorCode complete_thematic_break();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);
@@ -177,6 +178,7 @@ private:
     bool reset_native_table_structure_{};
     bool native_table_pointer_read_only_{};
     bool native_table_pointer_was_read_only_{};
+    bool native_table_format_change_pending_{};
     RichProjection projection_;
     COLORREF text_color_{RGB(32, 32, 32)};
     COLORREF background_color_{RGB(255, 255, 255)};
