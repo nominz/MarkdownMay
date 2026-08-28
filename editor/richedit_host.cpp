@@ -1079,14 +1079,40 @@ void RichEditHost::refresh_layout_after_resize() {
 
 bool RichEditHost::is_native_table_column_boundary(POINT point) const {
     if (!handle_ || projection_.tables.empty()) return false;
-    const auto revision = session_.snapshot().source_revision;
-    const auto layouts = BuildTableLayouts(handle_, projection_, revision, dpi_);
     // The resize cursor exposed by msftedit.dll is wider than the one-pixel
     // border that BuildTableLayouts reports, particularly with fractional DPI.
     // Cover the complete native hot zone so the click cannot start RichEdit's
     // private RTF-only column tracking before our source-owned interaction does.
     const auto tolerance = (std::max)(4L, static_cast<LONG>(MulDiv(
         8, static_cast<int>(dpi_ ? dpi_ : 96), 96)));
+
+    // Primary hit-test: resolve the mouse point against RichEdit's *current*
+    // native document instead of projection cp values cached before WM_SIZE.
+    // Maximizing can relayout row/cell markers without changing Markdown, which
+    // made the old TableLayout-only test miss the actual native resize hot zone.
+    POINTL native_point{point.x, point.y};
+    const auto cp = static_cast<LONG>(SendMessageW(handle_, EM_CHARFROMPOS, 0,
+        reinterpret_cast<LPARAM>(&native_point)));
+    const auto document = TextDocumentFor(handle_);
+    Microsoft::WRL::ComPtr<ITextRange2> native_cell;
+    long expanded{};
+    if (cp >= 0 && document &&
+        SUCCEEDED(document->Range2(cp, cp, &native_cell)) && native_cell &&
+        SUCCEEDED(native_cell->Expand(tomCell, &expanded)) && expanded > 0) {
+        LONG left{}, top{}, right{}, bottom{}, hit{};
+        if (SUCCEEDED(native_cell->GetRect(
+                tomClientCoord | tomAllowOffClient | tomCell,
+                &left, &top, &right, &bottom, &hit)) &&
+            point.y >= top && point.y < bottom &&
+            (std::labs(point.x - left) <= tolerance ||
+             std::labs(point.x - right) <= tolerance))
+            return true;
+    }
+
+    // Secondary hit-test supplies whole-table outer edges and remains useful
+    // when EM_CHARFROMPOS chooses the paragraph beside an exact border pixel.
+    const auto revision = session_.snapshot().source_revision;
+    const auto layouts = BuildTableLayouts(handle_, projection_, revision, dpi_);
     for (const auto& layout : layouts) {
         if (point.y < layout.table_rect.top || point.y >= layout.table_rect.bottom ||
             layout.column_boundaries.size() < 2U) continue;
