@@ -65,7 +65,12 @@ public:
     [[nodiscard]] ErrorCode synchronize_change();
     void note_change_notification();
     void trace_table_event(std::string_view event) const;
-    [[nodiscard]] bool is_projecting() const noexcept { return projecting_; }
+    [[nodiscard]] bool is_projecting() const noexcept {
+        return projecting_ || projection_notifications_pending_;
+    }
+    void complete_projection_notification_window() noexcept {
+        projection_notifications_pending_ = false;
+    }
     [[nodiscard]] ErrorCode complete_thematic_break();
     [[nodiscard]] ErrorCode toggle_inline(InlineFormat format);
     [[nodiscard]] ErrorCode set_link(std::string_view target, std::string_view title = {});
@@ -177,6 +182,7 @@ private:
     HWND handle_{};
     HMODULE rich_edit_module_{};
     bool projecting_{};
+    bool projection_notifications_pending_{};
     bool reset_native_table_structure_{};
     bool native_table_pointer_read_only_{};
     bool native_table_pointer_was_read_only_{};

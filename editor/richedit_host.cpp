@@ -36,6 +36,7 @@ constexpr int kBlockTypeControlId = 6101;
 constexpr int kBlockHandleControlId = 6102;
 constexpr UINT kBlockMenuFirst = 6201;
 constexpr UINT kReprojectNativeTableMessage = WM_APP + 0x31;
+constexpr UINT kProjectionNotificationsSettledMessage = WM_APP + 0x32;
 
 std::wstring TableTracePath() {
     wchar_t directory[MAX_PATH]{};
@@ -152,6 +153,10 @@ LRESULT CALLBACK RichEditSubclass(HWND window, UINT message, WPARAM w_param,
     }
     if (message == kReprojectNativeTableMessage && self) {
         static_cast<void>(self->run_deferred_reproject());
+        return 0;
+    }
+    if (message == kProjectionNotificationsSettledMessage && self) {
+        self->complete_projection_notification_window();
         return 0;
     }
     if (message == WM_KEYDOWN && w_param == VK_OEM_4 &&
@@ -1061,6 +1066,8 @@ ErrorCode RichEditHost::project() {
     projecting_ = false;
     SendMessageW(handle_, WM_SETREDRAW, TRUE, 0);
     InvalidateRect(handle_, nullptr, TRUE);
+    if (projection_notifications_pending_)
+        PostMessageW(handle_, kProjectionNotificationsSettledMessage, 0, 0);
     TraceTable("project end tables=" + std::to_string(projection_.tables.size()) +
         " length=" + std::to_string(GetWindowTextLengthW(handle_)));
     return ErrorCode::ok;
@@ -2156,7 +2163,10 @@ ErrorCode RichEditHost::synchronize_change() {
     const auto line_ending = fileio::DetectLineEnding(source);
     const auto after = ReadUtf8(
         handle_, line_ending == fileio::LineEnding::mixed ? fileio::LineEnding::crlf : line_ending);
-    if (before == after) return ErrorCode::ok;
+    if (before == after) {
+        TraceTable("sync linear unchanged bytes=" + std::to_string(before.size()));
+        return ErrorCode::ok;
+    }
 
     std::size_t prefix{};
     while (prefix < before.size() && prefix < after.size() && before[prefix] == after[prefix]) ++prefix;
@@ -2173,6 +2183,10 @@ ErrorCode RichEditHost::synchronize_change() {
            (static_cast<unsigned char>(before[old_suffix]) & 0xC0U) == 0x80U) ++old_suffix;
     while (new_suffix < after.size() &&
            (static_cast<unsigned char>(after[new_suffix]) & 0xC0U) == 0x80U) ++new_suffix;
+    TraceTable("sync linear diff before=" + std::to_string(before.size()) +
+        " after=" + std::to_string(after.size()) + " prefix=" + std::to_string(prefix) +
+        " old_suffix=" + std::to_string(old_suffix) + " new_suffix=" +
+        std::to_string(new_suffix));
 
     if (prefix >= linear_projection.source_offsets.size() ||
         old_suffix >= linear_projection.source_offsets.size()) {
@@ -2394,12 +2408,19 @@ ErrorCode RichEditHost::toggle_quote() {
 
 ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
     if (!handle_) return ErrorCode::editor_render_projection_failed;
+    // A real toolbar click can make RichEdit emit a focus/format EN_CHANGE
+    // synchronously before the Markdown transaction reaches project().  Keep
+    // the whole command inside the programmatic-projection notification window,
+    // not just SetWindowText/formatting inside project().
+    projection_notifications_pending_ = true;
     CHARRANGE selected{};
     SendMessageW(handle_, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selected));
     const auto line_ending = fileio::DetectLineEnding(projection_.text);
     if (selected.cpMin < 0 || selected.cpMax < selected.cpMin ||
-        selected.cpMax > GetWindowTextLengthW(handle_))
+        selected.cpMax > GetWindowTextLengthW(handle_)) {
+        complete_projection_notification_window();
         return ErrorCode::editor_selection_mapping_failed;
+    }
     // RichEdit character positions count a paragraph terminator as one logical
     // position, while WM_GETTEXT exposes it as CRLF.  Slicing ReadWide() with a
     // CHARRANGE therefore drifts one character backwards for every preceding
@@ -2407,8 +2428,14 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
     // cpMax stay in the same coordinate system as the control.
     const auto begin = PrefixUtf8Size(handle_, selected.cpMin, line_ending);
     const auto end = PrefixUtf8Size(handle_, selected.cpMax, line_ending);
-    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size())
+    TraceTable("code_block control=[" + std::to_string(selected.cpMin) + "," +
+        std::to_string(selected.cpMax) + ") projection=[" + std::to_string(begin) + "," +
+        std::to_string(end) + ") projection_size=" + std::to_string(projection_.text.size()) +
+        " offsets=" + std::to_string(projection_.source_offsets.size()));
+    if (begin >= projection_.source_offsets.size() || end >= projection_.source_offsets.size()) {
+        complete_projection_notification_window();
         return ErrorCode::editor_selection_mapping_failed;
+    }
     auto source_begin = projection_.source_offsets[begin];
     auto source_end = projection_.source_offsets[end];
     // A projection boundary can still be owned by the preceding hidden Markdown
@@ -2436,9 +2463,18 @@ ErrorCode RichEditHost::toggle_code_block(std::string_view language) {
                 (std::max)(source_begin + 1U, last_inside + 1U));
         }
     }
+    TraceTable("code_block source=[" + std::to_string(source_begin) + "," +
+        std::to_string(source_end) + ") source_size=" +
+        std::to_string(session_.snapshot().source.size()));
     auto result = editor_.set_selection({source_begin, source_end});
     if (result == ErrorCode::ok) result = block_formatter_.toggle_code_block(language);
-    return result == ErrorCode::ok ? project() : result;
+    if (result != ErrorCode::ok) {
+        complete_projection_notification_window();
+        return result;
+    }
+    result = project();
+    if (result != ErrorCode::ok) complete_projection_notification_window();
+    return result;
 }
 
 ErrorCode RichEditHost::insert_thematic_break() {

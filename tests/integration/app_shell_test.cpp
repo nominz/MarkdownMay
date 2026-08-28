@@ -288,6 +288,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         (code_button.top + code_button.bottom) / 2);
     SendMessageW(window.toolbar()->handle(), WM_LBUTTONDOWN, MK_LBUTTON, click);
     SendMessageW(window.toolbar()->handle(), WM_LBUTTONUP, 0, click);
+    MSG projection_message{};
+    while (PeekMessageW(&projection_message, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&projection_message);
+        DispatchMessageW(&projection_message);
+    }
     if (selection_at_toolbar_dispatch.cpMin != before_toolbar.cpMin ||
         selection_at_toolbar_dispatch.cpMax != before_toolbar.cpMax) return 93;
     if (session.snapshot().source !=
