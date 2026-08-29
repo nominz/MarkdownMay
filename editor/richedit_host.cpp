@@ -1101,9 +1101,13 @@ ErrorCode RichEditHost::project() {
 
 ErrorCode RichEditHost::project_editor_selection() {
     const auto selection = editor_.selection();
+    POINT scroll{};
+    SendMessageW(handle_, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
     const auto result = project();
     if (result != ErrorCode::ok) return result;
-    return select_source_range(selection);
+    SelectSourceRange(handle_, projection_, selection);
+    SendMessageW(handle_, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&scroll));
+    return ErrorCode::ok;
 }
 
 ErrorCode RichEditHost::run_deferred_reproject() {
@@ -2083,27 +2087,41 @@ void RichEditHost::draw_code_block_frames(HDC dc) const {
 void RichEditHost::draw_inline_code_frames(HDC dc) const {
     if (!handle_ || !dc || projection_.spans.empty()) return;
     const auto positions = BuildPhysicalPositions(projection_);
-    TEXTMETRICW metrics{};
-    GetTextMetricsW(dc, &metrics);
     const bool dark = GetRValue(background_color_) < 128;
     const auto pen = CreatePen(PS_SOLID, 1,
         dark ? RGB(132, 78, 96) : RGB(232, 168, 184));
     const auto old_pen = SelectObject(dc, pen);
     const auto old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
-    const auto pad_x = (std::max)(2, MulDiv(3, static_cast<int>(dpi_), 96));
+    const auto pad_x = (std::max)(3, MulDiv(5, static_cast<int>(dpi_), 96));
     const auto pad_y = (std::max)(1, MulDiv(2, static_cast<int>(dpi_), 96));
     const auto radius = (std::max)(4, MulDiv(6, static_cast<int>(dpi_), 96));
+    const auto inline_height = (std::max)(1L, static_cast<LONG>(MulDiv(
+        (std::max)(120L, ProfileFor(render_style_).body_size - 20L),
+        static_cast<int>(dpi_), 1440)));
+    RECT formatting{};
+    SendMessageW(handle_, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&formatting));
     for (const auto& span : projection_.spans) {
         if (span.kind != document::NodeKind::inline_code || span.begin >= positions.size() ||
             span.end >= positions.size()) continue;
-        POINT begin{}, end{};
-        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
-            positions[static_cast<std::size_t>(span.begin)]);
-        SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
-            positions[static_cast<std::size_t>(span.end)]);
-        if (end.y != begin.y) continue;
-        RoundRect(dc, begin.x - pad_x, begin.y - pad_y, end.x + pad_x,
-            begin.y + metrics.tmHeight + pad_y, radius, radius);
+        const auto control_begin = positions[static_cast<std::size_t>(span.begin)];
+        const auto control_end = positions[static_cast<std::size_t>(span.end)];
+        for (auto segment_begin = control_begin; segment_begin < control_end;) {
+            POINT begin{};
+            SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&begin),
+                segment_begin);
+            auto segment_end = segment_begin + 1;
+            POINT end{};
+            for (; segment_end <= control_end; ++segment_end) {
+                SendMessageW(handle_, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&end),
+                    segment_end);
+                if (end.y != begin.y) break;
+            }
+            const auto wrapped = segment_end <= control_end && end.y != begin.y;
+            const auto right = wrapped ? formatting.right : end.x;
+            RoundRect(dc, begin.x - pad_x, begin.y - pad_y, right + pad_x,
+                begin.y + inline_height + pad_y, radius, radius);
+            segment_begin = segment_end;
+        }
     }
     SelectObject(dc, old_brush);
     SelectObject(dc, old_pen);

@@ -4,6 +4,8 @@
 #include <commdlg.h>
 
 #include <array>
+#include <cstdlib>
+#include <string>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     HWND parent = CreateWindowExW(0, L"STATIC", L"", WS_OVERLAPPED,
@@ -86,6 +88,63 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         reinterpret_cast<LPARAM>(&code_format));
     if (code_format.crBackColor != RGB(255, 232, 238) || code_format.yHeight != 200)
         return 23;
+
+    std::string long_source;
+    for (int index = 0; index < 70; ++index)
+        long_source += "第" + std::to_string(index) + "行普通正文。\n\n";
+    long_source += "目标行需要转换成行内代码并保持当前视口。";
+    markdownmay::document::DocumentSession viewport_session(long_source);
+    markdownmay::editor::RichEditHost viewport_host(viewport_session);
+    if (viewport_host.create(parent, {0, 0, 400, 180}) != markdownmay::ErrorCode::ok) return 24;
+    SendMessageW(viewport_host.handle(), EM_LINESCROLL, 0, 120);
+    FINDTEXTEXW find_target{{0, -1}, const_cast<wchar_t*>(L"目标行需要转换成行内代码"), {}};
+    if (SendMessageW(viewport_host.handle(), EM_FINDTEXTEXW, FR_DOWN,
+            reinterpret_cast<LPARAM>(&find_target)) < 0) return 25;
+    SendMessageW(viewport_host.handle(), EM_EXSETSEL, 0,
+        reinterpret_cast<LPARAM>(&find_target.chrgText));
+    POINT scroll_before{};
+    SendMessageW(viewport_host.handle(), EM_GETSCROLLPOS, 0,
+        reinterpret_cast<LPARAM>(&scroll_before));
+    if (viewport_host.toggle_inline(markdownmay::editor::InlineFormat::code) !=
+            markdownmay::ErrorCode::ok) return 26;
+    POINT scroll_after{};
+    SendMessageW(viewport_host.handle(), EM_GETSCROLLPOS, 0,
+        reinterpret_cast<LPARAM>(&scroll_after));
+    if (std::abs(scroll_after.y - scroll_before.y) > 2 ||
+        viewport_session.snapshot().source.find("`目标行需要转换成行内代码`") ==
+            std::string::npos) return 27;
+
+    const std::string wrapping_text(90, 'W');
+    markdownmay::document::DocumentSession wrapping_session("`" + wrapping_text + "`");
+    markdownmay::editor::RichEditHost wrapping_host(wrapping_session);
+    if (wrapping_host.create(parent, {0, 0, 240, 180}) != markdownmay::ErrorCode::ok) return 28;
+    POINT first_code{};
+    POINT last_code{};
+    SendMessageW(wrapping_host.handle(), EM_POSFROMCHAR,
+        reinterpret_cast<WPARAM>(&first_code), 0);
+    SendMessageW(wrapping_host.handle(), EM_POSFROMCHAR,
+        reinterpret_cast<WPARAM>(&last_code), wrapping_text.size() - 1);
+    if (last_code.y <= first_code.y) return 29;
+    const auto screen = GetDC(wrapping_host.handle());
+    const auto memory = CreateCompatibleDC(screen);
+    const auto bitmap = CreateCompatibleBitmap(screen, 240, 180);
+    const auto old_bitmap = SelectObject(memory, bitmap);
+    RECT canvas{0, 0, 240, 180};
+    FillRect(memory, &canvas, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    wrapping_host.draw_inline_code_frames(memory);
+    int first_ink_y = -1;
+    int last_ink_y = -1;
+    for (int y = 0; y < 180; ++y)
+        for (int x = 0; x < 240; ++x)
+            if (GetPixel(memory, x, y) == RGB(232, 168, 184)) {
+                if (first_ink_y < 0) first_ink_y = y;
+                last_ink_y = y;
+            }
+    SelectObject(memory, old_bitmap);
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(wrapping_host.handle(), screen);
+    if (first_ink_y < 0 || last_ink_y - first_ink_y < 12) return 30;
     if (session.reload("# **粗体** 和 **孤立 <b>标签</b>") != markdownmay::ErrorCode::ok ||
         host.project() != markdownmay::ErrorCode::ok) return 19;
     SendMessageW(host.handle(), EM_SETSEL, 1, 1);
